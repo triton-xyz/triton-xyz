@@ -1,4 +1,5 @@
 #pragma once
+
 #include "triton-shared/Conversion/StructuredToMemref/StructuredToMemref.h"
 
 namespace mlir {

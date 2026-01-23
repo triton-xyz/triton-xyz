@@ -1,4 +1,5 @@
 #pragma once
+
 #include "triton-shared/Analysis/MaskAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/PtrAnalysis.h"

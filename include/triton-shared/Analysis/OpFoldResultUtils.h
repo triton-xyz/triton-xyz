@@ -1,4 +1,5 @@
 #pragma once
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OpDefinition.h"

@@ -1,4 +1,5 @@
 #pragma once
+
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 
 namespace mlir {
