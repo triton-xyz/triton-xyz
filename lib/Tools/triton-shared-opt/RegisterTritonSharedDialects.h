@@ -13,7 +13,6 @@
 #include "triton-shared/Conversion/StructuredToMemref/Passes.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonPtrToMemref/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
 #include "triton-shared/Conversion/TritonToStructured/Passes.h"
 #include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
@@ -29,17 +28,16 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::registerAllPasses();
   mlir::registerLinalgPasses();
   mlir::triton::registerTritonPasses();
-  mlir::triton::registerTritonToLinalgPass();
+
   mlir::triton::registerTritonToLinalgExperimentalPasses();
-  mlir::triton::registerTritonToStructuredPass();
-  mlir::triton::registerTritonPtrToMemref();
-  mlir::triton::registerUnstructuredToMemref();
+  mlir::triton::registerTritonToStructuredPasses();
+  mlir::triton::registerTritonPtrToMemrefPasses();
+  mlir::triton::registerUnstructuredToMemrefPasses();
   mlir::triton::registerTritonToUnstructuredPasses();
   mlir::triton::registerTritonArithToLinalgPasses();
   mlir::triton::registerStructuredToMemrefPasses();
-  mlir::triton::registerAddLLVMDebugInfoPass();
+  mlir::triton::registerAddLLVMDebugInfoPasses();
 
-  // TODO: register Triton & TritonGPU passes
   registry.insert<
       mlir::tptr::TPtrDialect, mlir::ptr::PtrDialect,
       mlir::ttx::TritonTilingExtDialect, mlir::tts::TritonStructuredDialect,
