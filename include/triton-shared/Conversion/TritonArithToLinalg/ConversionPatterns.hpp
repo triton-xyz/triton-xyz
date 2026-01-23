@@ -1,13 +1,6 @@
 #ifndef TRITON_CONVERSION_PATTERNS
 #define TRITON_CONVERSION_PATTERNS
 
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation, Meta Platforms.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "triton-shared/Analysis/MaskAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/PtrAnalysis.h"

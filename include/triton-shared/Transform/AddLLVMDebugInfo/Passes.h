@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef ADD_LLVM_DEBUG_INFO_TRANSFORM_PASSES_H
 #define ADD_LLVM_DEBUG_INFO_TRANSFORM_PASSES_H
 

@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "triton-shared/Analysis/PtrAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 

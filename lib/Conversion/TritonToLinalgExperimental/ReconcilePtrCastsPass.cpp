@@ -1,9 +1,4 @@
 //===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
 // Throughout the conversion process, we convert !tt.ptr -> {!ptr.ptr or
 // memref<*>}. This process leaves around unrealized_conversion_cast ops between
 // these types. We want to remove these unrealized casts and use the proper

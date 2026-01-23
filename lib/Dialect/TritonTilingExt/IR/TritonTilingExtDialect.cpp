@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"

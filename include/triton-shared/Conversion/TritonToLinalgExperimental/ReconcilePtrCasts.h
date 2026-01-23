@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef TRITON_CONVERSION_TRITONTOLINALG_ReconcilePtrCasts_H
 #define TRITON_CONVERSION_TRITONTOLINALG_ReconcilePtrCasts_H
 

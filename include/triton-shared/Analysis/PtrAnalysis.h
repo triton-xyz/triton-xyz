@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef TRITON_ANALYSIS_PTRANALYSIS_H
 #define TRITON_ANALYSIS_PTRANALYSIS_H
 

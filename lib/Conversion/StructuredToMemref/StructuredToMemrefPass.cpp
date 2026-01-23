@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation, Meta Platforms.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "triton-shared/Conversion/StructuredToMemref/Passes.h"

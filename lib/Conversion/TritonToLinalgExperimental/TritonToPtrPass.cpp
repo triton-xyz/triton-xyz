@@ -1,9 +1,4 @@
 //===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
 // This pass lowers all triton ops on pointer to their equivalent form in the
 // proposed Pointer Dialect:
 // https://discourse.llvm.org/t/rfc-ptr-dialect-modularizing-ptr-ops-in-the-llvm-dialect/75142

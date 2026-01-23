@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "RegisterTritonSharedDialects.h"
 
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"

@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "triton-shared/Analysis/UseAnalysis.h"
 
 #include "triton/Dialect/Triton/IR/Dialect.h"

@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef TRITON_TILING_EXT_BASE
 #define TRITON_TILING_EXT_BASE
 

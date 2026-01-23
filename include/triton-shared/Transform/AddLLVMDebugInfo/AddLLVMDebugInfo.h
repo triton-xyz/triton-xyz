@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef TRITON_TRANSFORM_ADDLLVMDEBUGINFO_ADDLLVMDEBUGINFO_H
 #define TRITON_TRANSFORM_ADDLLVMDEBUGINFO_ADDLLVMDEBUGINFO_H
 

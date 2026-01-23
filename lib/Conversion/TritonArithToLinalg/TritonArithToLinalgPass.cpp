@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation, Meta Platforms.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/TritonArithToLinalg.h"

@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef UNSTRUCTURED_TO_MEMREF_CONVERSION_PASSES_H
 #define UNSTRUCTURED_TO_MEMREF_CONVERSION_PASSES_H
 

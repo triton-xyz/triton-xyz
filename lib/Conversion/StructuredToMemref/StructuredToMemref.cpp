@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation, Meta Platforms.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "triton-shared/Analysis/OpFoldResultUtils.h"

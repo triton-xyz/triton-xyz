@@ -1,10 +1,3 @@
-#===------------------------------------------------------------------------===#
-#
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT license.
-#
-#===------------------------------------------------------------------------===#
-
 add_triton_library(UnstructuredToMemref
   UnstructuredToMemrefPass.cpp
 

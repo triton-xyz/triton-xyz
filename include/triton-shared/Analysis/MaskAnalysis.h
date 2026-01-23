@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation, Meta Platforms.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef TRITON_ANALYSIS_MASKANALYSIS_H
 #define TRITON_ANALYSIS_MASKANALYSIS_H
 

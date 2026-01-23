@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation, Meta Platforms.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef TRITON_ANALYSIS_OPFOLDRESULT_UTILS_H
 #define TRITON_ANALYSIS_OPFOLDRESULT_UTILS_H
 

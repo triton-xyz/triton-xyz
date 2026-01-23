@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "triton-shared/Transform/AddLLVMDebugInfo/AddLLVMDebugInfo.h"
 #include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h"

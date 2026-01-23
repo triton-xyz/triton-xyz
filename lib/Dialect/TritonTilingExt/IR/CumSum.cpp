@@ -1,11 +1,4 @@
 //===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
-//===----------------------------------------------------------------------===//
 // This file implements cumulative sum (CumSum) using the TilingInterface. Only
 // supports tensors of rank 1 & 2 and axis == rank - 1 (i.e: we can split the
 // computation of each row and compute them independently). The semantics of

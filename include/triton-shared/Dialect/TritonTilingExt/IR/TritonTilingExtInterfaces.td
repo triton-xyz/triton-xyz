@@ -1,10 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef MLIR_TRITON_TILING_EXT_DIALECT_INTERFACES
 #define MLIR_TRITON_TILING_EXT_DIALECT_INTERFACES
 
