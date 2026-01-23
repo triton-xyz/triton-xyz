@@ -5,7 +5,6 @@ include "mlir/Pass/PassBase.td"
 
 def AddLLVMDebugInfo : Pass<"add-llvm-debug-info", "mlir::ModuleOp"> {
   let summary = "Add LLVM debug info";
-  let constructor = "triton::createAddLLVMDebugInfoPass()";
 }
 
 #endif

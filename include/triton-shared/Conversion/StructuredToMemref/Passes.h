@@ -1,6 +1,7 @@
 #pragma once
 
-#include "triton-shared/Conversion/StructuredToMemref/StructuredToMemref.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir {
 namespace triton {
@@ -10,6 +11,9 @@ namespace triton {
 
 #define GEN_PASS_REGISTRATION
 #include "triton-shared/Conversion/StructuredToMemref/Passes.h.inc"
+
+void populateStructuredToMemrefConversionPatterns(RewritePatternSet &patterns,
+                                                  TypeConverter &typeConverter);
 
 } // namespace triton
 } // namespace mlir

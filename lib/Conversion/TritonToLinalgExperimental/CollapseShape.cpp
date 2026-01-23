@@ -1,15 +1,11 @@
-#include "triton-shared/Conversion/TritonToLinalgExperimental/CollapseShape.h"
-#include "triton-shared/Conversion/StructuredToMemref/StructuredToMemref.h"
+#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/ConversionTools.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/TritonArithToLinalg.h"
-#include "triton-shared/Conversion/TritonPtrToMemref/TritonPtrToMemref.h"
+#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
+#include "triton-shared/Conversion/TritonPtrToMemref/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/ReconcilePtrCasts.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToLinalgExperimental.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToPtr.h"
-#include "triton-shared/Conversion/TritonToStructured/TritonToStructured.h"
-#include "triton-shared/Conversion/TritonToUnstructured/TritonToUnstructured.h"
-#include "triton-shared/Conversion/UnstructuredToMemref/UnstructuredToMemref.h"
+#include "triton-shared/Conversion/TritonToStructured/Passes.h"
+#include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
+#include "triton-shared/Conversion/UnstructuredToMemref/Passes.h"
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
@@ -515,8 +511,3 @@ public:
 };
 
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>>
-mlir::triton::createCollapseShapePass() {
-  return std::make_unique<CollapseShapePasss>();
-}

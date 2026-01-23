@@ -1,9 +1,12 @@
 #pragma once
 
-#include "triton-shared/Conversion/TritonToStructured/TritonToStructured.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 namespace triton {
+
+#define GEN_PASS_DECL
+#include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
 #include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"

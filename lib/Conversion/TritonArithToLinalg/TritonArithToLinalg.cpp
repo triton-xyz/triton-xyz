@@ -1,4 +1,4 @@
-#include "triton-shared/Conversion/TritonArithToLinalg/TritonArithToLinalg.h"
+#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 
 #include "triton/Dialect/Triton/IR/Dialect.h"

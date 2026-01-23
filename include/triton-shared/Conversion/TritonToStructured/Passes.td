@@ -5,7 +5,6 @@ include "mlir/Pass/PassBase.td"
 
 def TritonToStructured : Pass<"triton-to-structured", "mlir::ModuleOp"> {
   let summary = "Convert Triton non-block pointer to TritonStructured dialect";
-  let constructor = "triton::createTritonToStructuredPass()";
   let options = [
       Option<"enableMakeGatherScatterTensorPtr", "enable-make-gather-scatter", "bool", /*default*/"true",
              "Enable make_gather_scatter_tptr support">,

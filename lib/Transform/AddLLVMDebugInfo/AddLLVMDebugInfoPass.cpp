@@ -1,6 +1,12 @@
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "triton-shared/Transform/AddLLVMDebugInfo/AddLLVMDebugInfo.h"
 #include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h"
+
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/DialectConversion.h"
+
+#include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Support/Path.h"
@@ -117,7 +123,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>> triton::createAddLLVMDebugInfoPass() {
-  return std::make_unique<AddLLVMDebugInfoPass>();
-}

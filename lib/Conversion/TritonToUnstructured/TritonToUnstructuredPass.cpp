@@ -144,7 +144,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
-#include "triton-shared/Conversion/TritonToUnstructured/TritonToUnstructured.h"
+#include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Utils/Utils.h"
 
@@ -171,8 +171,6 @@ using namespace mlir;
 using namespace triton;
 
 namespace mlir::triton {
-#define GEN_PASS_DECL
-#include "triton-shared/Conversion/TritonToUnstructured/Passes.h.inc"
 #define GEN_PASS_DEF_TRITONTOUNSTRUCTURED
 #include "triton-shared/Conversion/TritonToUnstructured/Passes.h.inc"
 } // namespace mlir::triton
@@ -607,8 +605,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>>
-triton::createTritonToUnstructuredPass() {
-  return std::make_unique<TritonToUnstructuredPass>();
-}

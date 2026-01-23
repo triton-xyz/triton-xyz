@@ -1,7 +1,7 @@
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Conversion/StructuredToMemref/StructuredToMemref.h"
+#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 
 #include "mlir/IR/Builders.h"

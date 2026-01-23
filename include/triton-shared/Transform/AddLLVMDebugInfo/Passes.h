@@ -1,6 +1,6 @@
 #pragma once
 
-#include "triton-shared/Transform/AddLLVMDebugInfo/AddLLVMDebugInfo.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 namespace triton {

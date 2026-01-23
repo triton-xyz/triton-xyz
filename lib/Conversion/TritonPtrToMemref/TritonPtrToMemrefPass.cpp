@@ -18,13 +18,13 @@
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
 #include "triton-shared/Conversion/TritonPtrToMemref/Passes.h"
-#include "triton-shared/Conversion/TritonPtrToMemref/TritonPtrToMemref.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 
 #include "triton/Dialect/Triton/IR/Dialect.h"
+#include "triton/Dialect/Triton/IR/Types.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "triton/Dialect/Triton/IR/Types.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #define DEBUG_TYPE "triton-ptr-to-memref"
 
@@ -115,7 +115,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>> triton::createTritonPtrToMemrefPass() {
-  return std::make_unique<TritonPtrToMemrefPass>();
-}

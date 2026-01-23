@@ -10,15 +10,16 @@
 #include "mlir/Support/LogicalResult.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
-#include "triton-shared/Conversion/TritonToStructured/TritonToStructured.h"
+#include "triton-shared/Conversion/TritonToStructured/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 
 #include "triton/Dialect/Triton/IR/Dialect.h"
+#include "triton/Dialect/Triton/IR/Types.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-#include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
@@ -31,8 +32,6 @@ using namespace mlir;
 using namespace triton;
 
 namespace mlir::triton {
-#define GEN_PASS_DECL
-#include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"
 #define GEN_PASS_DEF_TRITONTOSTRUCTURED
 #include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"
 } // namespace mlir::triton
@@ -331,10 +330,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>>
-triton::createTritonToStructuredPass(bool enableMakeGatherScatterTensorPtr) {
-  TritonToStructuredOptions options;
-  options.enableMakeGatherScatterTensorPtr = enableMakeGatherScatterTensorPtr;
-  return std::make_unique<TritonToStructuredPass>(options);
-}

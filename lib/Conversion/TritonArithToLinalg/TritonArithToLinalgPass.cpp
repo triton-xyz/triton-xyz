@@ -1,6 +1,6 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/TritonArithToLinalg.h"
+#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton-shared/Utils/Utils.h"
@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/Support/Debug.h"
@@ -22,8 +23,6 @@ using namespace triton;
 
 namespace mlir {
 namespace triton {
-#define GEN_PASS_DECL
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h.inc"
 #define GEN_PASS_DEF_TRITONARITHTOLINALG
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h.inc"
 } // namespace triton
@@ -241,12 +240,3 @@ public:
 };
 
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>>
-triton::createTritonArithToLinalgPass(bool tensorPtrToLinalg,
-                                      bool transposeReduceToRank0) {
-  TritonArithToLinalgOptions options;
-  options.tensorPtrToLinalg = tensorPtrToLinalg;
-  options.transposeReduceToRank0 = transposeReduceToRank0;
-  return std::make_unique<TritonArithToLinalgPass>(options);
-}

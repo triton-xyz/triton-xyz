@@ -1,14 +1,11 @@
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
-#include "triton-shared/Conversion/StructuredToMemref/StructuredToMemref.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/TritonArithToLinalg.h"
-#include "triton-shared/Conversion/TritonPtrToMemref/TritonPtrToMemref.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/CollapseShape.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/ReconcilePtrCasts.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToLinalgExperimental.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToPtr.h"
-#include "triton-shared/Conversion/TritonToStructured/TritonToStructured.h"
-#include "triton-shared/Conversion/TritonToUnstructured/TritonToUnstructured.h"
-#include "triton-shared/Conversion/UnstructuredToMemref/UnstructuredToMemref.h"
+#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
+#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
+#include "triton-shared/Conversion/TritonPtrToMemref/Passes.h"
+#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
+#include "triton-shared/Conversion/TritonToStructured/Passes.h"
+#include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
+#include "triton-shared/Conversion/UnstructuredToMemref/Passes.h"
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
@@ -25,8 +22,6 @@ using namespace mlir;
 using namespace triton;
 
 namespace mlir::triton {
-#define GEN_PASS_DECL
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
 #define GEN_PASS_DEF_TRITONTOLINALGEXPERIMENTAL
 #include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
 } // namespace mlir::triton
@@ -54,21 +49,26 @@ public:
     auto moduleOp = getOperation();
     PassManager pm(&getContext(), moduleOp.getOperationName());
 
-    pm.addPass(createTritonToStructuredPass(enableMakeGatherScatterTensorPtr));
+    TritonToStructuredOptions triton_to_structured_options;
+    triton_to_structured_options.enableMakeGatherScatterTensorPtr =
+        enableMakeGatherScatterTensorPtr;
+    pm.addPass(createTritonToStructured(triton_to_structured_options));
 
     // Erase dead code and fold constants created during lowering
     pm.addPass(createCSEPass());
     pm.addPass(createCanonicalizerPass());
 
-    pm.addPass(createTritonToUnstructuredPass());
-    pm.addPass(createTritonArithToLinalgPass(/*tensorPtrToLinalg=*/true));
+    pm.addPass(createTritonToUnstructured());
+    TritonArithToLinalgOptions triton_arith_to_linalg_options;
+    triton_arith_to_linalg_options.tensorPtrToLinalg = true;
+    pm.addPass(createTritonArithToLinalg(triton_arith_to_linalg_options));
 
-    pm.addPass(createStructuredToMemrefPass());
-    pm.addPass(createUnstructuredToMemrefPass());
-    pm.addPass(createTritonPtrToMemrefPass());
-    pm.addPass(createTritonToPtrPass());
+    pm.addPass(createStructuredToMemref());
+    pm.addPass(createUnstructuredToMemref());
+    pm.addPass(createTritonPtrToMemref());
+    pm.addPass(createTritonToPtr());
     pm.addPass(createReconcileUnrealizedCastsPass());
-    pm.addPass(createReconcilePtrCastsPass());
+    pm.addPass(createReconcilePtrCasts());
 
     // Now that remove-dead-values fully works with linalg ops, clean up the IR
     // again, particularly unused loop iter-args that were created
@@ -80,7 +80,7 @@ public:
       // Canonicalizer pass will rewrite tensor.expand_shape(linalg.fill) to
       // linalg.fill(tensor.expand_shape) so we need to run it before
       // collapseShape pass
-      pm.addPass(createCollapseShapePass());
+      pm.addPass(createCollapseShape());
     }
 
     if (failed(runPipeline(pm, getOperation()))) {
@@ -89,8 +89,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>>
-triton::createTritonToLinalgExperimentalPass() {
-  return std::make_unique<TritonToLinalgExperimentalPass>();
-}

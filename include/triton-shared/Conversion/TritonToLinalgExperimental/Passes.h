@@ -1,9 +1,6 @@
 #pragma once
 
-#include "triton-shared/Conversion/TritonToLinalgExperimental/CollapseShape.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/ReconcilePtrCasts.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToLinalgExperimental.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToPtr.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 namespace triton {

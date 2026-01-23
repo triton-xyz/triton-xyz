@@ -20,11 +20,9 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/ReconcilePtrCasts.h"
 
 #include "triton/Dialect/Triton/IR/Types.h"
 
-#include "triton-shared/Conversion/TritonToLinalgExperimental/ReconcilePtrCasts.h"
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 
 using namespace mlir;
@@ -175,7 +173,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<OperationPass<ModuleOp>> triton::createReconcilePtrCastsPass() {
-  return std::make_unique<ReconcilePtrCastsPass>();
-}

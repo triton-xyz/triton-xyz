@@ -5,7 +5,6 @@ include "mlir/Pass/PassBase.td"
 
 def TritonToLinalgExperimental : Pass<"triton-to-linalg-experimental", "mlir::ModuleOp"> {
   let summary = "Convert Triton to Linalg dialect";
-  let constructor = "triton::createTritonToLinalgExperimentalPass()";
   let options = [
       Option<"enableMakeGatherScatterTensorPtr", "enable-make-gather-scatter", "bool", /*default*/"true",
              "Enable make_gather_scatter_tptr support">,
@@ -16,16 +15,13 @@ def TritonToLinalgExperimental : Pass<"triton-to-linalg-experimental", "mlir::Mo
 
 def ReconcilePtrCasts : Pass<"reconcile-ptr-casts", "mlir::ModuleOp"> {
   let summary = "Convert unrealized_cast op between tt.ptr or ptr.ptr to memref to to_memref or from_memref";
-  let constructor = "triton::createReconcilePtrCastsPass()";
 }
 
 def TritonToPtr : Pass<"triton-to-ptr", "mlir::ModuleOp"> {
   let summary = "Convert Triton ops on pointers to the Ptr dialect";
-  let constructor = "triton::createTritonToPtrPass()";
 }
 
 def CollapseShape : Pass</*cli-arg*/"collapse-shape", /*Op*/"mlir::ModuleOp"> {
   let summary = "Compress tensor dimensions to improve linalg{broadcast,transpose,fill,reduce} efficiency";
-  let constructor = "triton::createCollapseShapePass()";
 }
 #endif

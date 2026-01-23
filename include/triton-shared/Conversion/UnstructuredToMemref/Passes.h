@@ -1,6 +1,6 @@
 #pragma once
 
-#include "triton-shared/Conversion/UnstructuredToMemref/UnstructuredToMemref.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 namespace triton {
