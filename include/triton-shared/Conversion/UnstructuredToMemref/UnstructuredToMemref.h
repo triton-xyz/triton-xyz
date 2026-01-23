@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_UNSTRUCTUREDTOMEMREF_UNSTRUCTUREDTOMEMREF_H
-#define TRITON_CONVERSION_UNSTRUCTUREDTOMEMREF_UNSTRUCTUREDTOMEMREF_H
-
+#pragma once
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
@@ -10,5 +8,3 @@ std::unique_ptr<OperationPass<ModuleOp>> createUnstructuredToMemrefPass();
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_UNSTRUCTUREDTOMEMREF_UNSTRUCTUREDTOMEMREF_H

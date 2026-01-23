@@ -1,6 +1,4 @@
-#ifndef TRITON_TRANSFORM_ADDLLVMDEBUGINFO_ADDLLVMDEBUGINFO_H
-#define TRITON_TRANSFORM_ADDLLVMDEBUGINFO_ADDLLVMDEBUGINFO_H
-
+#pragma once
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Pass/Pass.h"
@@ -15,5 +13,3 @@ std::unique_ptr<OperationPass<ModuleOp>> createAddLLVMDebugInfoPass();
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_TRANSFORM_ADDLLVMDEBUGINFO_ADDLLVMDEBUGINFO_H

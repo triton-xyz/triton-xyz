@@ -1,6 +1,4 @@
-#ifndef TRITON_ANALYSIS_OPFOLDRESULT_UTILS_H
-#define TRITON_ANALYSIS_OPFOLDRESULT_UTILS_H
-
+#pragma once
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OpDefinition.h"
@@ -69,5 +67,3 @@ OpFoldResult compareOFRs(const OpFoldResult lhs, const OpFoldResult rhs,
                          const OpFoldResult falseVal, const Location loc,
                          OpBuilder &b);
 } // namespace mlir
-
-#endif

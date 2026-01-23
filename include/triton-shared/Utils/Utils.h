@@ -1,6 +1,4 @@
-#ifndef TRITON_SHARED_UTILITY_H
-#define TRITON_SHARED_UTILITY_H
-
+#pragma once
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 namespace mlir {
@@ -11,5 +9,3 @@ bool isPtrTypeLike(Type t);
 } // namespace triton
 
 } // namespace mlir
-
-#endif // TRITON_SHARED_UTILITY_H

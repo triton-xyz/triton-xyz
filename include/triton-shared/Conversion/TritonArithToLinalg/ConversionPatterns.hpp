@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_PATTERNS
-#define TRITON_CONVERSION_PATTERNS
-
+#pragma once
 #include "triton-shared/Analysis/MaskAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/PtrAnalysis.h"
@@ -2287,5 +2285,3 @@ static void populateExternElementwiseOpToMLIROps(RewritePatternSet &patterns) {
 }
 
 } // namespace
-
-#endif

@@ -1,6 +1,4 @@
-#ifndef TRITON_TO_UNSTRUCTURED_CONVERSION_PASSES_H
-#define TRITON_TO_UNSTRUCTURED_CONVERSION_PASSES_H
-
+#pragma once
 #include "triton-shared/Conversion/TritonToUnstructured/TritonToUnstructured.h"
 
 namespace mlir {
@@ -13,5 +11,3 @@ namespace triton {
 
 } // namespace triton
 } // namespace mlir
-
-#endif

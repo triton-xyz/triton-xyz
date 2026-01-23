@@ -1,6 +1,4 @@
-#ifndef TRITON_ANALYSIS_USEANALYSIS_H
-#define TRITON_ANALYSIS_USEANALYSIS_H
-
+#pragma once
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Pass/Pass.h"
 
@@ -108,5 +106,3 @@ LogicalResult runUseAnalysis(triton::FuncOp &funcOp);
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_TRITONTOAFFINE_TRITONUSEANALYSIS_H

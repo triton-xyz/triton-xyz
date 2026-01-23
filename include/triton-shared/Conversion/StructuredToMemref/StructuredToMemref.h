@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_STRUCTUREDTOMEMREF_STRUCTUREDTOMEMREF_H
-#define TRITON_CONVERSION_STRUCTUREDTOMEMREF_STRUCTUREDTOMEMREF_H
-
+#pragma once
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -17,5 +15,3 @@ std::unique_ptr<OperationPass<ModuleOp>> createStructuredToMemrefPass();
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_STRUCTUREDTOMEMREF_STRUCTUREDTOMEMREF_H

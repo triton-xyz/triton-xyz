@@ -1,6 +1,4 @@
-#ifndef MLIR_DIALECT_TPTR_IR_TPTR_DIALECT_H_
-#define MLIR_DIALECT_TPTR_IR_TPTR_DIALECT_H_
-
+#pragma once
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h" // Required for IR/TPtrOps.h.inc
 
@@ -22,4 +20,3 @@
 
 #define GET_ATTRDEF_CLASSES
 #include "triton-shared/Dialect/TPtr/IR/TPtrAttributes.h.inc"
-#endif

@@ -1,6 +1,4 @@
-#ifndef ADD_LLVM_DEBUG_INFO_TRANSFORM_PASSES_H
-#define ADD_LLVM_DEBUG_INFO_TRANSFORM_PASSES_H
-
+#pragma once
 #include "triton-shared/Transform/AddLLVMDebugInfo/AddLLVMDebugInfo.h"
 
 namespace mlir {
@@ -13,5 +11,3 @@ namespace triton {
 
 } // namespace triton
 } // namespace mlir
-
-#endif

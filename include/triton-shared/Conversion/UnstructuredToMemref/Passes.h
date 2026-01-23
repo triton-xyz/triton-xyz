@@ -1,6 +1,4 @@
-#ifndef UNSTRUCTURED_TO_MEMREF_CONVERSION_PASSES_H
-#define UNSTRUCTURED_TO_MEMREF_CONVERSION_PASSES_H
-
+#pragma once
 #include "triton-shared/Conversion/UnstructuredToMemref/UnstructuredToMemref.h"
 
 namespace mlir {
@@ -13,5 +11,3 @@ namespace triton {
 
 } // namespace triton
 } // namespace mlir
-
-#endif

@@ -1,6 +1,4 @@
-#ifndef TRITON_ANALYSIS_MASKANALYSIS_H
-#define TRITON_ANALYSIS_MASKANALYSIS_H
-
+#pragma once
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -175,5 +173,3 @@ private:
 } // namespace triton
 
 } // namespace mlir
-
-#endif

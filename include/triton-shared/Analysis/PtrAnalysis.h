@@ -1,6 +1,4 @@
-#ifndef TRITON_ANALYSIS_PTRANALYSIS_H
-#define TRITON_ANALYSIS_PTRANALYSIS_H
-
+#pragma once
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -260,5 +258,3 @@ public:
 } // namespace triton
 
 } // namespace mlir
-
-#endif

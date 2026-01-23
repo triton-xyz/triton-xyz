@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_TRITONARITHTOLINALG_CONVERSIONTOOLS_H
-#define TRITON_CONVERSION_TRITONARITHTOLINALG_CONVERSIONTOOLS_H
-
+#pragma once
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 
 namespace mlir {
@@ -56,5 +54,3 @@ getBroadcastAffineMap(MLIRContext *context, ArrayRef<int64_t> inputShape,
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_TRITONARITHTOLINALG_CONVERSIONTOOLS_H

@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_TRITONTOLINALG_ReconcilePtrCasts_H
-#define TRITON_CONVERSION_TRITONTOLINALG_ReconcilePtrCasts_H
-
+#pragma once
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
@@ -11,5 +9,3 @@ std::unique_ptr<OperationPass<ModuleOp>> createReconcilePtrCastsPass();
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_TRITONTOLINALG_ReconcilePtrCasts_H

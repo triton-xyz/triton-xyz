@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_TRITONTOLINALG_CollapseShape_H
-#define TRITON_CONVERSION_TRITONTOLINALG_CollapseShape_H
-
+#pragma once
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
@@ -11,5 +9,3 @@ std::unique_ptr<OperationPass<ModuleOp>> createCollapseShapePass();
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_TRITONTOLINALG_CollapseShape_H

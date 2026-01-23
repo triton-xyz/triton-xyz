@@ -1,6 +1,4 @@
-#ifndef TRITON_CONVERSION_TRITONARITHTOLINALG_TRITONARITHTOLINALG_H
-#define TRITON_CONVERSION_TRITONARITHTOLINALG_TRITONARITHTOLINALG_H
-
+#pragma once
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -27,5 +25,3 @@ createTritonArithToLinalgPass(bool tensorPtrToLinalg = false,
 
 } // namespace triton
 } // namespace mlir
-
-#endif // TRITON_CONVERSION_TRITONARITHTOLINALG_TRITONARITHTOLINALG_H
