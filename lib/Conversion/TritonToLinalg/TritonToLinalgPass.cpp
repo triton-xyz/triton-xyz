@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "triton-shared/Analysis/UseAnalysis.h"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalg/TritonToLinalg.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 
@@ -26,8 +27,10 @@
 using namespace mlir;
 using namespace triton;
 
-#define GEN_PASS_CLASSES
+namespace mlir::triton {
+#define GEN_PASS_DEF_TRITONTOLINALG
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
+} // namespace mlir::triton
 
 namespace {
 
@@ -49,7 +52,8 @@ public:
   }
 };
 
-class TritonToLinalgPass : public TritonToLinalgBase<TritonToLinalgPass> {
+class TritonToLinalgPass
+    : public triton::impl::TritonToLinalgBase<TritonToLinalgPass> {
 
   static auto constexpr LAUNCH_GRID_RANK = getMaxEnumValForProgramIDDim() + 1;
   static unsigned int constexpr TRITON_PROGRAM_INFO_ARG_COUNT =
@@ -86,6 +90,8 @@ class TritonToLinalgPass : public TritonToLinalgBase<TritonToLinalgPass> {
   }
 
 public:
+  using TritonToLinalgBase::TritonToLinalgBase;
+
   void getDependentDialects(DialectRegistry &registry) const override {
     registry
         .insert<func::FuncDialect, arith::ArithDialect, math::MathDialect,
@@ -195,7 +201,7 @@ public:
       func.getAllArgAttrs(argAttrs);
       func.getAllResultAttrs(resAttrs);
 
-      auto funcFunc = builder.create<func::FuncOp>(func.getLoc(), name, type);
+      auto funcFunc = func::FuncOp::create(builder, func.getLoc(), name, type);
       funcFunc.setAllArgAttrs(argAttrs);
       funcFunc.setAllResultAttrs(resAttrs);
 
@@ -208,7 +214,7 @@ public:
       for (Block &block : funcFuncBody.getBlocks()) {
         auto term = block.getTerminator();
         builder.setInsertionPoint(term);
-        builder.create<func::ReturnOp>(func.getLoc(), term->getOperands());
+        func::ReturnOp::create(builder, func.getLoc(), term->getOperands());
         term->erase();
       }
       func.erase();

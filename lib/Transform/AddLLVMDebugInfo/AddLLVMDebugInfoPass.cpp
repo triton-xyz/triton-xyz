@@ -7,6 +7,7 @@
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "triton-shared/Transform/AddLLVMDebugInfo/AddLLVMDebugInfo.h"
+#include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h"
 
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Support/Path.h"
@@ -16,12 +17,17 @@
 using namespace mlir;
 using namespace triton;
 
-#define GEN_PASS_CLASSES
+namespace mlir::triton {
+#define GEN_PASS_DEF_ADDLLVMDEBUGINFO
 #include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h.inc"
+} // namespace mlir::triton
 
 namespace {
 
-class AddLLVMDebugInfoPass : public AddLLVMDebugInfoBase<AddLLVMDebugInfoPass> {
+class AddLLVMDebugInfoPass
+    : public triton::impl::AddLLVMDebugInfoBase<AddLLVMDebugInfoPass> {
+  using Base = triton::impl::AddLLVMDebugInfoBase<AddLLVMDebugInfoPass>;
+  using Base::Base;
 
   static LLVM::DISubprogramFlags setSubprogramFlags(FuncOp funcOp) {
     LLVM::DISubprogramFlags subprogramFlags = LLVM::DISubprogramFlags{};

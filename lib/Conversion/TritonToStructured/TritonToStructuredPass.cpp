@@ -37,21 +37,21 @@
 using namespace mlir;
 using namespace triton;
 
-#define GEN_PASS_CLASSES
+namespace mlir::triton {
+#define GEN_PASS_DECL
 #include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"
-
-namespace mlir {
-namespace triton {
 #define GEN_PASS_DEF_TRITONTOSTRUCTURED
 #include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"
-} // namespace triton
-} // namespace mlir
+} // namespace mlir::triton
 
 namespace {
 
 class TritonToStructuredPass
-    : public triton::impl::TritonToStructuredBase<TritonToStructuredPass> {
-  using TritonToStructuredBase<TritonToStructuredPass>::TritonToStructuredBase;
+    : public mlir::triton::impl::TritonToStructuredBase<
+          TritonToStructuredPass> {
+  using Base =
+      mlir::triton::impl::TritonToStructuredBase<TritonToStructuredPass>;
+  using Base::Base;
   static TupleType getStructuredStateTupleType(MLIRContext *context, Type t) {
     SmallVector<Type> tupleTypes{t};
     auto [offsetTypes, strideTypes] =
@@ -137,20 +137,20 @@ public:
     // result is still being used by another tt.load or tt.store.
     converter.addSourceMaterialization([](OpBuilder &builder, Type resultType,
                                           ValueRange inputs, Location loc) {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+      return UnrealizedConversionCastOp::create(builder, loc, resultType,
+                                                inputs)
           .getResult(0);
     });
 
     // Compute the target materialization, given a value with the pointer type,
     // convert that value to a tuple type.
-    converter.addTargetMaterialization([](OpBuilder &builder,
-                                          TypeRange resultTypes,
-                                          ValueRange inputs,
-                                          Location loc) -> SmallVector<Value> {
-      return builder
-          .create<UnrealizedConversionCastOp>(loc, resultTypes, inputs.front())
-          ->getResults();
-    });
+    converter.addTargetMaterialization(
+        [](OpBuilder &builder, TypeRange resultTypes, ValueRange inputs,
+           Location loc) -> SmallVector<Value> {
+          return UnrealizedConversionCastOp::create(builder, loc, resultTypes,
+                                                    inputs.front())
+              .getResults();
+        });
 
     ConversionTarget target(getContext());
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns,
@@ -200,9 +200,9 @@ public:
     // during reconcile-unrealized-conversion-casts.
     converter.addSourceMaterialization([](OpBuilder &builder, Type resultType,
                                           ValueRange inputs, Location loc) {
-      return builder
-          .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
-          ->getResult(0);
+      return UnrealizedConversionCastOp::create(builder, loc, resultType,
+                                                inputs[0])
+          .getResult(0);
     });
 
     // For each value of "pointer tuple type" that gets decomposed into a
@@ -214,8 +214,8 @@ public:
     converter.addTargetMaterialization([](OpBuilder &builder,
                                           TypeRange resultTypes,
                                           ValueRange inputs, Location loc) {
-      auto placeholder = builder.create<tts::GetStructuredStateOp>(
-          loc, inputs.front().getDefiningOp()->getOperand(0));
+      auto placeholder = tts::GetStructuredStateOp::create(
+          builder, loc, inputs.front().getDefiningOp()->getOperand(0));
       assert(llvm::equal(placeholder.getResultTypes(), resultTypes));
       return placeholder.getResults();
     });

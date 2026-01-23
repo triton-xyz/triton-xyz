@@ -8,11 +8,14 @@
 #ifndef TRITON_TO_LINALG_CONVERSION_PASSES_H
 #define TRITON_TO_LINALG_CONVERSION_PASSES_H
 
+#include "mlir/Pass/Pass.h"
 #include "triton-shared/Conversion/TritonToLinalg/TritonToLinalg.h"
 
 namespace mlir {
 namespace triton {
 
+#define GEN_PASS_DECL
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 #define GEN_PASS_REGISTRATION
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 

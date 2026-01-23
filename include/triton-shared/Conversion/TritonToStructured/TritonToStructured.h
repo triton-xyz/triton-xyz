@@ -9,9 +9,6 @@
 namespace mlir {
 namespace triton {
 
-#define GEN_PASS_DECL_TRITONTOSTRUCTURED
-#include "triton-shared/Conversion/TritonToStructured/Passes.h.inc"
-
 std::unique_ptr<OperationPass<ModuleOp>>
 createTritonToStructuredPass(bool enableMakeGatherScatterTensorPtr = true);
 

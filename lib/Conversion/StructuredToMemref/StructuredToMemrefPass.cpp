@@ -7,6 +7,7 @@
 
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
+#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
 #include "triton-shared/Conversion/StructuredToMemref/StructuredToMemref.h"
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
@@ -51,13 +52,15 @@ public:
     addTargetMaterialization([&](OpBuilder &builder,
                                  UnrankedMemRefType resultType,
                                  ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+      return UnrealizedConversionCastOp::create(builder, loc, resultType,
+                                                inputs)
           .getResult(0);
     });
 
     addSourceMaterialization([&](OpBuilder &builder, Type resultType,
                                  ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+      return UnrealizedConversionCastOp::create(builder, loc, resultType,
+                                                inputs)
           .getResult(0);
     });
   }
@@ -65,7 +68,8 @@ public:
 
 class StructuredToMemrefPass
     : public triton::impl::StructuredToMemrefBase<StructuredToMemrefPass> {
-  using StructuredToMemrefBase<StructuredToMemrefPass>::StructuredToMemrefBase;
+  using Base = triton::impl::StructuredToMemrefBase<StructuredToMemrefPass>;
+  using Base::Base;
 
 public:
   void getDependentDialects(DialectRegistry &registry) const override {

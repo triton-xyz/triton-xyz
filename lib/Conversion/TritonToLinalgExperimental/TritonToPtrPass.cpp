@@ -48,6 +48,7 @@
 
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
+#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalgExperimental/TritonToPtr.h"
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
@@ -62,10 +63,12 @@
 
 using namespace mlir;
 
-namespace {
-
+namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOPTR
 #include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
+} // namespace mlir::triton
+
+namespace {
 
 // Convert tensor.insert_slice to use ptr.ptr type. This insert_slice op must
 // have been lowered from tl.cat
@@ -182,9 +185,11 @@ struct AddPtrConverter : public OpConversionPattern<triton::AddPtrOp> {
     auto pointeeType = cast<triton::PointerType>(op.getType()).getPointeeType();
     auto offsetType = op.getOffset().getType();
     auto pointeeSizeInBytes =
-        rewriter.create<tptr::TypeOffsetOp>(loc, offsetType, pointeeType);
+        tptr::TypeOffsetOp::create(rewriter, loc, offsetType, pointeeType)
+            .getResult();
     auto scaledOffset =
-        rewriter.create<arith::MulIOp>(loc, op.getOffset(), pointeeSizeInBytes);
+        arith::MulIOp::create(rewriter, loc, op.getOffset(), pointeeSizeInBytes)
+            .getResult();
     rewriter.replaceOpWithNewOp<tptr::PtrAddOp>(
         op,
         ptr::PtrType::get(
@@ -214,36 +219,42 @@ struct LoadConverter : public OpConversionPattern<triton::LoadOp> {
     auto pointeeType =
         cast<triton::PointerType>(ptr.getType()).getPointeeType();
 
-    auto memref = rewriter.create<tptr::ToMemrefOp>(
-        op->getLoc(), MemRefType::get({1}, pointeeType), adaptor.getPtr());
+    auto memref = tptr::ToMemrefOp::create(rewriter, op->getLoc(),
+                                           MemRefType::get({1}, pointeeType),
+                                           adaptor.getPtr())
+                      .getResult();
 
-    auto zero = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+    auto zero =
+        arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0).getResult();
 
     if (op.getMask()) {
-      auto ifOp = rewriter.create<scf::IfOp>(
-          op->getLoc(), op.getMask(),
+      auto ifOp = scf::IfOp::create(
+          rewriter, op->getLoc(), op.getMask(),
           [&](OpBuilder &b, Location loc) {
             // Truthy case, load from the index.
-            Value memrefLoad = rewriter.create<memref::LoadOp>(
-                op->getLoc(), memref, ValueRange{zero});
-            b.create<scf::YieldOp>(loc, memrefLoad);
+            Value memrefLoad = memref::LoadOp::create(rewriter, op->getLoc(),
+                                                      memref, ValueRange{zero})
+                                   .getResult();
+            scf::YieldOp::create(b, loc, memrefLoad);
           },
           [&](OpBuilder &b, Location loc) {
             // Falsy case, yield `other` or 0 as the default value.
             if (op.getOther()) {
-              b.create<scf::YieldOp>(loc, op.getOther());
+              scf::YieldOp::create(b, loc, op.getOther());
             } else {
               auto elemType = op.getType();
               auto zeroAttr = b.getZeroAttr(elemType);
               assert(zeroAttr && "unexpected element type");
-              Value val = b.create<arith::ConstantOp>(loc, zeroAttr);
-              b.create<scf::YieldOp>(loc, val);
+              Value val =
+                  arith::ConstantOp::create(b, loc, zeroAttr).getResult();
+              scf::YieldOp::create(b, loc, val);
             }
           });
       rewriter.replaceOp(op, ifOp);
     } else {
-      auto memrefLoad = rewriter.create<memref::LoadOp>(op->getLoc(), memref,
-                                                        ValueRange{zero});
+      auto memrefLoad = memref::LoadOp::create(rewriter, op->getLoc(), memref,
+                                               ValueRange{zero})
+                            .getResult();
 
       rewriter.replaceOp(op, memrefLoad);
     }
@@ -272,18 +283,21 @@ struct StoreConverter : public OpConversionPattern<triton::StoreOp> {
 
     IRRewriter::InsertionGuard g(rewriter);
     if (op.getMask()) {
-      auto ifOp = rewriter.create<scf::IfOp>(op->getLoc(), op.getMask(),
-                                             /*withElseRegion*/ false);
+      auto ifOp = scf::IfOp::create(rewriter, op->getLoc(), op.getMask(),
+                                    /*withElseRegion*/ false);
       rewriter.setInsertionPointToStart(
           &ifOp.getThenRegion().getBlocks().front());
     }
 
-    auto memref = rewriter.create<tptr::ToMemrefOp>(
-        op->getLoc(), MemRefType::get({1}, pointeeType), adaptor.getPtr());
-    auto zero = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+    auto memref = tptr::ToMemrefOp::create(rewriter, op->getLoc(),
+                                           MemRefType::get({1}, pointeeType),
+                                           adaptor.getPtr())
+                      .getResult();
+    auto zero =
+        arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0).getResult();
 
-    rewriter.create<memref::StoreOp>(op->getLoc(), op.getValue(), memref,
-                                     ValueRange{zero});
+    memref::StoreOp::create(rewriter, op->getLoc(), op.getValue(), memref,
+                            ValueRange{zero});
 
     rewriter.eraseOp(op);
 
@@ -353,9 +367,10 @@ struct LinalgPtrConverter : public OpConversionPattern<linalg::GenericOp> {
       return failure();
     }
 
-    auto replacement = rewriter.create<linalg::GenericOp>(
-        op.getLoc(), convertedTypes, adaptor.getInputs(), adaptor.getOutputs(),
-        op.getIndexingMapsArray(), op.getIteratorTypesArray());
+    auto replacement = linalg::GenericOp::create(
+        rewriter, op.getLoc(), convertedTypes, adaptor.getInputs(),
+        adaptor.getOutputs(), op.getIndexingMapsArray(),
+        op.getIteratorTypesArray());
 
     Region &region = op.getRegion();
     Block &block = region.front();
@@ -431,7 +446,8 @@ public:
     });
     auto createCast = [&](OpBuilder &builder, Type resultType,
                           ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+      return UnrealizedConversionCastOp::create(builder, loc, resultType,
+                                                inputs)
           .getResult(0);
     };
     addTargetMaterialization(createCast);
@@ -439,7 +455,9 @@ public:
   }
 };
 
-class TritonToPtrPass : public impl::TritonToPtrBase<TritonToPtrPass> {
+class TritonToPtrPass : public triton::impl::TritonToPtrBase<TritonToPtrPass> {
+  using Base = triton::impl::TritonToPtrBase<TritonToPtrPass>;
+  using Base::Base;
 
 public:
   void getDependentDialects(DialectRegistry &registry) const override {

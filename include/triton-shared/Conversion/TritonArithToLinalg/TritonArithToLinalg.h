@@ -9,9 +9,6 @@
 namespace mlir {
 namespace triton {
 
-#define GEN_PASS_DECL
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h.inc"
-
 void populateTritonArithToLinalgCanonicalizationPatterns(
     RewritePatternSet &patterns);
 
