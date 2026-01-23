@@ -1,0 +1,15 @@
+[workspace]
+authors = ["Allen Guo <guosonglin001@gmail.com>"]
+channels = ["conda-forge"]
+name = "triton-xyz"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+pre-commit = ">=4.5.1,<5"
+
+[activation.env]
+# needs llvm-triton
+PATH = "${PIXI_PROJECT_ROOT}/build/bin:${PIXI_PROJECT_ROOT}/llvm-triton/llvm-project/build/bin:${PATH}"

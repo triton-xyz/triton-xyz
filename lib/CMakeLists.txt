@@ -5,3 +5,4 @@ add_subdirectory(Dialect)
 
 add_subdirectory(Transform)
 add_subdirectory(Utils)
+add_subdirectory(Tools/triton-shared-opt)
