@@ -5,8 +5,16 @@
 - `include/` and `lib/` contain the core C++ headers and implementations for the Triton Shared dialects, analyses, and conversions.
 - `backend/`, `utils/`, and `misc/` hold supporting utilities and integration glue.
 - `test/` contains MLIR-based regression tests organized by feature area (for example, `test/Conversion`).
-- `llvm-triton/` and `triton/` are upstream dependencies; treat them as vendored sources.
-- `build/` is for local build artifacts and is safe to regenerate.
+- `build/` holds local build artifacts and is safe to regenerate.
+- `llvm-triton/llvm-project/` contains a vendored `llvm-project` checkout. `llvm-triton/llvm-project/mlir/` is the upstream MLIR source; `llvm-triton/llvm-project/mlir/test/` is a reference for MLIR test structure and `FileCheck` style.
+- `triton/` is a vendored upstream Triton checkout for reference on Triton behavior, APIs, and tests.
+
+## Upstream Source References
+
+- Treat `llvm-triton/` and `triton/` as read-only reference sources unless a task explicitly requires edits there.
+- For MLIR passes, dialects, or conversions, look for upstream patterns in `llvm-triton/llvm-project/mlir/` to match naming, structure, and pass/test layout.
+- For new `.mlir` tests, mirror `llvm-triton/llvm-project/mlir/test/` conventions for `// RUN:` lines and `FileCheck` patterns where applicable.
+- For Triton-facing changes, check `triton/` for expected behavior, API usage, and existing tests to keep parity.
 
 ## Build, Test, and Development Commands
 
@@ -33,7 +41,7 @@ cmake --build build --target triton-shared-opt
 ```
 
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
-- skip `pre-commit`, let human do it
+- Skip `pre-commit`; handled manually.
 
 ## Coding Style & Naming Conventions
 
