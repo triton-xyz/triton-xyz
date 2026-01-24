@@ -11,8 +11,27 @@
 ## Build, Test, and Development Commands
 
 - Use CMake only; skip Python setup.
-- only foucus on tool `triton-shared-opt`, it has almost all uasge
-- `cmake --build build --target triton-shared-opt` compiles tool `triton-shared-opt`
+- Configure and build all cmake targets.
+
+```bash
+[[ "$(uname)" == "Darwin" ]] && PRESET="osx_lld" || PRESET="osx"
+cmake --preset $PRESET -S$PWD/triton -B$PWD/build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DTRITON_CODEGEN_BACKENDS="nvidia;amd" \
+  -DTRITON_PLUGIN_DIRS="$PWD" \
+  -DCMAKE_INSTALL_PREFIX="$PWD/build/install" \
+  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$PWD/build/bin" \
+  -DTRITON_WHEEL_DIR="$PWD/build/bin" \
+  -DPython3_EXECUTABLE=$(which python)
+cmake --build $PWD/build --target all
+```
+
+- Build `triton-shared-opt` from the build dir.
+
+```bash
+cmake --build build --target triton-shared-opt
+```
+
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
 - skip `pre-commit`, let human do it
 
