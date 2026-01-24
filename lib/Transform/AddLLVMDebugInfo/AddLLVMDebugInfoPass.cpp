@@ -1,7 +1,4 @@
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"

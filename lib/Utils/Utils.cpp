@@ -1,4 +1,4 @@
-#include "triton/Dialect/Triton/IR/Dialect.h"
+#include "triton/Dialect/Triton/IR/Dialect.h" // IWYU pragma: keep
 
 namespace mlir {
 namespace triton {

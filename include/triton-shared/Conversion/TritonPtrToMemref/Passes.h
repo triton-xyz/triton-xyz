@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/Pass.h" // IWYU pragma: keep
 
 namespace mlir {
 namespace triton {

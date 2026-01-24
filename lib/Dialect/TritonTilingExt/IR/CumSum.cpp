@@ -6,10 +6,7 @@
 // non-contiguous memory.
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
-
-#include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "ttx-cumsum"
 

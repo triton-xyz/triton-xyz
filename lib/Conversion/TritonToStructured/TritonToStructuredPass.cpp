@@ -20,7 +20,6 @@
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Debug.h"
 
 #include <cassert>
 #include <optional>

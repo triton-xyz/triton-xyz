@@ -19,7 +19,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
+#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 

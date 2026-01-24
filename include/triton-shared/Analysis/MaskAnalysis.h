@@ -6,8 +6,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
-#include "llvm/Support/LogicalResult.h"
-
 #include <utility>
 
 namespace mlir {

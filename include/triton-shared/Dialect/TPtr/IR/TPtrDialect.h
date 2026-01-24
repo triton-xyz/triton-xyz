@@ -1,9 +1,9 @@
 #pragma once
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
-#include "mlir/Dialect/Ptr/IR/PtrDialect.h" // Required for IR/TPtrOps.h.inc
-#include "mlir/Dialect/Ptr/IR/PtrTypes.h"   // Required for IR/TPtrOps.h.inc
-#include "mlir/Interfaces/SideEffectInterfaces.h" // Required for IR/TPtrOps.h.inc
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h" // IWYU pragma: keep
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"   // IWYU pragma: keep
+#include "mlir/Interfaces/SideEffectInterfaces.h" // IWYU pragma: keep
 
 //===----------------------------------------------------------------------===//
 // Temporary Pointer Dialect Operations

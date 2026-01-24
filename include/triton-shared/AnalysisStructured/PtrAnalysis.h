@@ -10,7 +10,6 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include <cstddef>
-#include <set>
 
 namespace mlir {
 

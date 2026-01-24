@@ -30,6 +30,21 @@ repos:
     hooks:
       - id: clang-format
         name: clang-format
-        language: python
-        entry: clang-format -i --style=file
+        language: system
+        # entry: clang-format -i --style=file
+        entry: |
+          bash -c '
+          if ! command -v clang-format >/dev/null; then exit 0; fi
+          clang-format -i --style=file "$@"
+          ' --
+        types_or: [c, c++]
+      - id: clang-include-cleaner
+        name: clang-include-cleaner
+        language: system
+        # entry: clang-include-cleaner -edit -disable-insert -p build
+        entry: |
+          bash -c '
+          if [ ! -d build ] || ! command -v clang-include-cleaner >/dev/null; then exit 0; fi
+          clang-include-cleaner -edit -disable-insert -p build "$@"
+          ' --
         types_or: [c, c++]
