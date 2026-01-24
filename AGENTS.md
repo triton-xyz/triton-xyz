@@ -7,14 +7,14 @@
 - `test/` contains MLIR-based regression tests organized by feature area (for example, `test/Conversion`).
 - `build/` holds local build artifacts and is safe to regenerate.
 - `llvm-triton/llvm-project/` contains a vendored `llvm-project` checkout. `llvm-triton/llvm-project/mlir/` is the upstream MLIR source; `llvm-triton/llvm-project/mlir/test/` is a reference for MLIR test structure and `FileCheck` style.
-- `triton/` is a vendored upstream Triton checkout for reference on Triton behavior, APIs, and tests.
+- `third_party/triton/` is a vendored upstream Triton checkout for reference on Triton behavior, APIs, and tests.
 
 ## Upstream Source References
 
-- Treat `llvm-triton/` and `triton/` as read-only reference sources unless a task explicitly requires edits there.
+- Treat `llvm-triton/` and `third_party/triton/` as read-only reference sources unless a task explicitly requires edits there.
 - For MLIR passes, dialects, or conversions, look for upstream patterns in `llvm-triton/llvm-project/mlir/` to match naming, structure, and pass/test layout.
 - For new `.mlir` tests, mirror `llvm-triton/llvm-project/mlir/test/` conventions for `// RUN:` lines and `FileCheck` patterns where applicable.
-- For Triton-facing changes, check `triton/` for expected behavior, API usage, and existing tests to keep parity.
+- For Triton-facing changes, check `third_party/triton/` for expected behavior, API usage, and existing tests to keep parity.
 
 ## Build, Test, and Development Commands
 
@@ -23,7 +23,7 @@
 
 ```bash
 [[ "$(uname)" == "Darwin" ]] && PRESET="osx_lld" || PRESET="osx"
-cmake --preset $PRESET -S$PWD/triton -B$PWD/build \
+cmake --preset $PRESET -S$PWD/third_party/triton -B$PWD/build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DTRITON_CODEGEN_BACKENDS="nvidia;amd" \
   -DTRITON_PLUGIN_DIRS="$PWD" \

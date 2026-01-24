@@ -4,8 +4,9 @@ __pycache__/
 
 .vscode/
 
-triton
 llvm-triton
+third_party/.gitignore
+
 # pixi environments
 .pixi/*
 !.pixi/config.toml
