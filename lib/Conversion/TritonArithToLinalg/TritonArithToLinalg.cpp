@@ -2,8 +2,6 @@
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
-
-
 #define DEBUG_TYPE "triton-arith-to-linalg"
 #include "triton-shared/Conversion/TritonArithToLinalg/ConversionPatterns.hpp"
 

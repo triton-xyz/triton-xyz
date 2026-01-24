@@ -1,15 +1,9 @@
 #pragma once
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h" // IWYU pragma: keep
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OpDefinition.h"
-#include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/TypeSupport.h"
-#include "mlir/IR/Types.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/TilingInterface.h"
 
