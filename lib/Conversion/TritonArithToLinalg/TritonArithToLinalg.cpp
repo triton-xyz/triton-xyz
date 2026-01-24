@@ -1,3 +1,4 @@
+#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"

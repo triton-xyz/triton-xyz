@@ -4,8 +4,8 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/MaskAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/PtrAnalysis.h"
@@ -26,6 +26,8 @@
 
 using namespace mlir;
 using namespace triton;
+
+#define DEBUG_TYPE "triton-arith-to-linalg"
 
 //===----------------------------------------------------------------------===//
 // Utilities

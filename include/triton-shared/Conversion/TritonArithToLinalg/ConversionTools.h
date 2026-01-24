@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
+#include "mlir/IR/BuiltinTypes.h" // IWYU pragma: keep
 
 namespace mlir {
 namespace triton {
