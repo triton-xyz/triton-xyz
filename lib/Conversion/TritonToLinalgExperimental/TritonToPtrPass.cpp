@@ -40,7 +40,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
+#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Utils/Utils.h"
