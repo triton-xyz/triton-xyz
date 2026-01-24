@@ -13,8 +13,9 @@ uv = ">=0.9.26,<0.10"
 ruff = ">=0.14.13,<0.15"
 ty = ">=0.0.13,<0.0.14"
 
-pytest = ">=9.0.2,<10"
 pre-commit = ">=4.5.1,<5"
+pytest = ">=9.0.2,<10"
+lit = ">=21.1.8,<22"
 
 [activation.env]
 # needs llvm-triton
