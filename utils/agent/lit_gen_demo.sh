@@ -1,4 +1,32 @@
+# for tests only one check
 MLIR=test/Conversion/triton-to-ptr.mlir
-ARGS='--split-input-file --triton-tensor-ptr-to-linalg --triton-to-ptr'
+ARGS=(--split-input-file --triton-tensor-ptr-to-linalg --triton-to-ptr)
+# defalut `CHECK`
+PREFIX="CHECK"
+source_delim_regex='^(?!\s*//)\s*(tt\.func|func\.func)\b'
+if triton-shared-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex "tt.func|func.func" --strict_name_re 1 --check-prefix $PREFIX --source $MLIR; then
+  triton-shared-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex "tt.func|func.func" --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
+else
+  echo "error in $(utils/generate-test-checks.py), needs recheck"
+fi
 
-triton-shared-opt $ARGS $MLIR | utils/generate-test-checks.py -i --source_delim_regex "tt.func|func.func" --strict_name_re 1 --source $MLIR
+# for tests only more than one checks
+MLIR=test/Conversion/triton-to-structured.mlir
+ARGS=(--triton-to-structured --remove-dead-values --canonicalize --split-input-file)
+# defalut `CHECK`
+PREFIX="CHECK"
+SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func)\b'
+if triton-shared-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR; then
+  triton-shared-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
+else
+  echo "error in $(utils/generate-test-checks.py), needs recheck"
+fi
+ARGS=(--triton-to-structured="run-prepass-only=true" --split-input-file)
+# another check `PREPASS`
+PREFIX="PREPASS"
+SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func)\b'
+if triton-shared-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR; then
+  triton-shared-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
+else
+  echo "error in $(utils/generate-test-checks.py), needs recheck"
+fi
