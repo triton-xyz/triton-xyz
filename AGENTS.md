@@ -22,16 +22,7 @@
 - Configure and build all cmake targets.
 
 ```bash
-[[ "$(uname)" == "Darwin" ]] && PRESET="osx_lld" || PRESET="osx"
-cmake --preset $PRESET -S$PWD/third_party/triton -B$PWD/build \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DTRITON_CODEGEN_BACKENDS="nvidia;amd" \
-  -DTRITON_PLUGIN_DIRS="$PWD" \
-  -DCMAKE_INSTALL_PREFIX="$PWD/build/install" \
-  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$PWD/build/bin" \
-  -DTRITON_WHEEL_DIR="$PWD/build/bin" \
-  -DPython3_EXECUTABLE=$(which python)
-cmake --build $PWD/build --target all
+bash utils/agent/build_cmake.sh
 ```
 
 - Build `triton-shared-opt` from the build dir.
