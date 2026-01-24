@@ -1,6 +1,6 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h"
+#include "triton-shared/Transform/AddLLVMDebugInfo/Passes.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "llvm/BinaryFormat/Dwarf.h"

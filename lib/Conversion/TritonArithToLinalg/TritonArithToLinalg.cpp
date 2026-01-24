@@ -1,5 +1,5 @@
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
-#include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
+#include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #define DEBUG_TYPE "triton-arith-to-linalg"

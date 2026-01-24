@@ -1,11 +1,9 @@
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 
-#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
-#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/DialectImplementation.h" // IWYU pragma: keep
 
-#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/ADT/TypeSwitch.h" // IWYU pragma: keep
 
 #include <optional>
 

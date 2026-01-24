@@ -13,8 +13,6 @@
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
-#include "llvm/Support/Debug.h"
-
 #define DEBUG_TYPE "triton-arith-to-linalg"
 
 using namespace mlir;
