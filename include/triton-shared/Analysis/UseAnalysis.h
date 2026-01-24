@@ -2,7 +2,6 @@
 
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Pass/Pass.h"
-
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 namespace mlir {

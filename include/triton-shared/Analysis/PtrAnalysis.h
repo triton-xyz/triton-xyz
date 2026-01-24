@@ -3,7 +3,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include <set>

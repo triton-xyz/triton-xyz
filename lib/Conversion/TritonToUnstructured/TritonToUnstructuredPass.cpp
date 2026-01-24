@@ -128,6 +128,7 @@
 // sign-extending when computing the offsets. Contrast this with the manual
 // approach, we will only sign-extend where necessary.
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
@@ -140,6 +141,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/Passes.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
@@ -147,11 +149,7 @@
 #include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Utils/Utils.h"
-
 #include "triton/Dialect/Triton/IR/Dialect.h"
-
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Pass/PassManager.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/DenseMap.h"

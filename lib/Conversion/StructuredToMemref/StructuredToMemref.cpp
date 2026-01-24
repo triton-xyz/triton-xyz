@@ -1,9 +1,9 @@
-#include "triton/Dialect/Triton/IR/Types.h"
-
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
-#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
-
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR//MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
@@ -14,13 +14,10 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MemRef/IR//MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Utils/StaticValueUtils.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
+#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
+#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
+#include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"

@@ -1,10 +1,10 @@
-#include "mlir/IR/Builders.h"
-
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
 
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Ptr/IR/PtrTypes.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
+
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <optional>
@@ -104,5 +104,4 @@ bool tptr::DefaultMemorySpaceAttr::isValidPtrIntCast(
 
 #define GET_ATTRDEF_CLASSES
 #include "triton-shared/Dialect/TPtr/IR/TPtrAttributes.cpp.inc"
-
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.cpp.inc"

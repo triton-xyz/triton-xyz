@@ -1,19 +1,18 @@
 #include "triton-shared/Analysis/MaskAnalysis.h"
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Support/LogicalResult.h"
-
+#include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
-
-#include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
+
 #include <cassert>
 
 #define DEBUG_TYPE "mask-analysis"

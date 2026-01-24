@@ -1,5 +1,4 @@
 #include "RegisterTritonSharedDialects.h"
-
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 int main(int argc, char **argv) {

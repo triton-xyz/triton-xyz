@@ -20,10 +20,8 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
-
-#include "triton/Dialect/Triton/IR/Types.h"
-
 #include "triton-shared/Dialect/TPtr/IR/TPtrDialect.h"
+#include "triton/Dialect/Triton/IR/Types.h"
 
 using namespace mlir;
 using namespace triton;

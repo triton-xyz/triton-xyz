@@ -1,10 +1,11 @@
 #include "triton-shared/Analysis/PtrAnalysis.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
 
 #include "llvm/Support/Debug.h"
+
 #include <set>
 
 #define DEBUG_TYPE "triton-ptr-analysis"

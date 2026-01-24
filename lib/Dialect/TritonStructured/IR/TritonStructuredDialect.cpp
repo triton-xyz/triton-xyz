@@ -17,6 +17,5 @@ void TritonStructuredDialect::initialize() {
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredOps.cpp.inc"
-
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.cpp.inc"
+#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredOps.cpp.inc"
