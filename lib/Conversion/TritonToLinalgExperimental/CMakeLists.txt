@@ -20,10 +20,10 @@ add_triton_library(TritonToLinalgExperimental
   MLIRIR
   MLIRMathDialect
   MLIRPass
+  MLIRPtrDialect
   MLIRTensorDialect
   MLIRTransforms
   MLIRSupport
-  TPtrIR
   TritonIR
   TritonTransforms
   TritonSharedAnalysis
