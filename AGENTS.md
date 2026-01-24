@@ -32,7 +32,7 @@ cmake --build build --target triton-shared-opt
 ```
 
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
-- When adding a lit test, refer to `utils/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand.
+- When adding a lit test, refer to `utils/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand. Do not edit the demo script directly. Use it as a template to create a generation script for your specific tests.
 - Skip `pre-commit`; handled manually.
 
 ## Coding Style & Naming Conventions

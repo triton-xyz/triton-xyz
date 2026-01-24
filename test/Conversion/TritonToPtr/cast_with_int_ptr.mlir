@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-arith-to-linalg="tensor-ptr-to-linalg" --triton-to-ptr %s | FileCheck %s
+// RUN: triton-shared-opt --split-input-file --triton-arith-to-linalg --triton-tensor-ptr-to-linalg --triton-to-ptr %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   func.func @cast_with_int_ptr(

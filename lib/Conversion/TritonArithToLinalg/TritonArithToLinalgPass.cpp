@@ -144,41 +144,16 @@ public:
       target.addIllegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
     }
 
-    if (addptrToLinalg) {
-      target.addDynamicallyLegalOp<triton::AddPtrOp>([](triton::AddPtrOp op) {
-        return !isa<ShapedType>(op.getResult().getType());
-      });
-    }
-
-    target.addDynamicallyLegalOp<triton::BitcastOp>(
-        [this](triton::BitcastOp op) {
-          if (!tensorPtrToLinalg) {
-            return triton::isPtrTypeLike(op.getType());
-          } else {
-            if (triton::isPtrTypeLike(op.getType())) {
-              return !isa<ShapedType>(op.getType());
-            }
-            return false;
-          }
-        });
-
-    // TODO: Might want to consolidate this flag with addptrToLinalg later.
-    if (tensorPtrToLinalg) {
-      target.addDynamicallyLegalOp<triton::LoadOp, triton::StoreOp,
-                                   triton::IntToPtrOp, triton::PtrToIntOp>(
-          [](auto op) {
-            return !isa<ShapedType>(op->getOperands()[0].getType());
-          });
-      populateTritonTensorPtrConversionPatterns(patterns);
-    }
+    target.addDynamicallyLegalOp<triton::BitcastOp>([](triton::BitcastOp op) {
+      return triton::isPtrTypeLike(op.getType());
+    });
 
     if (!assertToCf) {
       target.addLegalOp<triton::AssertOp>();
     }
 
     triton::populateTritonArithToLinalgConversionPatterns(
-        pidsToFuncArgs, addptrToLinalg, assertToCf, transposeReduceToRank0,
-        patterns);
+        pidsToFuncArgs, assertToCf, transposeReduceToRank0, patterns);
 
     if (pidsToFuncArgs) {
       for (auto func : getOperation().getOps<triton::FuncOp>()) {

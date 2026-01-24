@@ -15,13 +15,9 @@ void populateTritonArithToLinalgCanonicalizationPatterns(
     RewritePatternSet &patterns);
 
 void populateTritonArithToLinalgConversionPatterns(bool pidsToFuncArgs,
-                                                   bool addptrToLinalg,
                                                    bool assertToCf,
                                                    bool transposeReduceToRank0,
                                                    RewritePatternSet &patterns);
-
-// Expand the triton pointer ops operating on pointers to linalg
-void populateTritonTensorPtrConversionPatterns(RewritePatternSet &patterns);
 
 } // namespace triton
 } // namespace mlir

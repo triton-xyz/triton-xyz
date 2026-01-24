@@ -58,8 +58,8 @@ public:
 
     pm.addPass(createTritonToUnstructured());
     TritonArithToLinalgOptions triton_arith_to_linalg_options;
-    triton_arith_to_linalg_options.tensorPtrToLinalg = true;
     pm.addPass(createTritonArithToLinalg(triton_arith_to_linalg_options));
+    pm.addPass(createTritonTensorPtrToLinalg());
 
     pm.addPass(createStructuredToMemref());
     pm.addPass(createUnstructuredToMemref());

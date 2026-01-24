@@ -1,7 +1,6 @@
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h" // IWYU pragma: keep
-#include "triton/Dialect/Triton/IR/Dialect.h"
 
 #define DEBUG_TYPE "triton-arith-to-linalg"
 #include "triton-shared/Conversion/TritonArithToLinalg/ConversionPatterns.hpp"
@@ -15,24 +14,13 @@ void mlir::triton::populateTritonArithToLinalgCanonicalizationPatterns(
       patterns.getContext());
 }
 
-void mlir::triton::populateTritonTensorPtrConversionPatterns(
-    RewritePatternSet &patterns) {
-  patterns.add<StorePtrToLinalgConverter, TensorOpConverter<triton::LoadOp>,
-               TensorOpConverter<triton::IntToPtrOp>,
-               TensorOpConverter<triton::PtrToIntOp>,
-               TensorOpConverter<triton::BitcastOp>>(patterns.getContext());
-}
-
 void mlir::triton::populateTritonArithToLinalgConversionPatterns(
-    bool pidsToFuncArgs, bool addptrToLinalg, bool assertToCf,
-    bool transposeReduceToRank0, RewritePatternSet &patterns) {
+    bool pidsToFuncArgs, bool assertToCf, bool transposeReduceToRank0,
+    RewritePatternSet &patterns) {
 
   if (pidsToFuncArgs) {
     patterns.add<GetProgramIDConverter, GetNumProgramsConverter>(
         patterns.getContext());
-  }
-  if (addptrToLinalg) {
-    patterns.add<AddPtrConverter>(patterns.getContext());
   }
   if (assertToCf) {
     patterns.add<AssertConverter>(patterns.getContext());

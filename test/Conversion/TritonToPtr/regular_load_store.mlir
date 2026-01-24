@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --triton-arith-to-linalg="tensor-ptr-to-linalg"  --triton-to-ptr %s | FileCheck %s
+// RUN: triton-shared-opt --triton-arith-to-linalg --triton-tensor-ptr-to-linalg --triton-to-ptr %s | FileCheck %s
 
 module {
 // CHECK: #[[$ATTR_0:.+]] = affine_map<(d0) -> (d0)>
