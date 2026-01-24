@@ -1,5 +1,5 @@
-// RUN: triton-shared-opt --triton-to-structured --remove-dead-values --canonicalize --split-input-file %s | FileCheck %s
-// RUN: triton-shared-opt --triton-to-structured="run-prepass-only=true" --split-input-file %s | FileCheck %s --check-prefix=PREPASS
+// RUN: triton-shared-opt --split-input-file --triton-to-structured %s | FileCheck %s
+// RUN: triton-shared-opt --split-input-file --triton-to-structured="run-prepass-only=true" %s | FileCheck %s --check-prefix=PREPASS
 
 module {
 // CHECK-LABEL:   tt.func @basic_addptr_1d(
