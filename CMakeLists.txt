@@ -9,6 +9,6 @@ include_directories(${pybind11_INCLUDE_DIR})
 add_subdirectory(include)
 add_subdirectory(lib)
 
-add_triton_plugin(TritonShared ${CMAKE_CURRENT_SOURCE_DIR}/triton_shared.cc
+add_triton_plugin(TritonXyz triton_xyz.cc
     LINK_LIBS TritonSharedAnalysis TritonTilingExtIR)
-target_link_libraries(TritonShared PRIVATE Python3::Module pybind11::headers)
+target_link_libraries(TritonXyz PRIVATE Python3::Module pybind11::headers)
