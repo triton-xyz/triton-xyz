@@ -1,15 +1,22 @@
-add_triton_library(TritonToLinalgExperimental
+add_triton_library(TritonToLinalg
+  StructuredToMemref.cpp
+  StructuredToMemrefPass.cpp
+  TritonPtrToMemrefPass.cpp
   TritonToLinalgExperimentalPass.cpp
   ReconcilePtrCastsPass.cpp
   TritonToPtrPass.cpp
   CollapseShape.cpp
   TritonTensorPtrToLinalgPass.cpp
+  TritonToStructuredPass.cpp
+  TritonToUnstructuredPass.cpp
+  UnstructuredToMemrefPass.cpp
 
   DEPENDS
-  TritonToLinalgExperimentalConversionPassIncGen
+  TritonStructuredTableGen
+  TritonToLinalgConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  TritonTilingExtIR
+  MLIRSCFTransforms
   MLIRArithDialect
   MLIRDialectUtils
   MLIRIR
@@ -19,15 +26,13 @@ add_triton_library(TritonToLinalgExperimental
   MLIRTensorDialect
   MLIRTransforms
   MLIRSupport
+  MLIRReconcileUnrealizedCasts
   TritonIR
   TritonTransforms
+  TritonTilingExtIR
+  TritonStructuredIR
   TritonSharedAnalysis
+  TritonSharedAnalysisStructured
   TritonSharedUtils
-
   TritonArithToLinalg
-  StructuredToMemref
-  TritonToStructured
-  TritonToUnstructured
-  TritonPtrToMemref
-  UnstructuredToMemref
 )

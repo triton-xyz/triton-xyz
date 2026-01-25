@@ -21,7 +21,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Types.h"
 
 using namespace mlir;
@@ -29,7 +29,7 @@ using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_RECONCILEPTRCASTS
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

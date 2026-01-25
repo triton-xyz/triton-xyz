@@ -10,7 +10,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LogicalResult.h"
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -24,7 +24,7 @@ using namespace triton;
 namespace mlir {
 namespace triton {
 #define GEN_PASS_DEF_STRUCTUREDTOMEMREF
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace triton
 } // namespace mlir
 

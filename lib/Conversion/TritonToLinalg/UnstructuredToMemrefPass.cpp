@@ -13,7 +13,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Conversion/UnstructuredToMemref/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
@@ -30,7 +30,7 @@ using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_UNSTRUCTUREDTOMEMREF
-#include "triton-shared/Conversion/UnstructuredToMemref/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

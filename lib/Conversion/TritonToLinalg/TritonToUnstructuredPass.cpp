@@ -146,7 +146,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
-#include "triton-shared/Conversion/TritonToUnstructured/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -170,7 +170,7 @@ using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOUNSTRUCTURED
-#include "triton-shared/Conversion/TritonToUnstructured/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

@@ -8,13 +8,8 @@
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/InitAllPasses.h"
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
-#include "triton-shared/Conversion/TritonPtrToMemref/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
-#include "triton-shared/Conversion/TritonToStructured/Passes.h"
-#include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
-#include "triton-shared/Conversion/UnstructuredToMemref/Passes.h"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -25,13 +20,8 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::registerLinalgPasses();
   mlir::triton::registerTritonPasses();
 
-  mlir::triton::registerTritonToLinalgExperimentalPasses();
-  mlir::triton::registerTritonToStructuredPasses();
-  mlir::triton::registerTritonPtrToMemrefPasses();
-  mlir::triton::registerUnstructuredToMemrefPasses();
-  mlir::triton::registerTritonToUnstructuredPasses();
+  mlir::triton::registerTritonToLinalgPasses();
   mlir::triton::registerTritonArithToLinalgPasses();
-  mlir::triton::registerStructuredToMemrefPasses();
   registry
       .insert<mlir::ptr::PtrDialect, mlir::ttx::TritonTilingExtDialect,
               mlir::tts::TritonStructuredDialect, mlir::triton::TritonDialect,

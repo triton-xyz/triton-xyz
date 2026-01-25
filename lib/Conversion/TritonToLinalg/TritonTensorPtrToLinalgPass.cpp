@@ -4,7 +4,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
@@ -13,7 +13,7 @@ using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTENSORPTRTOLINALG
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {
