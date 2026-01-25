@@ -684,4 +684,3 @@ module {
     tt.return %res : tensor<4xf32>
   }
 }
-

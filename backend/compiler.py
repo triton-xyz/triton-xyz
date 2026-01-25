@@ -1,4 +1,3 @@
-import tempfile
 import functools
 import hashlib
 from dataclasses import dataclass
