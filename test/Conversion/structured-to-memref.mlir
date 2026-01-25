@@ -21,7 +21,11 @@ module {
     "tts.store"(%dst_tptr, %val) <{static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xf32>) -> ()
     tt.return
   }
+}
 
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @masked_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
@@ -51,7 +55,11 @@ module {
     "tts.store"(%dst_tptr, %val, %mask) <{static_mask_dims = array<i64: -9223372036854775808>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xf32>, index) -> ()
     tt.return
   }
+}
 
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @block_ptr_basic(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f16> to memref<*xf16>
@@ -68,7 +76,11 @@ module {
     "tts.store"(%ptr, %val) <{static_mask_dims = array<i64>}> : (!tt.ptr<tensor<2x3xf16>>, tensor<2x3xf16>) -> ()
     tt.return
   }
+}
 
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @gather_scatter_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1]> : tensor<2xindex>
@@ -101,7 +113,11 @@ module {
     "tts.store"(%tptr, %val) <{static_mask_dims = array<i64>}> : (!tt.ptr<tensor<2x2xf32>>, tensor<2x2xf32>) -> ()
     tt.return
   }
+}
 
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @wrap_side_by_side(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) -> tensor<2x4xf32> {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
@@ -120,7 +136,11 @@ module {
     %val = "tts.load"(%tptr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<2x4x!tt.ptr<f32>>) -> tensor<2x4xf32>
     tt.return %val : tensor<2x4xf32>
   }
+}
 
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @wrap_stacked(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) -> tensor<2x2xf32> {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
