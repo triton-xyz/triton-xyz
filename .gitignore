@@ -3,6 +3,7 @@ build
 __pycache__/
 
 .vscode/
+debug_agent/
 
 llvm-triton
 third_party/.gitignore
