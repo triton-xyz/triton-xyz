@@ -235,11 +235,16 @@ def process_line(line_chunks, variable_namer, use_ssa_name=False, strict_name_re
 # Process the source file lines. The source file doesn't have to be .mlir.
 def process_source_lines(source_lines, args):
     source_split_re = re.compile(args.source_delim_regex)
+    # NOTE: Diverges from upstream to avoid stripping // RUN lines that mention
+    # --check-prefix=..., only remove actual FileCheck directive comments.
+    check_line_re = re.compile(
+        r'^\s*//\s*' + re.escape(args.check_prefix) + r'(\b|[-:])'
+    )
 
     source_segments = [[]]
     for line in source_lines:
         # Remove previous CHECK lines.
-        if line.find(args.check_prefix) != -1:
+        if check_line_re.match(line):
             continue
         # Segment the file based on --source_delim_regex.
         if source_split_re.search(line):

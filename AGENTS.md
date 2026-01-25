@@ -32,7 +32,7 @@ cmake --build build --target triton-shared-opt
 ```
 
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
-- When adding a lit test, refer to `utils/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand. Do not edit the demo script directly. Use it as a template to create a generation script for your specific tests.
+- When adding a lit test, refer to `utils/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand.
 - Skip `pre-commit`; handled manually.
 
 ## Coding Style & Naming Conventions
@@ -43,9 +43,10 @@ cmake --build build --target triton-shared-opt
 
 ## Testing Guidelines
 
-- Tests are `.mlir` files executed by `lit` and checked with `FileCheck` directives in `// RUN:` lines.
-- Add new tests alongside the closest existing feature area (for example, `test/Conversion/TritonToPtr`).
-- Keep tests minimal: one feature per file when possible, with focused `CHECK:` patterns.
+- Tests are `.mlir` files run by `lit` and verified with `FileCheck` in `// RUN:` lines.
+- Add new tests under the closest feature area (for example, `test/Conversion/TritonToPtr`).
+- Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features.
+- Keep each case minimal and use focused `CHECK:` patterns to avoid over-specifying behavior.
 
 ## Commit & Pull Request Guidelines
 
