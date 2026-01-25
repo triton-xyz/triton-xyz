@@ -17,15 +17,15 @@ def TritonTensorPtrToLinalg : Pass<"triton-tensor-ptr-to-linalg", "mlir::ModuleO
   let summary = "Convert triton ops on tensor of pointers to linalg.generic";
 }
 
-def ReconcilePtrCasts : Pass<"reconcile-ptr-casts", "mlir::ModuleOp"> {
-  let summary = "Convert unrealized_cast op between tt.ptr or ptr.ptr to memref to to_memref or from_memref";
-}
-
 def TritonToPtr : Pass<"triton-to-ptr", "mlir::ModuleOp"> {
   let summary = "Convert Triton ops on pointers to the Ptr dialect";
 }
 
-def CollapseShape : Pass</*cli-arg*/"collapse-shape", /*Op*/"mlir::ModuleOp"> {
+def ReconcilePtrCasts : Pass<"reconcile-ptr-casts", "mlir::ModuleOp"> {
+  let summary = "Convert unrealized_cast op between tt.ptr or ptr.ptr to memref to to_memref or from_memref";
+}
+
+def CollapseShape : Pass<"collapse-shape", "mlir::ModuleOp"> {
   let summary = "Compress tensor dimensions to improve linalg{broadcast,transpose,fill,reduce} efficiency";
 }
 #endif
