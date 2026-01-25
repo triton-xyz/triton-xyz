@@ -7,10 +7,10 @@ namespace mlir {
 namespace triton {
 
 #define GEN_PASS_DECL
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 
 void populateStructuredToMemrefConversionPatterns(RewritePatternSet &patterns,
                                                   TypeConverter &typeConverter);

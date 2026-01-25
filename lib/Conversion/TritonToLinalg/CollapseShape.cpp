@@ -4,7 +4,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Conversion/TritonArithToLinalg/ConversionTools.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 
 #define DEBUG_TYPE "collapse-shape"
 
@@ -13,7 +13,7 @@ using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_COLLAPSESHAPE
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

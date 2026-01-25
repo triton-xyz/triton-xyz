@@ -6,13 +6,8 @@
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "triton-shared/Conversion/StructuredToMemref/Passes.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
-#include "triton-shared/Conversion/TritonPtrToMemref/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h"
-#include "triton-shared/Conversion/TritonToStructured/Passes.h"
-#include "triton-shared/Conversion/TritonToUnstructured/Passes.h"
-#include "triton-shared/Conversion/UnstructuredToMemref/Passes.h"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 
@@ -21,7 +16,7 @@ using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOLINALGEXPERIMENTAL
-#include "triton-shared/Conversion/TritonToLinalgExperimental/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {
