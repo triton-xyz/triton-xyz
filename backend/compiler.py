@@ -64,7 +64,7 @@ class XYZBackend(BaseBackend):
         return (
             metadata.num_warps,
             metadata.num_ctas,
-            metadata.shared,
+            # metadata.shared,
         )
 
     def get_codegen_implementation(self, options):
