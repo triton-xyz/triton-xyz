@@ -29,6 +29,10 @@ def TritonToUnstructured : Pass<"triton-to-unstructured", "mlir::ModuleOp"> {
   ];
 }
 
+def TritonUnstructuredFallback : Pass<"triton-unstructured-fallback", "mlir::ModuleOp"> {
+  let summary = "Scalarize tensor-of-ptr memory ops as a fallback";
+}
+
 def UnstructuredToMemref : Pass<"unstructured-to-memref", "mlir::ModuleOp"> {
   let summary = "Convert unstructured triton ptr (gather / scatter) to memref";
 }
@@ -38,6 +42,8 @@ def TritonToLinalgExperimental : Pass<"triton-to-linalg-experimental", "mlir::Mo
   let options = [
       Option<"enableMakeGatherScatterTensorPtr", "enable-make-gather-scatter", "bool", "true",
              "Enable make_gather_scatter_tptr support">,
+      Option<"enableUnstructuredFallback", "enable-unstructured-fallback", "bool", "false",
+             "Enable scalar fallback for tensor-of-ptr memory ops">,
       Option<"enableCollapseShape", "enable-collapse-shape", "bool", "false",
              "Enable collapse shape pass">,
   ];
