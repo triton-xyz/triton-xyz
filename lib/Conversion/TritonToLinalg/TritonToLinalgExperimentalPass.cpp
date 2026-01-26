@@ -52,6 +52,9 @@ public:
     pm.addPass(createCanonicalizerPass());
 
     pm.addPass(createTritonToUnstructured());
+    if (enableUnstructuredFallback) {
+      pm.addPass(createTritonUnstructuredFallback());
+    }
     TritonArithToLinalgOptions triton_arith_to_linalg_options;
     pm.addPass(createTritonArithToLinalg(triton_arith_to_linalg_options));
     pm.addPass(createTritonTensorPtrToLinalg());

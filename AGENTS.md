@@ -8,6 +8,7 @@
 - `build/` holds local build artifacts and is safe to regenerate.
 - `llvm-triton/llvm-project/` contains a vendored `llvm-project` checkout. `llvm-triton/llvm-project/mlir/` is the upstream MLIR source; `llvm-triton/llvm-project/mlir/test/` is a reference for MLIR test structure and `FileCheck` style.
 - `third_party/triton/` is a vendored upstream Triton checkout for reference on Triton behavior, APIs, and tests.
+- You can create a `debug_agent/` directory to store intermediate validation/testing/experimentation scripts, IR, or files instead of using `/tmp`.
 
 ## Upstream Source References
 

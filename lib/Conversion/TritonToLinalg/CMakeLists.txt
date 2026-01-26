@@ -9,6 +9,7 @@ add_triton_library(TritonToLinalg
   TritonTensorPtrToLinalgPass.cpp
   TritonToStructuredPass.cpp
   TritonToUnstructuredPass.cpp
+  TritonUnstructuredFallbackPass.cpp
   UnstructuredToMemrefPass.cpp
 
   DEPENDS
