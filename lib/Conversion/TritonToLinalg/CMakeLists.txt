@@ -6,11 +6,13 @@ add_triton_library(TritonToLinalg
   ReconcilePtrCastsPass.cpp
   TritonToPtrPass.cpp
   CollapseShape.cpp
-  TritonTensorPtrToLinalgPass.cpp
   TritonToStructuredPass.cpp
   TritonToUnstructuredPass.cpp
   TritonUnstructuredFallbackPass.cpp
   UnstructuredToMemrefPass.cpp
+
+  TritonTensorPtrToLinalgPass.cpp
+  TritonPtrToPtrPass.cpp
 
   DEPENDS
   TritonStructuredTableGen

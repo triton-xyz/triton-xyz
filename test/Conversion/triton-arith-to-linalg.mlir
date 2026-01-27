@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --triton-arith-to-linalg --split-input-file %s | FileCheck %s
+// RUN: triton-shared-opt --split-input-file --triton-arith-to-linalg %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   func.func @program_info(

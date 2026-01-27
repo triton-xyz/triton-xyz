@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --triton-arith-to-linalg --split-input-file --verify-diagnostics %s
+// RUN: triton-shared-opt --split-input-file --triton-arith-to-linalg --verify-diagnostics %s
 
 module {
   tt.func @cumsum_axis0_rank2() -> tensor<2x2xf32> {
