@@ -9,6 +9,7 @@ set(triton_shared_tool_libs
   ${conversion_libs}
   ${triton_libs}
   MLIRRegisterAllPasses
+  MLIRRegisterAllExtensions
 )
 
 add_llvm_executable(triton-shared-opt triton-shared-opt.cpp PARTIAL_SOURCES_INTENDED)
