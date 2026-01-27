@@ -157,13 +157,6 @@ public:
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();
     }
-
-    // PassManager pm(&getContext(), moduleOp.getOperationName());
-    // pm.addPass(createCanonicalizerPass());
-    // pm.addPass(createCSEPass());
-    // if (failed(runPipeline(pm, getOperation()))) {
-    //   signalPassFailure();
-    // }
   }
 };
 } // namespace
