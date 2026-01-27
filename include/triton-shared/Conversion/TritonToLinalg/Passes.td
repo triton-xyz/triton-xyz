@@ -61,6 +61,10 @@ def TritonPtrToMemref : Pass<"triton-ptr-to-memref", "mlir::ModuleOp"> {
   let summary = "Convert triton pointer to unranked memref";
 }
 
+def TritonTtPtrToPtr : Pass<"triton-tt-ptr-to-ptr", "mlir::ModuleOp"> {
+  let summary = "Convert Triton tt.ptr function signatures to ptr.ptr";
+}
+
 def ReconcilePtrCasts : Pass<"reconcile-ptr-casts", "mlir::ModuleOp"> {
   let summary = "Convert unrealized_cast op between tt.ptr or ptr.ptr to memref to to_memref or from_memref";
 }

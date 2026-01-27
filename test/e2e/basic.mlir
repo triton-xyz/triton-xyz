@@ -1,17 +1,18 @@
-// RUN: triton-shared-opt --split-input-file --triton-to-ptr --reconcile-unrealized-casts --convert-to-llvm --reconcile-unrealized-casts %s | FileCheck %s
+// RUN: triton-shared-opt --split-input-file --triton-to-ptr --triton-tt-ptr-to-ptr --reconcile-unrealized-casts --convert-to-llvm %s | FileCheck %s
 
 module {
-  // CHECK-LABEL: llvm.func @ptr_add(
-  // CHECK-SAME: !llvm.ptr, i32) -> !llvm.ptr
-  // CHECK: llvm.getelementptr {{.*}} : (!llvm.ptr) -> !llvm.ptr, i{{[0-9]+}}
-  // CHECK: llvm.ptrtoint {{.*}} : !llvm.ptr to i{{[0-9]+}}
-  // CHECK: llvm.mul {{.*}} : i{{[0-9]+}}
-  // CHECK: llvm.getelementptr {{.*}} : (!llvm.ptr, i{{[0-9]+}}) -> !llvm.ptr, i8
-  // CHECK: llvm.return {{.*}} : !llvm.ptr
-  func.func @ptr_add(%a: !ptr.ptr<#ptr.generic_space>, %idx: i32) -> !ptr.ptr<#ptr.generic_space> {
-    %a_tt = builtin.unrealized_conversion_cast %a : !ptr.ptr<#ptr.generic_space> to !tt.ptr<i32>
-    %p = tt.addptr %a_tt, %idx : !tt.ptr<i32>, i32
-    %p_out = builtin.unrealized_conversion_cast %p : !tt.ptr<i32> to !ptr.ptr<#ptr.generic_space>
-    func.return %p_out : !ptr.ptr<#ptr.generic_space>
+// CHECK-LABEL:   llvm.func @ptr_add(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !llvm.ptr,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> !llvm.ptr {
+// CHECK:           %[[MLIR_0:.*]] = llvm.mlir.zero : !llvm.ptr
+// CHECK:           %[[GETELEMENTPTR_0:.*]] = llvm.getelementptr %[[MLIR_0]][1] : (!llvm.ptr) -> !llvm.ptr, i32
+// CHECK:           %[[PTRTOINT_0:.*]] = llvm.ptrtoint %[[GETELEMENTPTR_0]] : !llvm.ptr to i32
+// CHECK:           %[[MUL_0:.*]] = llvm.mul %[[ARG1]], %[[PTRTOINT_0]] : i32
+// CHECK:           %[[GETELEMENTPTR_1:.*]] = llvm.getelementptr %[[ARG0]]{{\[}}%[[MUL_0]]] : (!llvm.ptr, i32) -> !llvm.ptr, i8
+// CHECK:           llvm.return %[[GETELEMENTPTR_1]] : !llvm.ptr
+// CHECK:         }
+  func.func @ptr_add(%a: !tt.ptr<i32>, %idx: i32) -> !tt.ptr<i32> {
+    %p = tt.addptr %a, %idx : !tt.ptr<i32>, i32
+    func.return %p : !tt.ptr<i32>
   }
 }
