@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --verify-diagnostics --triton-to-structured="skip-prepass=true" %s
+// RUN: triton-xyz-opt --split-input-file --verify-diagnostics --triton-to-structured="skip-prepass=true" %s
 
 module {
   tt.func public @unsupported_mod_add(%arg0: !tt.ptr<f32>) {

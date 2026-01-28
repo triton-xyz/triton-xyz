@@ -12,9 +12,9 @@ set(triton_shared_tool_libs
   MLIRRegisterAllExtensions
 )
 
-add_llvm_executable(triton-shared-opt triton-shared-opt.cpp PARTIAL_SOURCES_INTENDED)
+add_llvm_executable(triton-xyz-opt triton-xyz-opt.cpp PARTIAL_SOURCES_INTENDED)
 
-target_link_libraries(triton-shared-opt PRIVATE
+target_link_libraries(triton-xyz-opt PRIVATE
   ${triton_shared_tool_libs}
   # MLIR core
   MLIROptLib
@@ -22,15 +22,15 @@ target_link_libraries(triton-shared-opt PRIVATE
   MLIRTransforms
 )
 
-mlir_check_all_link_libraries(triton-shared-opt)
+mlir_check_all_link_libraries(triton-xyz-opt)
 
-add_llvm_executable(triton-shared-lsp triton-shared-lsp.cpp PARTIAL_SOURCES_INTENDED)
+add_llvm_executable(triton-xyz-lsp triton-xyz-lsp.cpp PARTIAL_SOURCES_INTENDED)
 
-target_link_libraries(triton-shared-lsp PRIVATE
+target_link_libraries(triton-xyz-lsp PRIVATE
   ${triton_shared_tool_libs}
   MLIRLspServerLib
   MLIRRegisterAllDialects
   MLIRRegisterAllExtensions
 )
 
-mlir_check_all_link_libraries(triton-shared-lsp)
+mlir_check_all_link_libraries(triton-xyz-lsp)

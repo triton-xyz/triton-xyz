@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --verify-diagnostics --unstructured-to-memref %s
+// RUN: triton-xyz-opt --split-input-file --verify-diagnostics --unstructured-to-memref %s
 
 // TODO: emit message before legalization
 

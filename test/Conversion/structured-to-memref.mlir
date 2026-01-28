@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --structured-to-memref --canonicalize --cse %s | FileCheck %s
+// RUN: triton-xyz-opt --structured-to-memref --canonicalize --cse %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func @structured_basic(

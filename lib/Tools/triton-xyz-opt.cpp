@@ -6,5 +6,5 @@ int main(int argc, char **argv) {
   registerTritonSharedDialects(registry);
 
   return mlir::asMainReturnCode(
-      mlir::MlirOptMain(argc, argv, "triton-shared-opt", registry));
+      mlir::MlirOptMain(argc, argv, "triton-xyz-opt", registry));
 }
