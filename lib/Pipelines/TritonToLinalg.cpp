@@ -7,8 +7,7 @@
 #include "triton-shared/Pipelines/Pipelines.h"
 
 void mlir::triton::buildTritonToLinalgPipeline(
-    OpPassManager &pm,
-    const TritonToLinalgPipelineOptions &options) {
+    OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
   TritonToStructuredOptions tritonToStructuredOptions;
   tritonToStructuredOptions.enableMakeGatherScatterTensorPtr =
       options.enableMakeGatherScatterTensorPtr;
