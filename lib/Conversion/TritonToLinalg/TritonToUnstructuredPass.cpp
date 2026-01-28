@@ -143,7 +143,6 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/Transforms/Passes.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
@@ -592,13 +591,6 @@ public:
           "Cannot transform tensor of pointers into a single base pointer "
           "with tensor of offsets");
       return;
-    }
-
-    PassManager pm(&getContext(), getOperation().getOperationName());
-    pm.addPass(createCanonicalizerPass());
-    pm.addPass(createCSEPass());
-    if (failed(runPipeline(pm, getOperation()))) {
-      signalPassFailure();
     }
   }
 };

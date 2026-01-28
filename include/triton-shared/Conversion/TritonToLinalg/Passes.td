@@ -49,18 +49,6 @@ def CollapseShape : Pass<"collapse-shape", "mlir::ModuleOp"> {
   let summary = "Compress tensor dimensions to improve linalg{broadcast,transpose,fill,reduce} efficiency";
 }
 
-def TritonToLinalgExperimental : Pass<"triton-to-linalg-experimental", "mlir::ModuleOp"> {
-  let summary = "Convert Triton to Linalg dialect";
-  let options = [
-      Option<"enableMakeGatherScatterTensorPtr", "enable-make-gather-scatter", "bool", "true",
-             "Enable make_gather_scatter_tptr support">,
-      Option<"enableUnstructuredFallback", "enable-unstructured-fallback", "bool", "false",
-             "Enable scalar fallback for tensor-of-ptr memory ops">,
-      Option<"enableCollapseShape", "enable-collapse-shape", "bool", "false",
-             "Enable collapse shape pass">,
-  ];
-}
-
 def TritonUnstructuredFallback : Pass<"triton-unstructured-fallback", "mlir::ModuleOp"> {
   let summary = "Scalarize tensor-of-ptr memory ops as a fallback";
 }
