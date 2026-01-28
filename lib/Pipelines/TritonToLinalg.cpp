@@ -12,22 +12,16 @@ void mlir::triton::buildTritonToLinalgPipeline(
   tritonToStructuredOptions.enableMakeGatherScatterTensorPtr =
       options.enableMakeGatherScatterTensorPtr;
   pm.addPass(createTritonToStructured(tritonToStructuredOptions));
-
-  // Erase dead code and fold constants created during lowering.
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
-
   pm.addPass(createTritonToUnstructured());
-  if (options.enableUnstructuredFallback) {
-    pm.addPass(createTritonUnstructuredFallback());
-  }
+  pm.addPass(createTritonUnstructuredFallback());
 
   TritonArithToLinalgOptions tritonArithToLinalgOptions;
   tritonArithToLinalgOptions.pidsToFuncArgs = options.pidsToFuncArgs;
   tritonArithToLinalgOptions.ttToFuncFunc = options.ttToFuncFunc;
   tritonArithToLinalgOptions.assertToCf = options.assertToCf;
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
-
   pm.addPass(createTritonTensorPtrToLinalg());
 
   pm.addPass(createStructuredToMemref());
@@ -37,9 +31,6 @@ void mlir::triton::buildTritonToLinalgPipeline(
   pm.addPass(createReconcileUnrealizedCastsPass());
   pm.addPass(createReconcilePtrCasts());
 
-  // Now that remove-dead-values fully works with linalg ops, clean up the IR
-  // again, particularly unused loop iter-args that were created
-  // during triton-to-structured.
   pm.addPass(createRemoveDeadValuesPass());
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
