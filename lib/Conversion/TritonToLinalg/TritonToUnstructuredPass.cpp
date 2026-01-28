@@ -593,13 +593,6 @@ public:
           "with tensor of offsets");
       return;
     }
-
-    PassManager pm(&getContext(), getOperation().getOperationName());
-    pm.addPass(createCanonicalizerPass());
-    pm.addPass(createCSEPass());
-    if (failed(runPipeline(pm, getOperation()))) {
-      signalPassFailure();
-    }
   }
 };
 } // namespace

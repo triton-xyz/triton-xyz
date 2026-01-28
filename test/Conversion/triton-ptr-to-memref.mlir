@@ -17,8 +17,8 @@ module {
 module {
 // CHECK-LABEL:   tt.func @tt_ptr_arg(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf16>) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f16
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : memref<*xf16> to !tt.ptr<f16>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f16
 // CHECK:           tt.store %[[UNREALIZED_CONVERSION_CAST_0]], %[[CONSTANT_0]] : !tt.ptr<f16>
 // CHECK:           tt.return
 // CHECK:         }
