@@ -8,9 +8,9 @@ add_triton_library(TritonToLinalg
   CollapseShape.cpp
   TritonToStructuredPass.cpp
   TritonToUnstructuredPass.cpp
-  TritonUnstructuredFallbackPass.cpp
   UnstructuredToMemrefPass.cpp
 
+  TritonUnstructuredFallbackPass.cpp
   TritonTensorPtrToLinalgPass.cpp
   TritonPtrToPtrPass.cpp
 
