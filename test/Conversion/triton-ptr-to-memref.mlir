@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-ptr-to-memref %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-ptr-to-memref %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   func.func @func_ptr_args(

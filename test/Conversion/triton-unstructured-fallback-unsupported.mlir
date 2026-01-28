@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-unstructured-fallback %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-unstructured-fallback %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func public @scalar_load_store(

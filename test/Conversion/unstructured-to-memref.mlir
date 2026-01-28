@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --unstructured-to-memref %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --unstructured-to-memref %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func public @scalar_gather_scatter(

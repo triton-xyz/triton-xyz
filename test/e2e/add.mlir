@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-to-linalg %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-linalg %s | FileCheck %s
 
 module {
 // CHECK: #[[$ATTR_0:.+]] = affine_map<(d0) -> (d0)>

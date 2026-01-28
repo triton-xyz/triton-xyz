@@ -10,10 +10,6 @@ struct TritonToLinalgPipelineOptions
       *this, "enable-make-gather-scatter",
       llvm::cl::desc("Enable make_gather_scatter_tptr support"),
       llvm::cl::init(true)};
-  PassOptions::Option<bool> enableUnstructuredFallback{
-      *this, "enable-unstructured-fallback",
-      llvm::cl::desc("Enable scalar fallback for tensor-of-ptr memory ops"),
-      llvm::cl::init(false)};
   PassOptions::Option<bool> enableCollapseShape{
       *this, "enable-collapse-shape",
       llvm::cl::desc("Enable collapse shape pass"), llvm::cl::init(false)};

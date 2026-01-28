@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --reconcile-ptr-casts %s | FileCheck %s
+// RUN: triton-xyz-opt --reconcile-ptr-casts %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func @reconcile_casts(

@@ -26,10 +26,10 @@
 bash utils/agent/build_cmake.sh
 ```
 
-- Build `triton-shared-opt` from the build dir.
+- Build `triton-xyz-opt` from the build dir.
 
 ```bash
-cmake --build build --target triton-shared-opt
+cmake --build build --target triton-xyz-opt
 ```
 
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.

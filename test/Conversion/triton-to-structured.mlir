@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-to-structured --remove-dead-values --canonicalize %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-structured --remove-dead-values --canonicalize %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func @basic_addptr_1d(

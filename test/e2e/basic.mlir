@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-to-ptr --triton-tt-ptr-to-ptr --reconcile-unrealized-casts --convert-to-llvm %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-ptr --triton-tt-ptr-to-ptr --reconcile-unrealized-casts --convert-to-llvm %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   llvm.func @ptr_add(

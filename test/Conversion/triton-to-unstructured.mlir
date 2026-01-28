@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --triton-to-unstructured %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-unstructured %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func public @masked_gather_scatter(

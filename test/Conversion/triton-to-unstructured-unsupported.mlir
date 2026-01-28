@@ -1,4 +1,4 @@
-// RUN: triton-shared-opt --split-input-file --verify-diagnostics --triton-to-unstructured %s
+// RUN: triton-xyz-opt --split-input-file --verify-diagnostics --triton-to-unstructured %s
 
 module { // expected-warning {{Cannot transform tensor of pointers into a single base pointer with tensor of offsets}}
   tt.func public @unsupported_cat(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
