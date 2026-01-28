@@ -2,7 +2,6 @@ add_triton_library(TritonToLinalg
   StructuredToMemref.cpp
   StructuredToMemrefPass.cpp
   TritonPtrToMemrefPass.cpp
-  TritonToLinalgExperimentalPass.cpp
   ReconcilePtrCastsPass.cpp
   TritonToPtrPass.cpp
   CollapseShape.cpp
