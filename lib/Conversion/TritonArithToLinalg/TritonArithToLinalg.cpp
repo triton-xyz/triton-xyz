@@ -15,13 +15,7 @@ void mlir::triton::populateTritonArithToLinalgCanonicalizationPatterns(
 }
 
 void mlir::triton::populateTritonArithToLinalgConversionPatterns(
-    bool pidsToFuncArgs, bool assertToCf, bool transposeReduceToRank0,
-    RewritePatternSet &patterns) {
-
-  if (pidsToFuncArgs) {
-    patterns.add<GetProgramIDConverter, GetNumProgramsConverter>(
-        patterns.getContext());
-  }
+    bool assertToCf, bool transposeReduceToRank0, RewritePatternSet &patterns) {
   if (assertToCf) {
     patterns.add<AssertConverter>(patterns.getContext());
   }

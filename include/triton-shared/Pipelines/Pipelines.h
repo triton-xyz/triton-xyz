@@ -17,7 +17,7 @@ struct TritonToLinalgPipelineOptions
       *this, "pids-to-func-args",
       llvm::cl::desc("Convert tt.get_program_id and tt.get_num_programs to "
                      "reference to function arguments"),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
   PassOptions::Option<bool> ttToFuncFunc{
       *this, "tt-to-func-func", llvm::cl::desc("Convert tt.func to func.func"),
       llvm::cl::init(true)};

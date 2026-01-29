@@ -6,8 +6,6 @@ include "mlir/Pass/PassBase.td"
 def TritonArithToLinalg : Pass<"triton-arith-to-linalg", "mlir::ModuleOp"> {
   let summary = "Convert Triton arithmetic operations into linalg";
   let options = [
-      Option<"pidsToFuncArgs", "pids-to-func-args", "bool", "true",
-             "Convert tt.get_program_id and tt.get_num_programs to reference to function arguments">,
       Option<"ttToFuncFunc", "tt-to-func-func", "bool", "true",
              "Convert tt.func to func.func">,
       Option<"assertToCf", "assert-to-cf", "bool", "true",
@@ -17,6 +15,10 @@ def TritonArithToLinalg : Pass<"triton-arith-to-linalg", "mlir::ModuleOp"> {
              "transpose any rank - 1 reduction to rank - 2 as the old behavior. These transposes "
              "are planned for removal as Triton Shared should not be responsible for this.">,
   ];
+}
+
+def TritonPidsToFuncArgs : Pass<"triton-pids-to-func-args", "mlir::ModuleOp"> {
+  let summary = "Convert tt.get_program_id and tt.get_num_programs to function arguments";
 }
 
 #endif

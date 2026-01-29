@@ -32,40 +32,6 @@ class TritonArithToLinalgPass
   using Base = triton::impl::TritonArithToLinalgBase<TritonArithToLinalgPass>;
   using Base::Base;
 
-  static auto constexpr LAUNCH_GRID_RANK = getMaxEnumValForProgramIDDim() + 1;
-  static unsigned int constexpr TRITON_PROGRAM_INFO_ARG_COUNT =
-      LAUNCH_GRID_RANK * 2;
-
-  // Add additional I32 arguments to represent:
-  // - num_programs, 3 in total, one for each axis of the launch grid
-  // - program_id, 3 in total, one for each axis of the launch grid
-  static void addProgramInfo(triton::FuncOp func) {
-    OpBuilder b(func);
-
-    auto origFuncType = func.getFunctionType();
-    auto origInputTypes = origFuncType.getInputs();
-    SmallVector<Type> newInputTypes(origInputTypes);
-    newInputTypes.append(TRITON_PROGRAM_INFO_ARG_COUNT, b.getI32Type());
-
-    auto newFuncType =
-        b.getFunctionType(newInputTypes, origFuncType.getResults());
-
-    func.setFunctionType(newFuncType);
-
-    // Add empty attributes for each new argument if needed
-    if (func.getAllArgAttrs()) {
-      SmallVector<DictionaryAttr> newArgAttrs;
-      func.getAllArgAttrs(newArgAttrs);
-      newArgAttrs.append(TRITON_PROGRAM_INFO_ARG_COUNT, DictionaryAttr());
-      func.setAllArgAttrs(newArgAttrs);
-    }
-
-    // Add the corresponding arguments to function body
-    for (unsigned int i = 0; i < TRITON_PROGRAM_INFO_ARG_COUNT; i++) {
-      func.getBody().front().addArgument(b.getI32Type(), func.getLoc());
-    }
-  }
-
   LogicalResult applyTensorConcatDecomposition() {
     auto moduleOp = getOperation();
     MLIRContext *context = &getContext();
@@ -113,6 +79,7 @@ public:
     target.addLegalOp<ModuleOp>();
 
     target.addLegalOp<triton::FuncOp, triton::ReturnOp>();
+    target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
 
     target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect>(
         [](Operation *op) {
@@ -140,10 +107,6 @@ public:
           return !operateOnTensors;
         });
 
-    if (pidsToFuncArgs) {
-      target.addIllegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
-    }
-
     target.addDynamicallyLegalOp<triton::BitcastOp>([](triton::BitcastOp op) {
       return triton::isPtrTypeLike(op.getType());
     });
@@ -153,13 +116,7 @@ public:
     }
 
     triton::populateTritonArithToLinalgConversionPatterns(
-        pidsToFuncArgs, assertToCf, transposeReduceToRank0, patterns);
-
-    if (pidsToFuncArgs) {
-      for (auto func : getOperation().getOps<triton::FuncOp>()) {
-        addProgramInfo(func);
-      }
-    }
+        assertToCf, transposeReduceToRank0, patterns);
 
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();
