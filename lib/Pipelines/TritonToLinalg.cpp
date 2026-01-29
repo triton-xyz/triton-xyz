@@ -23,6 +23,7 @@ void mlir::triton::buildTritonToLinalgPipeline(
   tritonArithToLinalgOptions.assertToCf = options.assertToCf;
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
   pm.addPass(createTritonTensorPtrToLinalg());
+  pm.addPass(createNormalizeTensorPtrOrder());
 
   pm.addPass(createStructuredToMemref());
   pm.addPass(createUnstructuredToMemref());
