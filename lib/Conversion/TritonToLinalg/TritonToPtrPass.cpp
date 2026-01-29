@@ -1,19 +1,3 @@
-//===----------------------------------------------------------------------===//
-// This pass lowers all triton ops on pointer to their equivalent form in the
-// proposed Pointer Dialect:
-// https://discourse.llvm.org/t/rfc-ptr-dialect-modularizing-ptr-ops-in-the-llvm-dialect/75142
-//
-// This pass is intended to be used after all running
-// triton-arith-to-linalg="tensor-ptr-to-linalg=true".
-// All triton ops on tensors of pointers are expected to have been lowered to
-// linalg ops, and that only triton ops on single pointers remain.
-//
-// Implementation notes:
-// Because triton pointers are typed whereas the !ptr.ptr type isn't. The
-// lowering for addptr will have to manually scale the offsets by pointee type.
-// As a result, bitcasts are no-op after this pass.
-//===----------------------------------------------------------------------===//
-
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
