@@ -401,6 +401,37 @@ public:
 
                   return success();
                 })
+                .Case<triton::BitcastOp>([&](triton::BitcastOp bitcast) {
+                  auto res = bitcast.getResult();
+                  auto resType = res.getType();
+
+                  if (!triton::isPtrTypeLike(resType)) {
+                    return success();
+                  }
+
+                  auto offsetInfo = offsetMap.at(bitcast.getSrc());
+                  Value basePtr = offsetInfo.ptr;
+
+                  Type newBasePtrType = resType;
+                  if (auto tensorType = dyn_cast<RankedTensorType>(resType)) {
+                    newBasePtrType = tensorType.getElementType();
+                  }
+
+                  if (basePtr.getType() != newBasePtrType) {
+                    OpBuilder b{bitcast};
+                    basePtr = triton::BitcastOp::create(b, bitcast.getLoc(),
+                                                        newBasePtrType, basePtr)
+                                  .getResult();
+                  }
+
+                  PtrOffset newOffsetInfo{basePtr, resType, offsetInfo.bitWidth,
+                                          offsetInfo.offset};
+
+                  offsetMap.insert({res, newOffsetInfo});
+                  workList.push(res);
+                  toDelete.push_back(bitcast);
+                  return success();
+                })
                 .Case<tts::MakeGatherScatterTensorPtrOp>(
                     [&](Operation *op) { return success(); })
                 .Case<triton::LoadOp, triton::StoreOp, triton::MakeTensorPtrOp,
