@@ -1,4 +1,4 @@
-// RUN: triton-xyz-opt --verify-diagnostics --structured-to-memref %s
+// RUN: triton-xyz-opt --split-input-file --verify-diagnostics --structured-to-memref %s
 
 module {
   tt.func @unsupported_order(%base: !tt.ptr<f32>) {
