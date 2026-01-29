@@ -17,8 +17,8 @@ module {
 module {
 // CHECK-LABEL:   tt.func @tt_ptr_arg(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf16>) {
-// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : memref<*xf16> to !tt.ptr<f16>
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f16
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : memref<*xf16> to !tt.ptr<f16>
 // CHECK:           tt.store %[[UNREALIZED_CONVERSION_CAST_0]], %[[CONSTANT_0]] : !tt.ptr<f16>
 // CHECK:           tt.return
 // CHECK:         }
@@ -50,5 +50,126 @@ module {
   func.func @caller(%arg0: !tt.ptr<f32>) -> f32 {
     %0 = func.call @callee(%arg0) : (!tt.ptr<f32>) -> f32
     return %0 : f32
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_store(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_0]]] : tensor<4xf32>
+// CHECK:           memref.store %[[EXTRACT_0]], %[[ARG0]]{{\[}}%[[CONSTANT_0]]] : memref<4xf32>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @tensor_ptr_store(%arg0: tensor<4x!tt.ptr<f32>>, %arg1: tensor<4xf32>) {
+    %c0 = arith.constant 0 : index
+    %ptr = tensor.extract %arg0[%c0] : tensor<4x!tt.ptr<f32>>
+    %val = tensor.extract %arg1[%c0] : tensor<4xf32>
+    tt.store %ptr, %val : !tt.ptr<f32>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_masked_load_store(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[IF_0:.*]] = scf.if %[[ARG2]] -> (f32) {
+// CHECK:             %[[LOAD_0:.*]] = memref.load %[[ARG0]]{{\[}}%[[CONSTANT_0]]] : memref<4xf32>
+// CHECK:             scf.yield %[[LOAD_0]] : f32
+// CHECK:           } else {
+// CHECK:             scf.yield %[[ARG3]] : f32
+// CHECK:           }
+// CHECK:           scf.if %[[ARG2]] {
+// CHECK:             memref.store %[[IF_0]], %[[ARG1]]{{\[}}%[[CONSTANT_0]]] : memref<4xf32>
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @tensor_ptr_masked_load_store(%srcs: tensor<4x!tt.ptr<f32>>, %dsts: tensor<4x!tt.ptr<f32>>, %mask: i1, %other: f32) {
+    %c0 = arith.constant 0 : index
+    %src = tensor.extract %srcs[%c0] : tensor<4x!tt.ptr<f32>>
+    %dst = tensor.extract %dsts[%c0] : tensor<4x!tt.ptr<f32>>
+    %val = tt.load %src, %mask, %other : !tt.ptr<f32>
+    tt.store %dst, %val, %mask : !tt.ptr<f32>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_masked_load_no_other(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) -> f32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
+// CHECK:           %[[IF_0:.*]] = scf.if %[[ARG1]] -> (f32) {
+// CHECK:             %[[LOAD_0:.*]] = memref.load %[[ARG0]]{{\[}}%[[CONSTANT_1]]] : memref<4xf32>
+// CHECK:             scf.yield %[[LOAD_0]] : f32
+// CHECK:           } else {
+// CHECK:             scf.yield %[[CONSTANT_0]] : f32
+// CHECK:           }
+// CHECK:           tt.return %[[IF_0]] : f32
+// CHECK:         }
+  tt.func @tensor_ptr_masked_load_no_other(%srcs: tensor<4x!tt.ptr<f32>>, %mask: i1) -> f32 {
+    %c0 = arith.constant 0 : index
+    %src = tensor.extract %srcs[%c0] : tensor<4x!tt.ptr<f32>>
+    %val = tt.load %src, %mask : !tt.ptr<f32>
+    tt.return %val : f32
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_multi_dim(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<2x3xi16>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x3xi16>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]] : tensor<2x3xi16>
+// CHECK:           memref.store %[[EXTRACT_0]], %[[ARG0]]{{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]] : memref<2x3xi16>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @tensor_ptr_multi_dim(%ptrs: tensor<2x3x!tt.ptr<i16>>, %vals: tensor<2x3xi16>) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %ptr = tensor.extract %ptrs[%c0, %c1] : tensor<2x3x!tt.ptr<i16>>
+    %val = tensor.extract %vals[%c0, %c1] : tensor<2x3xi16>
+    tt.store %ptr, %val : !tt.ptr<i16>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_dynamic_index(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG2]]{{\[}}%[[ARG3]]] : tensor<4xf32>
+// CHECK:           %[[LOAD_0:.*]] = memref.load %[[ARG0]]{{\[}}%[[ARG3]]] : memref<4xf32>
+// CHECK:           %[[ADDF_0:.*]] = arith.addf %[[LOAD_0]], %[[EXTRACT_0]] : f32
+// CHECK:           memref.store %[[ADDF_0]], %[[ARG1]]{{\[}}%[[ARG3]]] : memref<4xf32>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @tensor_ptr_dynamic_index(%srcs: tensor<4x!tt.ptr<f32>>, %dsts: tensor<4x!tt.ptr<f32>>, %vals: tensor<4xf32>, %idx: index) {
+    %src = tensor.extract %srcs[%idx] : tensor<4x!tt.ptr<f32>>
+    %dst = tensor.extract %dsts[%idx] : tensor<4x!tt.ptr<f32>>
+    %val = tensor.extract %vals[%idx] : tensor<4xf32>
+    %loaded = tt.load %src : !tt.ptr<f32>
+    %sum = arith.addf %loaded, %val : f32
+    tt.store %dst, %sum : !tt.ptr<f32>
+    tt.return
   }
 }
