@@ -11,6 +11,7 @@ add_triton_library(TritonToLinalg
 
   TritonUnstructuredFallbackPass.cpp
   TritonTensorPtrToLinalgPass.cpp
+  NormalizeTensorPtrOrderPass.cpp
   TritonPtrToPtrPass.cpp
 
   DEPENDS

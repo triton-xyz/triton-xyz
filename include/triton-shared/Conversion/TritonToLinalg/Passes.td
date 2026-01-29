@@ -57,6 +57,10 @@ def TritonTensorPtrToLinalg : Pass<"triton-tensor-ptr-to-linalg", "mlir::ModuleO
   let summary = "Convert triton ops on tensor of pointers to linalg.generic";
 }
 
+def NormalizeTensorPtrOrder : Pass<"normalize-tensor-ptr-order", "mlir::ModuleOp"> {
+  let summary = "Normalize block pointer order for tts.make_tptr";
+}
+
 def TritonTtPtrToPtr : Pass<"triton-tt-ptr-to-ptr", "mlir::ModuleOp"> {
   let summary = "Convert Triton tt.ptr function signatures to ptr.ptr";
 }
