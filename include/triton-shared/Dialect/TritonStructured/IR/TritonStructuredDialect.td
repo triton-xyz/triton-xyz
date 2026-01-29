@@ -262,7 +262,7 @@ def TTS_GatherOp : TTS_Op<"gather", [
 
   let arguments = (
     ins
-    TT_Ptr:$ptr,
+    TT_PtrLike:$ptr,
     TT_IntLike:$offset,
     Optional<TT_BoolLike>:$mask,
     Optional<TT_Type>:$other
@@ -285,7 +285,7 @@ def TTS_ScatterOp : TTS_Op<"scatter", [
 
   let arguments = (
     ins
-    TT_Ptr:$ptr,
+    TT_PtrLike:$ptr,
     TT_IntLike:$offset,
     TT_Type:$value,
     Optional<TT_BoolLike>:$mask

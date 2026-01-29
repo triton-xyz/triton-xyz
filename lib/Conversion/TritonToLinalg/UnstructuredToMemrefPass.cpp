@@ -13,6 +13,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
@@ -61,6 +62,78 @@ static MemRefType getMemrefTypeForScalarPtr(triton::PointerType ptrType,
   return memrefType;
 }
 
+static bool isTensorOfPointers(Type type) {
+  auto tensorType = dyn_cast<RankedTensorType>(type);
+  if (!tensorType) {
+    return false;
+  }
+  return isa<triton::PointerType>(tensorType.getElementType());
+}
+
+static Value getDimValue(OpBuilder &b, Location loc, Value tensor, int64_t dim,
+                         int64_t dimSize) {
+  if (!ShapedType::isDynamic(dimSize)) {
+    return arith::ConstantOp::create(b, loc, b.getIndexAttr(dimSize));
+  }
+  return tensor::DimOp::create(b, loc, tensor, dim);
+}
+
+static Value extractElement(OpBuilder &b, Location loc, Value value,
+                            ArrayRef<Value> indices) {
+  if (!value) {
+    return Value();
+  }
+  if (isa<RankedTensorType>(value.getType())) {
+    return tensor::ExtractOp::create(b, loc, value, indices);
+  }
+  return value;
+}
+
+static Value createScalarLoadFromPtr(OpBuilder &b, Location loc, Value ptr,
+                                     Value offset) {
+  auto ptrType = cast<triton::PointerType>(ptr.getType());
+  auto unrankedType = UnrankedMemRefType::get(ptrType.getPointeeType(), 0);
+  auto baseMemref =
+      UnrealizedConversionCastOp::create(b, loc, unrankedType, ptr)
+          .getResult(0);
+
+  Value loadIndex =
+      arith::IndexCastOp::create(b, loc, b.getIndexType(), offset).getResult();
+
+  auto memref = memref::ReinterpretCastOp::create(
+                    b, loc, getMemrefTypeForScalarPtr(ptrType, b.getContext()),
+                    baseMemref, getAsOpFoldResult(loadIndex),
+                    ArrayRef<OpFoldResult>{b.getIndexAttr(1)},
+                    ArrayRef<OpFoldResult>{b.getIndexAttr(1)})
+                    .getResult();
+
+  auto zeroMap = AffineMap::getConstantMap(0, b.getContext());
+  return affine::AffineLoadOp::create(b, loc, memref, zeroMap, ValueRange{})
+      .getResult();
+}
+
+static void createScalarStoreToPtr(OpBuilder &b, Location loc, Value ptr,
+                                   Value offset, Value value) {
+  auto ptrType = cast<triton::PointerType>(ptr.getType());
+  auto unrankedType = UnrankedMemRefType::get(ptrType.getPointeeType(), 0);
+  auto baseMemref =
+      UnrealizedConversionCastOp::create(b, loc, unrankedType, ptr)
+          .getResult(0);
+
+  Value storeIndex =
+      arith::IndexCastOp::create(b, loc, b.getIndexType(), offset).getResult();
+
+  auto memref = memref::ReinterpretCastOp::create(
+                    b, loc, getMemrefTypeForScalarPtr(ptrType, b.getContext()),
+                    baseMemref, getAsOpFoldResult(storeIndex),
+                    ArrayRef<OpFoldResult>{b.getIndexAttr(1)},
+                    ArrayRef<OpFoldResult>{b.getIndexAttr(1)})
+                    .getResult();
+
+  auto zeroMap = AffineMap::getConstantMap(0, b.getContext());
+  affine::AffineStoreOp::create(b, loc, value, memref, zeroMap, ValueRange{});
+}
+
 struct ScalarLoadConverter : public OpConversionPattern<tts::GatherOp> {
   using OpConversionPattern<tts::GatherOp>::OpConversionPattern;
 
@@ -74,6 +147,9 @@ struct ScalarLoadConverter : public OpConversionPattern<tts::GatherOp> {
   matchAndRewrite(tts::GatherOp gatherOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!gatherOp.getType().isIntOrIndexOrFloat()) {
+      return failure();
+    }
+    if (!isa<triton::PointerType>(gatherOp.getPtr().getType())) {
       return failure();
     }
 
@@ -124,6 +200,9 @@ struct ScalarStoreConverter : public OpConversionPattern<tts::ScatterOp> {
     if (!scatterOp.getValue().getType().isIntOrIndexOrFloat()) {
       return failure();
     }
+    if (!isa<triton::PointerType>(scatterOp.getPtr().getType())) {
+      return failure();
+    }
 
     auto loc = scatterOp->getLoc();
 
@@ -156,6 +235,151 @@ struct ScalarStoreConverter : public OpConversionPattern<tts::ScatterOp> {
   }
 };
 
+struct MultiBaseGatherConverter : public OpRewritePattern<tts::GatherOp> {
+  using OpRewritePattern<tts::GatherOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tts::GatherOp gatherOp,
+                                PatternRewriter &rewriter) const override {
+    auto ptrType = dyn_cast<RankedTensorType>(gatherOp.getPtr().getType());
+    if (!ptrType || !isTensorOfPointers(ptrType)) {
+      return failure();
+    }
+
+    auto resultType =
+        dyn_cast<RankedTensorType>(gatherOp.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    auto loc = gatherOp.getLoc();
+    Value ptrTensor = gatherOp.getPtr();
+    Value offsetTensor = gatherOp.getOffset();
+    auto shape = resultType.getShape();
+    auto elementType = resultType.getElementType();
+    auto zero =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0));
+    auto one =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(1));
+
+    Value init = tensor::EmptyOp::create(rewriter, loc, shape, elementType);
+    SmallVector<Value> indices;
+
+    auto buildLoop = [&](auto &self, int dim, Value iterTensor) -> Value {
+      if (dim == static_cast<int>(shape.size())) {
+        Value scalarPtr =
+            tensor::ExtractOp::create(rewriter, loc, ptrTensor, indices);
+        Value offset = extractElement(rewriter, loc, offsetTensor, indices);
+        Value mask = extractElement(rewriter, loc, gatherOp.getMask(), indices);
+        Value other =
+            extractElement(rewriter, loc, gatherOp.getOther(), indices);
+
+        Value loadVal =
+            createScalarLoadFromPtr(rewriter, loc, scalarPtr, offset);
+        if (mask) {
+          auto ifOp = scf::IfOp::create(
+              rewriter, loc, mask,
+              [&](OpBuilder &b, Location loc) {
+                scf::YieldOp::create(b, loc, loadVal);
+              },
+              [&](OpBuilder &b, Location loc) {
+                if (other) {
+                  scf::YieldOp::create(b, loc, other);
+                } else {
+                  auto zeroAttr = b.getZeroAttr(elementType);
+                  assert(zeroAttr && "unexpected element type");
+                  Value extract =
+                      arith::ConstantOp::create(b, loc, zeroAttr).getResult();
+                  scf::YieldOp::create(b, loc, extract);
+                }
+              });
+          loadVal = ifOp.getResult(0);
+        }
+
+        return tensor::InsertOp::create(rewriter, loc, loadVal, iterTensor,
+                                        indices);
+      }
+
+      Value upper = getDimValue(rewriter, loc, ptrTensor, dim, shape[dim]);
+      auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
+                                      ValueRange{iterTensor});
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+      indices.push_back(forOp.getInductionVar());
+      Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
+      scf::YieldOp::create(rewriter, loc, next);
+      indices.pop_back();
+      return forOp.getResult(0);
+    };
+
+    Value result = buildLoop(buildLoop, 0, init);
+    rewriter.replaceOp(gatherOp, result);
+    return success();
+  }
+};
+
+struct MultiBaseScatterConverter : public OpRewritePattern<tts::ScatterOp> {
+  using OpRewritePattern<tts::ScatterOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tts::ScatterOp scatterOp,
+                                PatternRewriter &rewriter) const override {
+    auto ptrType = dyn_cast<RankedTensorType>(scatterOp.getPtr().getType());
+    if (!ptrType || !isTensorOfPointers(ptrType)) {
+      return failure();
+    }
+
+    auto valueType = dyn_cast<RankedTensorType>(scatterOp.getValue().getType());
+    if (!valueType) {
+      return failure();
+    }
+
+    auto loc = scatterOp.getLoc();
+    Value ptrTensor = scatterOp.getPtr();
+    Value offsetTensor = scatterOp.getOffset();
+    auto shape = valueType.getShape();
+    auto zero =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0));
+    auto one =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(1));
+    SmallVector<Value> indices;
+
+    auto buildLoop = [&](auto &self, int dim) -> void {
+      if (dim == static_cast<int>(shape.size())) {
+        Value scalarPtr =
+            tensor::ExtractOp::create(rewriter, loc, ptrTensor, indices);
+        Value offset = extractElement(rewriter, loc, offsetTensor, indices);
+        Value scalarVal =
+            extractElement(rewriter, loc, scatterOp.getValue(), indices);
+        Value mask =
+            extractElement(rewriter, loc, scatterOp.getMask(), indices);
+
+        if (!mask) {
+          createScalarStoreToPtr(rewriter, loc, scalarPtr, offset, scalarVal);
+          return;
+        }
+
+        scf::IfOp::create(rewriter, loc, mask, [&](OpBuilder &b, Location loc) {
+          createScalarStoreToPtr(b, loc, scalarPtr, offset, scalarVal);
+          scf::YieldOp::create(b, loc);
+        });
+        return;
+      }
+
+      Value upper = getDimValue(rewriter, loc, ptrTensor, dim, shape[dim]);
+      auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one);
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+      indices.push_back(forOp.getInductionVar());
+      self(self, dim + 1);
+      indices.pop_back();
+    };
+
+    rewriter.setInsertionPoint(scatterOp);
+    buildLoop(buildLoop, 0);
+    rewriter.eraseOp(scatterOp);
+    return success();
+  }
+};
+
 // Lowering an unstructured load op (gather) into a linalg.generic op.
 struct GatherConverter : public OpConversionPattern<tts::GatherOp> {
   using OpConversionPattern<tts::GatherOp>::OpConversionPattern;
@@ -170,6 +394,9 @@ struct GatherConverter : public OpConversionPattern<tts::GatherOp> {
   matchAndRewrite(tts::GatherOp gatherOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = gatherOp->getLoc();
+    if (!isa<triton::PointerType>(gatherOp.getPtr().getType())) {
+      return failure();
+    }
 
     auto ptr = adaptor.getPtr();
     auto offsetTensor = adaptor.getOffset();
@@ -296,6 +523,9 @@ struct ScatterConverter : public OpConversionPattern<tts::ScatterOp> {
   matchAndRewrite(tts::ScatterOp scatterOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = scatterOp->getLoc();
+    if (!isa<triton::PointerType>(scatterOp.getPtr().getType())) {
+      return failure();
+    }
 
     auto ptr = adaptor.getPtr();
     auto offsetTensor = adaptor.getOffset();
@@ -393,6 +623,16 @@ public:
 
   void runOnOperation() override {
     auto moduleOp = getOperation();
+
+    {
+      RewritePatternSet prePatterns(&getContext());
+      prePatterns.add<MultiBaseGatherConverter, MultiBaseScatterConverter>(
+          &getContext());
+      if (failed(applyPatternsGreedily(moduleOp, std::move(prePatterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
 
     RewritePatternSet patterns(&getContext());
     ConversionTarget target(getContext());

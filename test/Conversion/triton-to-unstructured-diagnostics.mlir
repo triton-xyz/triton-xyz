@@ -1,13 +1,12 @@
 // RUN: triton-xyz-opt --split-input-file --verify-diagnostics --triton-to-unstructured %s
 
-module { // expected-warning {{Cannot transform tensor of pointers into a single base pointer with tensor of offsets}}
+module {
   tt.func public @unsupported_cat(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
     %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %p0 = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
     %p1 = tt.splat %arg1 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
     %c0 = tt.addptr %p0, %r : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
     %c1 = tt.addptr %p1, %r : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
-    // expected-error@+1 {{Do not support gather / scatter with multiple bases yet}}
     %cat = tt.cat %c0, %c1 : tensor<4x!tt.ptr<f32>> -> tensor<8x!tt.ptr<f32>>
     %val = tt.load %cat : tensor<8x!tt.ptr<f32>>
     tt.return

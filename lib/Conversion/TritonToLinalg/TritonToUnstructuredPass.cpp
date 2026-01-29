@@ -208,6 +208,35 @@ static unsigned int getBitWidth(Type type) {
   return 0;
 }
 
+static Value createZeroOffset(OpBuilder &builder, Location loc, Type ptrType,
+                              unsigned int bitWidth) {
+  Type offsetType = getPtrOffsetType(ptrType, bitWidth);
+  Value zeroScalar =
+      arith::ConstantOp::create(
+          builder, loc,
+          builder.getIntegerAttr(
+              IntegerType::get(builder.getContext(), bitWidth), 0))
+          .getResult();
+  if (auto tensorType = dyn_cast<RankedTensorType>(offsetType)) {
+    return triton::SplatOp::create(builder, loc, tensorType, zeroScalar)
+        .getResult();
+  }
+  return zeroScalar;
+}
+
+static Value materializeTensorBase(OpBuilder &builder, Location loc,
+                                   Value basePtr, Type tensorPtrType) {
+  if (basePtr.getType() == tensorPtrType) {
+    return basePtr;
+  }
+  if (isa<RankedTensorType>(basePtr.getType())) {
+    return triton::BitcastOp::create(builder, loc, tensorPtrType, basePtr)
+        .getResult();
+  }
+  return triton::SplatOp::create(builder, loc, tensorPtrType, basePtr)
+      .getResult();
+}
+
 class TritonToUnstructuredPass
     : public mlir::triton::impl::TritonToUnstructuredBase<
           TritonToUnstructuredPass> {
@@ -249,11 +278,7 @@ public:
 
         OpBuilder b(func->getRegion(0));
         Value zero =
-            arith::ConstantOp::create(
-                b, arg.getLoc(),
-                b.getIntegerAttr(
-                    IntegerType::get(&getContext(), defaultBitWidth), 0))
-                .getResult();
+            createZeroOffset(b, arg.getLoc(), arg.getType(), defaultBitWidth);
 
         ptrArgs.insert(arg);
         offsetMap.insert({arg, {arg, arg.getType(), defaultBitWidth, zero}});
@@ -262,18 +287,10 @@ public:
     });
 
     getOperation().walk([&](triton::IntToPtrOp op) {
-      // We only want to handle single source pointer,
-      // skip if this op produces tensor of pointers
-      if (isa<RankedTensorType>(op.getType())) {
-        return;
-      }
       auto res = op.getResult();
       OpBuilder b(op);
-      Value zero = arith::ConstantOp::create(
-                       b, op.getLoc(),
-                       b.getIntegerAttr(
-                           IntegerType::get(&getContext(), defaultBitWidth), 0))
-                       .getResult();
+      Value zero =
+          createZeroOffset(b, op.getLoc(), res.getType(), defaultBitWidth);
 
       offsetMap.insert({res, {res, res.getType(), defaultBitWidth, zero}});
       workList.push(res);
@@ -380,6 +397,7 @@ public:
 
                   auto ptr = op->getOperand(0);
                   auto offsetInfo = offsetMap.at(ptr);
+                  Value basePtr = offsetInfo.ptr;
 
                   OpBuilder b{op};
                   auto clone =
@@ -388,10 +406,18 @@ public:
                                TypeRange{getPtrOffsetType(
                                    resType, offsetInfo.bitWidth)});
 
+                  if (isa<RankedTensorType>(basePtr.getType())) {
+                    basePtr =
+                        b.create(op->getLoc(), op->getName().getIdentifier(),
+                                 ValueRange{basePtr}, TypeRange{resType})
+                            ->getResult(0);
+                  }
+
                   PtrOffset newOffsetInfo{offsetInfo.ptr, resType,
                                           offsetInfo.bitWidth,
                                           clone->getResult(0)};
 
+                  newOffsetInfo.ptr = basePtr;
                   offsetMap.insert({
                       res,
                       newOffsetInfo,
@@ -413,8 +439,10 @@ public:
                   Value basePtr = offsetInfo.ptr;
 
                   Type newBasePtrType = resType;
-                  if (auto tensorType = dyn_cast<RankedTensorType>(resType)) {
-                    newBasePtrType = tensorType.getElementType();
+                  if (!isa<RankedTensorType>(basePtr.getType())) {
+                    if (auto tensorType = dyn_cast<RankedTensorType>(resType)) {
+                      newBasePtrType = tensorType.getElementType();
+                    }
                   }
 
                   if (basePtr.getType() != newBasePtrType) {
@@ -434,6 +462,67 @@ public:
                 })
                 .Case<tts::MakeGatherScatterTensorPtrOp>(
                     [&](Operation *op) { return success(); })
+                .Case<triton::CatOp>([&](triton::CatOp cat) {
+                  auto res = cat.getResult();
+                  auto resType = res.getType();
+                  if (!triton::isPtrTypeLike(resType)) {
+                    return success();
+                  }
+                  if (offsetMap.contains(res)) {
+                    return success();
+                  }
+
+                  auto lhs = cat.getLhs();
+                  auto rhs = cat.getRhs();
+                  if (!offsetMap.contains(lhs) || !offsetMap.contains(rhs)) {
+                    return success();
+                  }
+
+                  auto lhsInfo = offsetMap.at(lhs);
+                  auto rhsInfo = offsetMap.at(rhs);
+                  auto resWidth = std::max(lhsInfo.bitWidth, rhsInfo.bitWidth);
+
+                  OpBuilder b{cat};
+                  auto loc = cat.getLoc();
+
+                  auto lhsOff = lhsInfo.offset;
+                  auto rhsOff = rhsInfo.offset;
+
+                  if (lhsInfo.bitWidth < resWidth) {
+                    lhsOff =
+                        arith::ExtSIOp::create(
+                            b, loc, getPtrOffsetType(lhsInfo.ptrType, resWidth),
+                            lhsOff)
+                            .getResult();
+                  }
+
+                  if (rhsInfo.bitWidth < resWidth) {
+                    rhsOff =
+                        arith::ExtSIOp::create(
+                            b, loc, getPtrOffsetType(rhsInfo.ptrType, resWidth),
+                            rhsOff)
+                            .getResult();
+                  }
+
+                  auto offsetType = getPtrOffsetType(resType, resWidth);
+                  auto offset =
+                      triton::CatOp::create(b, loc, offsetType, lhsOff, rhsOff)
+                          .getResult();
+
+                  auto lhsBase =
+                      materializeTensorBase(b, loc, lhsInfo.ptr, lhs.getType());
+                  auto rhsBase =
+                      materializeTensorBase(b, loc, rhsInfo.ptr, rhs.getType());
+                  auto base =
+                      triton::CatOp::create(b, loc, resType, lhsBase, rhsBase)
+                          .getResult();
+
+                  PtrOffset newOffsetInfo{base, resType, resWidth, offset};
+                  offsetMap.insert({res, newOffsetInfo});
+                  workList.push(res);
+                  toDelete.push_back(cat);
+                  return success();
+                })
                 .Case<triton::LoadOp, triton::StoreOp, triton::MakeTensorPtrOp,
                       tts::MakeTensorPtrOp>([&](Operation *op) {
                   // Special case:
