@@ -1,6 +1,7 @@
 add_triton_library(TritonArithToLinalg
   TritonArithToLinalg.cpp
   TritonArithToLinalgPass.cpp
+  TritonPidsToFuncArgsPass.cpp
 
   DEPENDS
   TritonArithToLinalgConversionPassIncGen

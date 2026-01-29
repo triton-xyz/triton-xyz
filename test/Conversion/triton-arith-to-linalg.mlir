@@ -1,38 +1,11 @@
 // RUN: triton-xyz-opt --split-input-file --triton-arith-to-linalg %s | FileCheck %s
 
 module {
-// CHECK-LABEL:   func.func @program_info(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> i32 {
-// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[ARG3]], %[[ARG0]] : i32
-// CHECK:           return %[[ADDI_0]] : i32
-// CHECK:         }
-  tt.func @program_info() -> i32 {
-    %pid = tt.get_program_id x : i32
-    %nprog = tt.get_num_programs x : i32
-    %sum = arith.addi %pid, %nprog : i32
-    tt.return %sum : i32
-  }
-}
-
-// -----
-
-module {
 // CHECK: #[[$ATTR_0:.+]] = affine_map<(d0) -> (d0)>
 // CHECK: #[[$ATTR_1:.+]] = affine_map<(d0, d1) -> (0, d1)>
 // CHECK: #[[$ATTR_2:.+]] = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK-LABEL:   func.func @broadcast_transpose(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4x2xf32> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) -> tensor<4x2xf32> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_0]]], iterator_types = ["parallel"]} outs(%[[EMPTY_0]] : tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
@@ -79,13 +52,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @reshape_collapse(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>) -> tensor<4xf32> {
 // CHECK:           %[[COLLAPSE_SHAPE_0:.*]] = tensor.collapse_shape %[[ARG0]] {{\[\[}}0, 1]] : tensor<2x2xf32> into tensor<4xf32>
 // CHECK:           return %[[COLLAPSE_SHAPE_0]] : tensor<4xf32>
 // CHECK:         }
@@ -100,13 +67,7 @@ module {
 module {
 // CHECK: #[[$ATTR_3:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @bitcast_tensor(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) -> tensor<4xf32> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_3]], #[[$ATTR_3]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xi32>) outs(%[[EMPTY_0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32, %[[VAL_1:.*]]: f32):
@@ -126,13 +87,7 @@ module {
 module {
 // CHECK: #[[$ATTR_4:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_unary(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_4]], #[[$ATTR_4]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32):
 // CHECK:             %[[SQRT_0:.*]] = math.sqrt %[[VAL_0]] : f32
@@ -149,13 +104,7 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   func.func @cumsum_1d(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-LABEL:   func.func @cumsum_1d() -> tensor<4xf32> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
 // CHECK:           %[[FILL_0:.*]] = linalg.fill ins(%[[CONSTANT_0]] : f32) outs(%[[EMPTY_0]] : tensor<4xf32>) -> tensor<4xf32>
@@ -178,13 +127,7 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   func.func @reduce_add(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> f32 {
+// CHECK-LABEL:   func.func @reduce_add() -> f32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
@@ -214,13 +157,7 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   func.func @dot_2x2_2x2(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<2x2xf32> {
+// CHECK-LABEL:   func.func @dot_2x2_2x2() -> tensor<2x2xf32> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<2x2xf32>
@@ -245,13 +182,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @split_join(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<2x2xf32> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>) -> tensor<2x2xf32> {
 // CHECK:           %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[ARG0]][0, 0] [2, 1] [1, 1] : tensor<2x2xf32> to tensor<2xf32>
 // CHECK:           %[[EXTRACT_SLICE_1:.*]] = tensor.extract_slice %[[ARG0]][0, 1] [2, 1] [1, 1] : tensor<2x2xf32> to tensor<2xf32>
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<2x2xf32>
@@ -269,13 +200,7 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   func.func @cat_dim0(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<2x2xf32> {
+// CHECK-LABEL:   func.func @cat_dim0() -> tensor<2x2xf32> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 2.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<1x2xf32>
@@ -301,13 +226,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @assert_scalar(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG0]], %[[CONSTANT_0]] : i32
 // CHECK:           cf.assert %[[CMPI_0]], "Assertion `x > 0` failed"
@@ -324,13 +243,7 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   func.func @dense_constant(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<2xf32> {
+// CHECK-LABEL:   func.func @dense_constant() -> tensor<2xf32> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<2xf32>
 // CHECK:           %[[FILL_0:.*]] = linalg.fill ins(%[[CONSTANT_0]] : f32) outs(%[[EMPTY_0]] : tensor<2xf32>) -> tensor<2xf32>
@@ -346,13 +259,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @call_callee(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           return %[[ARG0]] : tensor<4xf32>
 // CHECK:         }
   tt.func @call_callee(%arg0: tensor<4xf32>) -> tensor<4xf32> {
@@ -360,14 +267,8 @@ module {
   }
 
 // CHECK-LABEL:   func.func @call_caller(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
-// CHECK:           %[[VAL_0:.*]] = call @call_callee(%[[ARG0]], %[[ARG1]], %[[ARG2]], %[[ARG3]], %[[ARG4]], %[[ARG5]], %[[ARG6]]) : (tensor<4xf32>, i32, i32, i32, i32, i32, i32) -> tensor<4xf32>
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK:           %[[VAL_0:.*]] = call @call_callee(%[[ARG0]]) : (tensor<4xf32>) -> tensor<4xf32>
 // CHECK:           return %[[VAL_0]] : tensor<4xf32>
 // CHECK:         }
   tt.func @call_caller(%arg0: tensor<4xf32>) -> tensor<4xf32> {
@@ -381,13 +282,7 @@ module {
 module {
 // CHECK: #[[$ATTR_5:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @fptofp_rtne(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf16> {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf16> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf16>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_5]], #[[$ATTR_5]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[EMPTY_0]] : tensor<4xf16>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f16):
@@ -409,13 +304,7 @@ module {
 // CHECK-LABEL:   func.func @clamp_all(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG7:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG8:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_6]], #[[$ATTR_6]], #[[$ATTR_6]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[MAXIMUMF_0:.*]] = arith.maximumf %[[VAL_0]], %[[VAL_1]] : f32
@@ -441,13 +330,7 @@ module {
 // CHECK: #[[$ATTR_7:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @precise_math(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG7:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_7]], #[[$ATTR_7]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32):
 // CHECK:             %[[SQRT_0:.*]] = math.sqrt %[[VAL_0]] : f32
@@ -473,13 +356,7 @@ module {
 // CHECK: #[[$ATTR_8:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @mulhiui(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG7:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xi32> {
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) -> tensor<4xi32> {
 // CHECK:           %[[GENERIC_0:.*]]:2 = linalg.generic {indexing_maps = [#[[$ATTR_8]], #[[$ATTR_8]], #[[$ATTR_8]], #[[$ATTR_8]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xi32>, tensor<4xi32>) outs(%[[ARG0]], %[[ARG0]] : tensor<4xi32>, tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32, %[[VAL_1:.*]]: i32, %[[VAL_2:.*]]: i32, %[[VAL_3:.*]]: i32):
 // CHECK:             %[[VAL_4:.*]], %[[MULUI_EXTENDED_0:.*]] = arith.mului_extended %[[VAL_0]], %[[VAL_1]] : i32
@@ -497,13 +374,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @unsplat_scalar(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<1xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> f32 {
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<1xf32>) -> f32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG0]]{{\[}}%[[CONSTANT_0]]] : tensor<1xf32>
 // CHECK:           return %[[EXTRACT_0]] : f32
@@ -518,13 +389,7 @@ module {
 
 module {
 // CHECK: #[[$ATTR_9:.+]] = affine_map<(d0) -> (d0)>
-// CHECK-LABEL:   func.func @argmax_4(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> i32 {
+// CHECK-LABEL:   func.func @argmax_4() -> i32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant -1 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0xFF800000 : f32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0.000000e+00 : f32
@@ -577,13 +442,7 @@ module {
 
 module {
 // CHECK: #[[$ATTR_10:.+]] = affine_map<(d0) -> (d0)>
-// CHECK-LABEL:   func.func @argmin_4(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> i32 {
+// CHECK-LABEL:   func.func @argmin_4() -> i32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant -1 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0x7F800000 : f32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0.000000e+00 : f32
@@ -638,13 +497,7 @@ module {
 // CHECK: #[[$ATTR_11:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @minmax_select(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG7:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_11]], #[[$ATTR_11]], #[[$ATTR_11]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[MAXIMUMF_0:.*]] = arith.maximumf %[[VAL_0]], %[[VAL_1]] : f32
@@ -665,13 +518,7 @@ module {
 // CHECK: #[[$ATTR_12:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_binary(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG5:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG6:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG7:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_12]], #[[$ATTR_12]], #[[$ATTR_12]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[VAL_3:.*]] = math.atan2 %[[VAL_0]], %[[VAL_1]] : f32

@@ -27,7 +27,9 @@
 using namespace mlir;
 using namespace triton;
 
+#ifndef DEBUG_TYPE
 #define DEBUG_TYPE "triton-arith-to-linalg"
+#endif
 
 //===----------------------------------------------------------------------===//
 // Utilities
