@@ -8,8 +8,8 @@
 #include "llvm/Support/Debug.h"
 
 using namespace mlir;
-using namespace triton;
-using namespace dataflow;
+using mlir::dataflow::DeadCodeAnalysis;
+using mlir::dataflow::SparseConstantPropagation;
 
 #define DEBUG_TYPE "triton-use-analysis"
 

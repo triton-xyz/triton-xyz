@@ -26,7 +26,6 @@
 #define DEBUG_TYPE "unstructured-to-memref"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_UNSTRUCTUREDTOMEMREF

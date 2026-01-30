@@ -10,12 +10,11 @@
 
 #define DEBUG_TYPE "ttx-cumsum"
 
-using namespace mlir;
-using namespace mlir::ttx;
+namespace mlir::ttx {
 
-void ttx::CumSumOp::build(OpBuilder &odsBuilder, OperationState &odsState,
-                          Value input, IntegerAttr axis, Value output,
-                          ArrayRef<NamedAttribute> attributes) {
+void CumSumOp::build(OpBuilder &odsBuilder, OperationState &odsState,
+                     Value input, IntegerAttr axis, Value output,
+                     ArrayRef<NamedAttribute> attributes) {
   SmallVector<Value> inputs{input};
   SmallVector<Value> outputs{output};
   odsState.addOperands(inputs);
@@ -30,7 +29,7 @@ void ttx::CumSumOp::build(OpBuilder &odsBuilder, OperationState &odsState,
   odsState.addTypes(SmallVector<Type>{output.getType()});
 }
 
-mlir::LogicalResult ttx::CumSumOp::verify() {
+LogicalResult CumSumOp::verify() {
   auto inputType = getInput().getType();
   if (!isa<RankedTensorType>(inputType) && !isa<MemRefType>(inputType)) {
     return emitOpError(
@@ -61,28 +60,28 @@ mlir::LogicalResult ttx::CumSumOp::verify() {
   return success();
 }
 
-AffineMap ttx::CumSumOp::getInputIndexingMap(MLIRContext *context,
-                                             unsigned int index,
-                                             ArrayRef<OpFoldResult> sizes) {
+AffineMap CumSumOp::getInputIndexingMap(MLIRContext *context,
+                                        unsigned int index,
+                                        ArrayRef<OpFoldResult> sizes) {
   assert(index == 0);
   return AffineMap::getMultiDimIdentityMap(getRank(), context);
 }
 
-AffineMap ttx::CumSumOp::getOutputIndexingMap(MLIRContext *context,
-                                              unsigned int index,
-                                              ArrayRef<OpFoldResult> sizes) {
+AffineMap CumSumOp::getOutputIndexingMap(MLIRContext *context,
+                                         unsigned int index,
+                                         ArrayRef<OpFoldResult> sizes) {
   assert(index == 0);
   return AffineMap::getMultiDimIdentityMap(getRank(), context);
 }
 
-SmallVector<utils::IteratorType> ttx::CumSumOp::getLoopIteratorTypes() {
+SmallVector<utils::IteratorType> CumSumOp::getLoopIteratorTypes() {
   SmallVector<utils::IteratorType> iterators;
   iterators.append(getRank() - 1, utils::IteratorType::parallel);
   iterators.push_back(utils::IteratorType::reduction);
   return iterators;
 }
 
-SmallVector<Range> ttx::CumSumOp::getIterationDomain(OpBuilder &b) {
+SmallVector<Range> CumSumOp::getIterationDomain(OpBuilder &b) {
   OpBuilder::InsertionGuard g(b);
   b.setInsertionPoint(*this);
   auto loc = getLoc();
@@ -99,3 +98,5 @@ SmallVector<Range> ttx::CumSumOp::getIterationDomain(OpBuilder &b) {
   }
   return iterationDomain;
 }
+
+} // namespace mlir::ttx

@@ -21,9 +21,6 @@
 #define GET_OP_CLASSES
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredOps.h.inc"
 
-using namespace mlir;
-using namespace mlir::tts;
-
 namespace mlir {
 namespace tts {
 

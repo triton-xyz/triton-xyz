@@ -18,7 +18,6 @@
 #define DEBUG_TYPE "structured-to-memref"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir {
 namespace triton {

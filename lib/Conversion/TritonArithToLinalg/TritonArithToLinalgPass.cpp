@@ -16,7 +16,6 @@
 #define DEBUG_TYPE "triton-arith-to-linalg"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir {
 namespace triton {
@@ -51,7 +50,8 @@ public:
 
     {
       RewritePatternSet patterns(&getContext());
-      populateTritonArithToLinalgCanonicalizationPatterns(patterns);
+      mlir::triton::populateTritonArithToLinalgCanonicalizationPatterns(
+          patterns);
       if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
         signalPassFailure();
       }
