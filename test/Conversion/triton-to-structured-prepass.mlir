@@ -72,3 +72,24 @@ module {
 }
 
 // -----
+
+module {
+// PREPASS-LABEL:   tt.func @loop_i64_iterargs(
+// PREPASS:           "tts.get_structured_state"(%{{.*}}) <{resultSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<4xi64>) -> (tensor<4xi64>, index, index)
+  tt.func @loop_i64_iterargs(%arg0: !tt.ptr<i32>) {
+    %c0 = arith.constant 0 : index
+    %c4 = arith.constant 4 : index
+    %c1 = arith.constant 1 : index
+    %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %range_i64 = arith.extsi %range : tensor<4xi32> to tensor<4xi64>
+    %sum = scf.for %i = %c0 to %c4 step %c1 iter_args(%acc = %range_i64) -> (tensor<4xi64>) {
+      %next = arith.addi %acc, %range_i64 : tensor<4xi64>
+      scf.yield %next : tensor<4xi64>
+    }
+    %base = tt.splat %arg0 : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
+    %ptrs = tt.addptr %base, %sum : tensor<4x!tt.ptr<i32>>, tensor<4xi64>
+    %val = tt.load %ptrs : tensor<4x!tt.ptr<i32>>
+    tt.store %ptrs, %val : tensor<4x!tt.ptr<i32>>
+    tt.return
+  }
+}
