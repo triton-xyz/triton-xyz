@@ -578,9 +578,8 @@ public:
   matchAndRewrite(tts::MakeTensorPtrOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!llvm::is_sorted(op.getOrder(), std::greater<>())) {
-      emitError(op.getLoc()) << "non-decreasing dimension order on tensor "
-                                "pointers are not yet supported";
-      return failure();
+      return rewriter.notifyMatchFailure(
+          op, "requires decreasing dimension order on tensor pointers");
     }
 
     if (op.isBlockPtr()) {

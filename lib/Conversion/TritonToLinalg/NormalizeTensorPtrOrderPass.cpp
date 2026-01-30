@@ -102,7 +102,7 @@ public:
     std::iota(expected.begin(), expected.end(), 0);
     if (!std::is_permutation(order.begin(), order.end(), expected.begin(),
                              expected.end())) {
-      op->emitError("order is not a permutation when normalizing");
+      op->emitOpError("order is not a permutation when normalizing");
       return failure();
     }
 
@@ -157,7 +157,7 @@ private:
     if (auto loadOp = dyn_cast<tts::LoadOp>(user)) {
       auto mixedMask = loadOp.getMixedMaskDims();
       if (!mixedMask.empty() && mixedMask.size() != info.reorderMap.size()) {
-        loadOp->emitError("mask rank mismatch when normalizing order");
+        loadOp->emitOpError("mask rank mismatch when normalizing order");
         return failure();
       }
       SmallVector<OpFoldResult> newMask;
@@ -185,7 +185,7 @@ private:
     if (auto storeOp = dyn_cast<tts::StoreOp>(user)) {
       auto mixedMask = storeOp.getMixedMaskDims();
       if (!mixedMask.empty() && mixedMask.size() != info.reorderMap.size()) {
-        storeOp->emitError("mask rank mismatch when normalizing order");
+        storeOp->emitOpError("mask rank mismatch when normalizing order");
         return failure();
       }
       SmallVector<OpFoldResult> newMask;
@@ -237,7 +237,7 @@ private:
       auto result = loopOp.getTiedLoopResult(use);
 
       if (!iterArg || !result) {
-        loopOp->emitError("unsupported loop operand when normalizing order");
+        loopOp->emitOpError("unsupported loop operand when normalizing order");
         return failure();
       }
 
@@ -259,7 +259,7 @@ private:
       return success();
     }
 
-    user->emitError("unsupported user when normalizing tts.make_tptr order");
+    user->emitOpError("unsupported user when normalizing tts.make_tptr order");
     return failure();
   }
 

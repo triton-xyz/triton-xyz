@@ -70,9 +70,6 @@ Value getScalarValue(Value operand, Location loc, OpBuilder &builder) {
     } else if (auto op = operand.getDefiningOp<arith::ConstantOp>()) {
       if (auto attr = dyn_cast<DenseElementsAttr>(op.getValue())) {
         if (!attr.isSplat()) {
-          InFlightDiagnostic diag = emitError(loc)
-                                    << "other value used in masked load "
-                                       "produced by unsupported instruction";
           return nullptr;
         }
         auto elemValue = attr.getSplatValue<Attribute>();
@@ -89,9 +86,6 @@ Value getScalarValue(Value operand, Location loc, OpBuilder &builder) {
       ops.push_back(op.getOperation());
       operand = op.getIn();
     } else {
-      InFlightDiagnostic diag = emitError(loc)
-                                << "other value used in masked load produced "
-                                   "by unsupported instruction";
       return nullptr;
     }
   }
@@ -198,13 +192,13 @@ void MakeGatherScatterTensorPtrOp::build(
 LogicalResult MakeGatherScatterTensorPtrOp::verify() {
   // Verify that the gatherScatterDim is within the valid range.
   if (getGatherScatterDim() < 0 || getGatherScatterDim() >= getSizes().size()) {
-    return emitError("gatherScatterDim is out of bounds");
+    return emitOpError("gatherScatterDim is out of bounds");
   }
 
   // Verify that the sizes, strides, and offsets have compatible dimensions.
   if (getMixedSizes().size() != getMixedStrides().size() ||
       getMixedSizes().size() != getMixedOffsets().size()) {
-    return emitError(
+    return emitOpError(
         "sizes, strides, and offsets must have the same number of dimensions");
   }
 
@@ -214,17 +208,17 @@ LogicalResult MakeGatherScatterTensorPtrOp::verify() {
   // Verify that the gatherScatterOffset is a 1D tensor.
   auto rankedTensorType = dyn_cast<RankedTensorType>(offsetType);
   if (!rankedTensorType) {
-    return emitError("gatherScatterOffset must be a 1D tensor");
+    return emitOpError("gatherScatterOffset must be a 1D tensor");
   }
   if (rankedTensorType.getRank() != 1) {
-    return emitError("gatherScatterOffset must be a 1D tensor");
+    return emitOpError("gatherScatterOffset must be a 1D tensor");
   }
   offsetSize = rankedTensorType.getShape()[0];
   offsetEltType = rankedTensorType.getElementType();
 
   if (!offsetEltType.isIntOrIndex()) {
-    return emitError("gatherScatterOffset must be a 1D tensor of "
-                     "int or index type");
+    return emitOpError("gatherScatterOffset must be a 1D tensor of "
+                       "int or index type");
   }
 
   // Verify that the gatherScatterMask, if provided, is a 1D tensor.
@@ -233,20 +227,22 @@ LogicalResult MakeGatherScatterTensorPtrOp::verify() {
     Type maskEltType = maskType;
     auto rankedTensorType = dyn_cast<RankedTensorType>(maskType);
     if (!rankedTensorType) {
-      return emitError("gatherScatterMask must be a 1D tensor");
+      return emitOpError("gatherScatterMask must be a 1D tensor");
     }
     if (rankedTensorType.getRank() != 1) {
-      return emitError("gatherScatterMask must be a 1D tensor of boolean type");
+      return emitOpError(
+          "gatherScatterMask must be a 1D tensor of boolean type");
     }
     // Verify that the gatherScatterMask has the same size as the
     // gatherScatterOffset.
     if (rankedTensorType.getShape()[0] != offsetSize) {
-      return emitError(
+      return emitOpError(
           "gatherScatterMask must have the same size as gatherScatterOffset");
     }
     maskEltType = rankedTensorType.getElementType();
     if (!maskEltType.isInteger(1)) {
-      return emitError("gatherScatterMask must be a 1D tensor of boolean type");
+      return emitOpError(
+          "gatherScatterMask must be a 1D tensor of boolean type");
     }
   }
 
@@ -261,14 +257,15 @@ LogicalResult MakeGatherScatterTensorPtrOp::verify() {
           auto intAttr =
               dyn_cast_if_present<IntegerAttr>(dyn_cast<Attribute>(MaskedSize));
           if (!intAttr || intAttr.getInt() != 0) {
-            return emitError("tts.load user of tts.make_gather_scatter_tptr "
-                             "with gather_scatter_mask must have "
-                             "mask size of 0 for gather_scatter_dim");
+            return emitOpError("tts.load user of tts.make_gather_scatter_tptr "
+                               "with gather_scatter_mask must have "
+                               "mask size of 0 for gather_scatter_dim");
           }
         } else {
-          return emitError("tts.load user of tts.make_gather_scatter_tptr with "
-                           "gather_scatter_mask must have "
-                           "mask provided");
+          return emitOpError(
+              "tts.load user of tts.make_gather_scatter_tptr with "
+              "gather_scatter_mask must have "
+              "mask provided");
         }
       } else if (auto storeOp = dyn_cast<StoreOp>(user)) {
         if (storeOp.hasMask()) {
@@ -277,19 +274,19 @@ LogicalResult MakeGatherScatterTensorPtrOp::verify() {
           auto intAttr =
               dyn_cast_if_present<IntegerAttr>(dyn_cast<Attribute>(MaskedSize));
           if (!intAttr || intAttr.getInt() != 0) {
-            return emitError("tts.store user of tts.make_gather_scatter_tptr "
-                             "with gather_scatter_mask must have "
-                             "mask size of 0 for gather_scatter_dim");
+            return emitOpError("tts.store user of tts.make_gather_scatter_tptr "
+                               "with gather_scatter_mask must have "
+                               "mask size of 0 for gather_scatter_dim");
           }
         } else {
-          return emitError(
+          return emitOpError(
               "tts.store user of tts.make_gather_scatter_tptr with "
               "gather_scatter_mask must have "
               "mask provided");
         }
       } else {
-        return emitError("tts.make_gather_scatter_tptr can only be used in "
-                         "tts.load or tts.store operations");
+        return emitOpError("tts.make_gather_scatter_tptr can only be used in "
+                           "tts.load or tts.store operations");
       }
     }
   }

@@ -511,12 +511,12 @@ public:
                 })
                 .Case<scf::YieldOp>([](auto) { return success(); })
                 .Case<triton::CatOp>([](triton::CatOp op) {
-                  op->emitError("Do not support gather / scatter with multiple "
-                                "bases yet");
+                  op->emitRemark("Do not support gather / scatter with "
+                                 "multiple bases yet");
                   return failure();
                 })
                 .Default([&](Operation *op) {
-                  op->emitError("unexpected op in ptr sequence");
+                  LLVM_DEBUG(op->emitRemark("unexpected op in ptr sequence"));
                   return failure();
                 });
 
@@ -539,7 +539,7 @@ public:
                 if (other) {
                   other = tts::utils::getScalarValue(other, loc, b);
                   if (!other) {
-                    load->emitError("cannot parse `other` value for load");
+                    load->emitRemark("cannot parse `other` value for load");
                     return failure();
                   }
                 }
@@ -646,7 +646,7 @@ public:
                 return success();
               })
               .Default([&](Operation *op) {
-                op->emitError("unexpected op in ptr sequence");
+                LLVM_DEBUG(op->emitRemark("unexpected op in ptr sequence"));
                 return failure();
               });
 
@@ -666,9 +666,9 @@ public:
 
   void runOnOperation() override {
     if (failed(processUnstructuredPtrs(offsetBitWidth))) {
-      getOperation()->emitWarning(
-          "Cannot transform tensor of pointers into a single base pointer "
-          "with tensor of offsets");
+      LLVM_DEBUG(getOperation()->emitRemark(
+          "Cannot transform tensor of pointers into a "
+          "single base pointer with tensor of offsets"));
       return;
     }
   }

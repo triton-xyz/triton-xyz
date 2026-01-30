@@ -76,9 +76,6 @@ static Value getScalarValue(Value operand, Location loc,
     } else if (auto op = operand.getDefiningOp<arith::ConstantOp>()) {
       if (auto attr = dyn_cast<DenseElementsAttr>(op.getValue())) {
         if (!attr.isSplat()) {
-          InFlightDiagnostic diag = emitError(loc)
-                                    << "other value used in masked load "
-                                       "produced by unsupported instruction";
           return nullptr;
         }
         auto elemValue = attr.getSplatValue<Attribute>();
@@ -95,9 +92,6 @@ static Value getScalarValue(Value operand, Location loc,
       ops.push_back(op.getOperation());
       operand = op.getIn();
     } else {
-      InFlightDiagnostic diag = emitError(loc)
-                                << "other value used in masked load produced "
-                                   "by unsupported instruction";
       return nullptr;
     }
   }
@@ -429,8 +423,10 @@ public:
     // fill load destination with other value
     if (other) {
       auto scalarOther = getScalarValue(other, loc, rewriter);
-      assert(scalarOther && "other value used in masked load produced by "
-                            "unsupported instruction");
+      if (!scalarOther) {
+        return rewriter.notifyMatchFailure(
+            op, "unsupported `other` value for masked load");
+      }
 
       // For each dimension check if mstate.dims[i] < shape[i], or-accumulate
       // the result
@@ -857,8 +853,7 @@ struct AssertConverter : public OpConversionPattern<triton::AssertOp> {
             linalg::YieldOp::create(b, loc);
           });
     } else {
-      op.emitError("Unexpected type in triton::AssertOp");
-      return failure();
+      return op.emitOpError("Unexpected type in triton::AssertOp");
     }
 
     rewriter.eraseOp(op);
@@ -921,8 +916,7 @@ struct CallConverter : public OpConversionPattern<triton::CallOp> {
                                      op.getResultTypes(), args);
 
     if (!call) {
-      op.emitError("Failed to create func::CallOp");
-      return failure();
+      return op.emitOpError("Failed to create func::CallOp");
     }
 
     rewriter.replaceOp(op, call);

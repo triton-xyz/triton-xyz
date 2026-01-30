@@ -38,7 +38,7 @@ static LogicalResult bufferizeTritonTilingExtDestinationStyleOpInterface(
   // Ensure op has only tensors. Allow mixed tensor-buffer mode on a per-need
   // basis.
   if (!op.hasPureTensorSemantics())
-    return op->emitError() << "op does not have tensor semantics";
+    return op->emitOpError() << "op does not have tensor semantics";
 
   // New input operands for the cloned op.
   SmallVector<Value> newInputBuffers;
