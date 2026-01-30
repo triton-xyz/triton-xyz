@@ -9,7 +9,6 @@
 #define DEBUG_TYPE "collapse-shape"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_COLLAPSESHAPE
@@ -330,7 +329,7 @@ struct CollapseBroadCast : public OpRewritePattern<linalg::GenericOp> {
 
     SmallVector<AffineMap> indexingMaps;
     indexingMaps.reserve(op->getNumOperands() + op->getNumResults());
-    indexingMaps.push_back(getBroadcastAffineMap(
+    indexingMaps.push_back(mlir::triton::getBroadcastAffineMap(
         op->getContext(), sourceType.getShape(), resultType.getShape()));
     indexingMaps.append(op->getNumResults(),
                         rewriter.getMultiDimIdentityMap(resultRank));
@@ -345,12 +344,13 @@ struct CollapseBroadCast : public OpRewritePattern<linalg::GenericOp> {
 
     auto linalgOp = linalg::GenericOp::create(
         rewriter, loc, TypeRange{init.getType()}, ValueRange{input},
-        ValueRange{init}, indexingMaps, getNParallelLoopsAttrs(resultRank));
+        ValueRange{init}, indexingMaps,
+        mlir::triton::getNParallelLoopsAttrs(resultRank));
     rewriter.cloneRegionBefore(op.getRegion(), linalgOp.getRegion(),
                                linalgOp.getRegion().begin());
-    linalgOp->setAttr("broadcastDims",
-                      rewriter.getDenseI64ArrayAttr(
-                          getBroadcastDims(sourceType, resultType)));
+    linalgOp->setAttr("broadcastDims", rewriter.getDenseI64ArrayAttr(
+                                           mlir::triton::getBroadcastDims(
+                                               sourceType, resultType)));
     rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
         op, op.getResultTypes()[0], linalgOp->getResult(0), reassociationMap);
     return success();

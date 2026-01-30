@@ -9,10 +9,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-using namespace mlir;
-using namespace mlir::ttx;
-using namespace mlir::linalg;
-
 namespace mlir {
 namespace ttx {
 
@@ -379,7 +375,7 @@ void getEffects(
 
 /// Dialect creation, the instance will be owned by the context. This is the
 /// point of registration of custom types and operations for the dialect.
-void TritonTilingExtDialect::initialize() {
+void mlir::ttx::TritonTilingExtDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtOps.cpp.inc"
@@ -390,6 +386,10 @@ void TritonTilingExtDialect::initialize() {
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
+using mlir::AffineMap;
+using mlir::ArrayRef;
+using mlir::MLIRContext;
+using mlir::OpFoldResult;
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtInterfaces.cpp.inc"
 
 #define GET_OP_CLASSES

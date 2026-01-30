@@ -7,7 +7,6 @@
 #include "triton-shared/Conversion/TritonArithToLinalg/ConversionPatterns.hpp"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir {
 namespace triton {

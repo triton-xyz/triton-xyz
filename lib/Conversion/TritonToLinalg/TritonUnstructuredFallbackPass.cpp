@@ -8,7 +8,6 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
-using namespace triton;
 
 #define DEBUG_TYPE "triton-unstructured-fallback"
 

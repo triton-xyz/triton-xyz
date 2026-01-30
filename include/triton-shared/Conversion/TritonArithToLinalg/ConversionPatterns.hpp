@@ -24,6 +24,7 @@
 #include <optional>
 #include <type_traits>
 
+namespace {
 using namespace mlir;
 using namespace triton;
 
@@ -152,8 +153,6 @@ static std::optional<unsigned> getBitWidth(Type a) {
 //===----------------------------------------------------------------------===//
 // Op Lowering Patterns
 //===----------------------------------------------------------------------===//
-
-namespace {
 
 //-----------------------------
 // Begin of monolithic only

@@ -9,7 +9,6 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTENSORPTRTOLINALG

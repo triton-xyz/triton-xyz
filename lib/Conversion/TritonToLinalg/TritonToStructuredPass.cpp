@@ -25,7 +25,6 @@
 #define DEBUG_TYPE "triton-to-structured"
 
 using namespace mlir;
-using namespace triton;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOSTRUCTURED

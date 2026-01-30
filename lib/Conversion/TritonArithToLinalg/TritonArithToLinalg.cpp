@@ -6,7 +6,6 @@
 #include "triton-shared/Conversion/TritonArithToLinalg/ConversionPatterns.hpp"
 
 using namespace mlir;
-using namespace triton;
 
 void mlir::triton::populateTritonArithToLinalgCanonicalizationPatterns(
     RewritePatternSet &patterns) {
