@@ -128,7 +128,6 @@
 // sign-extending when computing the offsets. Contrast this with the manual
 // approach, we will only sign-extend where necessary.
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
@@ -224,13 +223,6 @@ class TritonToUnstructuredPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<arith::ArithDialect, math::MathDialect, affine::AffineDialect,
-                scf::SCFDialect, tensor::TensorDialect, triton::TritonDialect,
-                tts::TritonStructuredDialect>();
-  }
-
   struct PtrOffset {
     // the source pointer which comes from the kernel argument
     Value ptr;

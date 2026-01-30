@@ -482,10 +482,6 @@ class CollapseShapePasss
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<linalg::LinalgDialect, tensor::TensorDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
     RewritePatternSet patterns(&getContext());

@@ -13,7 +13,6 @@
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
-#include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #define DEBUG_TYPE "structured-to-memref"
@@ -60,14 +59,6 @@ class StructuredToMemrefPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<func::FuncDialect, arith::ArithDialect, math::MathDialect,
-                    linalg::LinalgDialect, affine::AffineDialect,
-                    scf::SCFDialect, tensor::TensorDialect,
-                    bufferization::BufferizationDialect, triton::TritonDialect,
-                    ttx::TritonTilingExtDialect, memref::MemRefDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
 

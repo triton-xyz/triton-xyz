@@ -1,7 +1,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
-#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h" // IWYU pragma: keep
 #include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
@@ -110,11 +110,6 @@ class TritonTtPtrToPtrPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<func::FuncDialect, ptr::PtrDialect, triton::TritonDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
 

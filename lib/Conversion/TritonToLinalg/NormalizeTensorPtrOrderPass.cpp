@@ -269,13 +269,11 @@ private:
 class NormalizeTensorPtrOrderPass
     : public triton::impl::NormalizeTensorPtrOrderBase<
           NormalizeTensorPtrOrderPass> {
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<linalg::LinalgDialect, tensor::TensorDialect,
-                    triton::TritonDialect, tts::TritonStructuredDialect,
-                    scf::SCFDialect>();
-  }
+  using Base =
+      triton::impl::NormalizeTensorPtrOrderBase<NormalizeTensorPtrOrderPass>;
+  using Base::Base;
 
+public:
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
     OrderNormalizer normalizer;

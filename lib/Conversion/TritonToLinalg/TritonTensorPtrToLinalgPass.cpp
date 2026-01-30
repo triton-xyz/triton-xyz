@@ -146,11 +146,6 @@ class TritonTensorPtrToLinalgPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<arith::ArithDialect, linalg::LinalgDialect,
-                    tensor::TensorDialect, triton::TritonDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
     RewritePatternSet patterns(&getContext());
