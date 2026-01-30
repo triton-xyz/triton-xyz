@@ -1,6 +1,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -21,6 +22,7 @@
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
+#include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -41,6 +43,11 @@ namespace {
 struct MemrefAccessFromTensorPtr {
   Value memref;
   ValueRange indices;
+};
+
+struct ScalarMemrefAccess {
+  Value memref;
+  Value index;
 };
 
 static std::optional<MemrefAccessFromTensorPtr>
@@ -77,6 +84,189 @@ getMemrefAccessFromTensorPtr(Value ptr) {
   }
 
   return MemrefAccessFromTensorPtr{memref, extractOp.getIndices()};
+}
+
+static bool isElementwiseIdentityGeneric(linalg::GenericOp generic) {
+  auto rank = generic.getNumLoops();
+  for (auto map : generic.getIndexingMapsArray()) {
+    if (!map.isIdentity() || map.getNumDims() != rank) {
+      return false;
+    }
+  }
+  for (auto iteratorType : generic.getIteratorTypesArray()) {
+    if (iteratorType != utils::IteratorType::parallel) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static Value castToIndex(OpBuilder &b, Location loc, Value value) {
+  if (value.getType().isIndex()) {
+    return value;
+  }
+  if (isa<IntegerType>(value.getType())) {
+    return arith::IndexCastOp::create(b, loc, b.getIndexType(), value);
+  }
+  return Value();
+}
+
+static std::optional<ScalarMemrefAccess>
+getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
+                                   PatternRewriter &rewriter) {
+  Value totalOffset;
+  Value currentTensor = ptrTensor;
+  Location loc = ptrTensor.getLoc();
+
+  while (true) {
+    if (auto fillOp = currentTensor.getDefiningOp<linalg::FillOp>()) {
+      Value basePtr = fillOp.getInputs().front();
+      auto castOp = basePtr.getDefiningOp<UnrealizedConversionCastOp>();
+      if (!castOp || castOp.getInputs().size() != 1) {
+        return std::nullopt;
+      }
+      Value memref = castOp.getInputs().front();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
+      auto unrankedType = dyn_cast<UnrankedMemRefType>(memref.getType());
+      if (!memrefType && !unrankedType) {
+        return std::nullopt;
+      }
+
+      auto elementType = memrefType ? memrefType.getElementType()
+                                    : unrankedType.getElementType();
+      auto memorySpace = memrefType ? memrefType.getMemorySpace()
+                                    : unrankedType.getMemorySpace();
+      auto rank1Type = MemRefType::get({ShapedType::kDynamic}, elementType,
+                                       AffineMap(), memorySpace);
+      Value rank1Memref = memref;
+      if (!memrefType || memrefType != rank1Type) {
+        rank1Memref = memref::CastOp::create(rewriter, loc, rank1Type, memref);
+      }
+
+      if (!totalOffset) {
+        totalOffset =
+            arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0))
+                .getResult();
+      }
+      return ScalarMemrefAccess{rank1Memref, totalOffset};
+    }
+
+    auto generic = currentTensor.getDefiningOp<linalg::GenericOp>();
+    if (!generic || !isElementwiseIdentityGeneric(generic)) {
+      return std::nullopt;
+    }
+
+    Block &body = generic.getRegion().front();
+    Operation *payload = nullptr;
+    for (auto &op : body.without_terminator()) {
+      if (payload) {
+        return std::nullopt;
+      }
+      payload = &op;
+    }
+    if (!payload) {
+      return std::nullopt;
+    }
+
+    auto addPtr = dyn_cast<triton::AddPtrOp>(payload);
+    if (!addPtr) {
+      return std::nullopt;
+    }
+
+    auto ptrArg = dyn_cast<BlockArgument>(addPtr.getPtr());
+    auto offArg = dyn_cast<BlockArgument>(addPtr.getOffset());
+    if (!ptrArg || !offArg) {
+      return std::nullopt;
+    }
+
+    auto numInputs = generic.getInputs().size();
+    if (ptrArg.getArgNumber() >= numInputs ||
+        offArg.getArgNumber() >= numInputs) {
+      return std::nullopt;
+    }
+
+    Value nextTensor = generic.getInputs()[ptrArg.getArgNumber()];
+    Value offsetTensor = generic.getInputs()[offArg.getArgNumber()];
+    Value offsetElem =
+        tensor::ExtractOp::create(rewriter, loc, offsetTensor, indices);
+    Value offsetIndex = castToIndex(rewriter, loc, offsetElem);
+    if (!offsetIndex) {
+      return std::nullopt;
+    }
+
+    if (totalOffset) {
+      totalOffset =
+          arith::AddIOp::create(rewriter, loc, totalOffset, offsetIndex);
+    } else {
+      totalOffset = offsetIndex;
+    }
+    currentTensor = nextTensor;
+  }
+}
+
+static std::optional<ScalarMemrefAccess>
+getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter) {
+  auto extractOp = ptr.getDefiningOp<tensor::ExtractOp>();
+  if (!extractOp) {
+    return std::nullopt;
+  }
+  auto tensor = extractOp.getTensor();
+  auto tensorType = dyn_cast<RankedTensorType>(tensor.getType());
+  if (!tensorType || !isa<triton::PointerType>(tensorType.getElementType())) {
+    return std::nullopt;
+  }
+  return getScalarMemrefAccessFromPtrTensor(tensor, extractOp.getIndices(),
+                                            rewriter);
+}
+
+static std::optional<Value> buildAtomicRMWUpdate(PatternRewriter &rewriter,
+                                                 Location loc,
+                                                 triton::RMWOp rmwOp,
+                                                 Value current, Value value) {
+  auto elemType = current.getType();
+  if (isa<FloatType>(elemType)) {
+    switch (rmwOp) {
+    case triton::RMWOp::FADD:
+      return arith::AddFOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::MAX:
+      return arith::MaximumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    case triton::RMWOp::MIN:
+      return arith::MinimumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    case triton::RMWOp::XCHG:
+      return value;
+    default:
+      return std::nullopt;
+    }
+  }
+
+  if (isa<IntegerType>(elemType)) {
+    switch (rmwOp) {
+    case triton::RMWOp::ADD:
+      return arith::AddIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::AND:
+      return arith::AndIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::OR:
+      return arith::OrIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::XOR:
+      return arith::XOrIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::MAX:
+      return arith::MaxSIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::MIN:
+      return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::UMAX:
+      return arith::MaxUIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::UMIN:
+      return arith::MinUIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::XCHG:
+      return value;
+    default:
+      return std::nullopt;
+    }
+  }
+
+  return std::nullopt;
 }
 
 class TritonFunctionSignatureConverter : public TypeConverter {
@@ -193,6 +383,99 @@ struct TensorPtrStoreToMemref : public OpRewritePattern<triton::StoreOp> {
   }
 };
 
+struct TensorPtrAtomicRMWToMemref
+    : public OpRewritePattern<triton::AtomicRMWOp> {
+  using OpRewritePattern<triton::AtomicRMWOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(triton::AtomicRMWOp op,
+                                PatternRewriter &rewriter) const override {
+    if (isa<ShapedType>(op.getType())) {
+      return failure();
+    }
+    if (op.getMask() && isa<ShapedType>(op.getMask().getType())) {
+      return failure();
+    }
+
+    auto memrefAccess = getScalarMemrefAccessFromPtr(op.getPtr(), rewriter);
+    if (!memrefAccess) {
+      return failure();
+    }
+
+    auto loc = op.getLoc();
+    auto generic = memref::GenericAtomicRMWOp::create(
+        rewriter, loc, memrefAccess->memref, memrefAccess->index);
+    Block &body = generic.getRegion().front();
+    rewriter.setInsertionPointToStart(&body);
+
+    Value current = body.getArgument(0);
+    auto updated = buildAtomicRMWUpdate(rewriter, loc, op.getAtomicRmwOp(),
+                                        current, op.getVal());
+    if (!updated) {
+      rewriter.eraseOp(generic);
+      return failure();
+    }
+
+    Value finalValue = *updated;
+    if (auto mask = op.getMask()) {
+      finalValue =
+          arith::SelectOp::create(rewriter, loc, mask, finalValue, current)
+              .getResult();
+    }
+
+    memref::AtomicYieldOp::create(rewriter, loc, finalValue);
+    rewriter.replaceOp(op, generic.getResult());
+    return success();
+  }
+};
+
+struct TensorPtrAtomicCASToMemref
+    : public OpRewritePattern<triton::AtomicCASOp> {
+  using OpRewritePattern<triton::AtomicCASOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(triton::AtomicCASOp op,
+                                PatternRewriter &rewriter) const override {
+    if (isa<ShapedType>(op.getType())) {
+      return failure();
+    }
+
+    auto memrefAccess = getScalarMemrefAccessFromPtr(op.getPtr(), rewriter);
+    if (!memrefAccess) {
+      return failure();
+    }
+
+    auto loc = op.getLoc();
+    auto generic = memref::GenericAtomicRMWOp::create(
+        rewriter, loc, memrefAccess->memref, memrefAccess->index);
+    Block &body = generic.getRegion().front();
+    rewriter.setInsertionPointToStart(&body);
+
+    Value current = body.getArgument(0);
+    Value cmp = op.getCmp();
+    Value desired = op.getVal();
+
+    Value equal;
+    if (isa<FloatType>(current.getType())) {
+      equal = arith::CmpFOp::create(rewriter, loc, arith::CmpFPredicate::OEQ,
+                                    current, cmp)
+                  .getResult();
+    } else if (isa<IntegerType>(current.getType())) {
+      equal = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
+                                    current, cmp)
+                  .getResult();
+    } else {
+      rewriter.eraseOp(generic);
+      return failure();
+    }
+
+    Value finalValue =
+        arith::SelectOp::create(rewriter, loc, equal, desired, current)
+            .getResult();
+    memref::AtomicYieldOp::create(rewriter, loc, finalValue);
+    rewriter.replaceOp(op, generic.getResult());
+    return success();
+  }
+};
+
 class TritonPtrToMemrefPass
     : public triton::impl::TritonPtrToMemrefBase<TritonPtrToMemrefPass> {
   using Base = triton::impl::TritonPtrToMemrefBase<TritonPtrToMemrefPass>;
@@ -236,7 +519,8 @@ public:
     }
 
     RewritePatternSet postPatterns(&getContext());
-    postPatterns.add<TensorPtrLoadToMemref, TensorPtrStoreToMemref>(
+    postPatterns.add<TensorPtrLoadToMemref, TensorPtrStoreToMemref,
+                     TensorPtrAtomicRMWToMemref, TensorPtrAtomicCASToMemref>(
         &getContext());
     if (failed(applyPatternsGreedily(moduleOp, std::move(postPatterns)))) {
       signalPassFailure();
