@@ -14,6 +14,8 @@
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
@@ -22,15 +24,12 @@
 
 #include <numeric>
 #include <optional>
-#include <type_traits>
+
+#define DEBUG_TYPE "triton-arith-to-linalg"
 
 namespace {
 using namespace mlir;
 using namespace triton;
-
-#ifndef DEBUG_TYPE
-#define DEBUG_TYPE "triton-arith-to-linalg"
-#endif
 
 //===----------------------------------------------------------------------===//
 // Utilities
@@ -108,6 +107,10 @@ static Value getTransposedValue(Value source, const Location loc,
   auto sourceType = cast<RankedTensorType>(source.getType());
   auto sourceRank = sourceType.getRank();
 
+  if (order.empty() && sourceRank < 2) {
+    return source;
+  }
+
   SmallVector<int64_t> perm(sourceRank);
   SmallVector<int64_t> transposedShape(sourceType.getShape());
   if (order.empty()) {
@@ -117,9 +120,20 @@ static Value getTransposedValue(Value source, const Location loc,
   } else {
     // Use the provided order
     assert(order.size() == sourceRank && "Order size must match source rank");
+    SmallVector<bool> seen(sourceRank, false);
+    bool isIdentity = true;
     for (unsigned i = 0; i < sourceRank; ++i) {
-      perm[i] = order[i];
-      transposedShape[i] = sourceType.getShape()[order[i]];
+      const int32_t dim = order[i];
+      assert(dim >= 0 && static_cast<unsigned>(dim) < sourceRank &&
+             "Order entry out of bounds");
+      assert(!seen[dim] && "Order must be a permutation");
+      seen[dim] = true;
+      perm[i] = dim;
+      transposedShape[i] = sourceType.getShape()[dim];
+      isIdentity &= (dim == static_cast<int32_t>(i));
+    }
+    if (isIdentity) {
+      return source;
     }
   }
 
@@ -163,7 +177,6 @@ struct AdvanceConverter : public OpConversionPattern<triton::AdvanceOp> {
   matchAndRewrite(triton::AdvanceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     llvm::SmallDenseMap<Value, PtrState> knownPtrs;
-    PtrState pointerState;
     PtrAnalysis::rewriteAdvanceOp(op, rewriter, knownPtrs);
     return success();
   }
@@ -209,7 +222,8 @@ struct MakeTensorPtrConverter
     populateVectorAsIndex(pointerState.offsets, op.getOffsets(), rewriter, loc);
     populateVectorAsIndex(pointerState.strides, op.getStrides(), rewriter, loc);
 
-    SmallVector<Value> newOffsets;
+    SmallVector<OpFoldResult> newOffsets;
+    newOffsets.reserve(pointerState.offsets.size());
     for (auto [offset, stride] :
          llvm::zip(pointerState.offsets, pointerState.strides)) {
       auto mulOp = arith::MulIOp::create(rewriter, loc, cast<Value>(offset),
@@ -217,11 +231,7 @@ struct MakeTensorPtrConverter
       newOffsets.push_back(mulOp.getResult());
     }
 
-    pointerState.offsets.clear();
-
-    for (auto offset : newOffsets) {
-      pointerState.offsets.push_back(offset);
-    }
+    pointerState.offsets = std::move(newOffsets);
 
     ArrayRef<int64_t> resultShape;
     auto pointerType =
@@ -412,9 +422,7 @@ public:
     // Analyze the mask operand to determine at runtime the size of the data we
     // are moving.
     MaskState mstate;
-    auto isContMask = mstate.parse(mask, loc, rewriter);
-
-    if (isContMask.failed()) {
+    if (failed(mstate.parse(mask, loc, rewriter))) {
       return rewriter.notifyMatchFailure(
           op, "Cannot lower continuous masked loads");
     }
@@ -433,16 +441,11 @@ public:
       auto accBase =
           arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(false))
               .getResult();
-      for (size_t i = 0; i < type.getShape().size(); i++) {
+      for (size_t i = 0, e = shape.size(); i < e; ++i) {
         auto shapei = arith::ConstantOp::create(
             rewriter, loc, rewriter.getIndexAttr(shape[i]));
 
-        Value dimi = dyn_cast<Value>(mstate.dims[i]);
-        if (!dimi) {
-          dimi = arith::ConstantOp::create(
-              rewriter, loc,
-              cast<IntegerAttr>(cast<Attribute>(mstate.dims[i])));
-        }
+        Value dimi = ofrToIndexValue(mstate.dims[i], loc, rewriter);
 
         auto cmpOp = arith::CmpIOp::create(
             rewriter, loc, arith::CmpIPredicate::slt, dimi, shapei);
@@ -538,9 +541,7 @@ struct StoreConverter : public OpConversionPattern<triton::StoreOp> {
     // Analyze the mask operand to determine at runtime the size of the data we
     // are moving.
     MaskState mstate;
-    auto isContMask = mstate.parse(mask, loc, rewriter);
-
-    if (isContMask.failed())
+    if (failed(mstate.parse(mask, loc, rewriter)))
       return failure();
 
     auto srcSlice = mstate.getExtractSlice(val, loc, rewriter);
@@ -658,7 +659,7 @@ struct UnsplatConverter : public OpConversionPattern<triton::UnsplatOp> {
 
     // Only generate indices for non-zero rank tensors.
     SmallVector<Value, 1> indices(tensorType.getRank());
-    if (indices.size() > 0) {
+    if (!indices.empty()) {
       auto zeroIdx =
           rewriter.createOrFold<arith::ConstantIndexOp>(op.getLoc(), 0);
       llvm::fill(indices, zeroIdx);
@@ -695,7 +696,6 @@ public:
     indexingMaps.append(op->getNumResults(),
                         rewriter.getMultiDimIdentityMap(resultRank));
 
-    assert(op->getNumResults() == 1 && "code assumes single result!");
     auto init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
                                         elementType);
 
@@ -705,7 +705,7 @@ public:
         [&](OpBuilder &nestedBuilder, Location nestedLoc,
             ValueRange blockArgs) {
           Value opResult = blockArgs[0];
-          linalg::YieldOp::create(nestedBuilder, loc, opResult);
+          linalg::YieldOp::create(nestedBuilder, nestedLoc, opResult);
         });
 
     linalgOp->setAttr("broadcastDims",
@@ -782,25 +782,30 @@ struct MakeRangeConverter : public OpConversionPattern<triton::MakeRangeOp> {
 
     Value init =
         tensor::EmptyOp::create(rewriter, loc, shape, elementType).getResult();
+    Value startValue;
+    if (op.getStart()) {
+      startValue = mlir::arith::ConstantIntOp::create(
+                       rewriter, loc, op.getStart(),
+                       type.getElementType().getIntOrFloatBitWidth())
+                       .getResult();
+    }
+
     auto linalgOp = linalg::GenericOp::create(
         rewriter, loc, op->getResultTypes(), /* operands */ ValueRange{},
         ValueRange{init}, indexingMaps, getNParallelLoopsAttrs(1),
         [&](OpBuilder &nestedBuilder, Location nestedLoc,
             ValueRange blockArgs) {
           Value index =
-              linalg::IndexOp::create(nestedBuilder, loc, 0).getResult();
-          Value res = arith::IndexCastOp::create(nestedBuilder, loc,
+              linalg::IndexOp::create(nestedBuilder, nestedLoc, 0).getResult();
+          Value res = arith::IndexCastOp::create(nestedBuilder, nestedLoc,
                                                  type.getElementType(), index)
                           .getResult();
-          if (op.getStart()) {
-            auto start = mlir::arith::ConstantIntOp::create(
-                             rewriter, op.getLoc(), op.getStart(),
-                             type.getElementType().getIntOrFloatBitWidth())
-                             .getResult();
-            res = arith::AddIOp::create(nestedBuilder, loc, res, start)
-                      .getResult();
+          if (startValue) {
+            res =
+                arith::AddIOp::create(nestedBuilder, nestedLoc, res, startValue)
+                    .getResult();
           }
-          linalg::YieldOp::create(nestedBuilder, loc, res);
+          linalg::YieldOp::create(nestedBuilder, nestedLoc, res);
         });
 
     rewriter.replaceOp(op, linalgOp->getResults());
@@ -901,9 +906,13 @@ struct CallConverter : public OpConversionPattern<triton::CallOp> {
           size_t argsParent = parentInputs.size();
 
           if (argsNeed > args.size()) {
-            int missing = argsNeed - args.size();
-            int missingArgsStart = argsParent - missing;
-            for (int i = 0; i < missing; i++) {
+            size_t missing = argsNeed - args.size();
+            if (missing > argsParent) {
+              return rewriter.notifyMatchFailure(
+                  op, "not enough extra arguments for call lowering");
+            }
+            size_t missingArgsStart = argsParent - missing;
+            for (size_t i = 0; i < missing; ++i) {
               args.push_back(parentInputs[missingArgsStart + i]);
             }
           }
@@ -1170,9 +1179,9 @@ struct MatmulConverter : public OpConversionPattern<triton::DotOp> {
   matchAndRewrite(triton::DotOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
-    auto opa = op.getA();
-    auto opb = op.getB();
-    auto opc = op.getC();
+    auto opa = adaptor.getA();
+    auto opb = adaptor.getB();
+    auto opc = adaptor.getC();
 
     auto dstType = cast<RankedTensorType>(op.getType());
     auto elementType = dstType.getElementType();
@@ -1271,8 +1280,13 @@ private:
             .Case([&](arith::MulFOp) {
               return rewriter.getFloatAttr(constantType, 1.f);
             })
-            .Case<arith::MulIOp, arith::AndIOp>(
-                [&](auto) { return rewriter.getIntegerAttr(constantType, 1); })
+            .Case([&](arith::MulIOp) {
+              return rewriter.getIntegerAttr(constantType, 1);
+            })
+            .Case([&](arith::AndIOp) {
+              return rewriter.getIntegerAttr(constantType,
+                                             llvm::maxUIntN(bitWidth));
+            })
             .Case([&](arith::OrIOp) {
               return rewriter.getIntegerAttr(constantType, 0);
             })
@@ -1933,16 +1947,21 @@ struct DenseConstantConverter : public OpConversionPattern<arith::ConstantOp> {
   LogicalResult
   matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto attr = cast<DenseElementsAttr>(op.getValue());
+    auto attr = dyn_cast<DenseElementsAttr>(op.getValue());
+    if (!attr || !attr.isSplat()) {
+      return failure();
+    }
     auto loc = op.getLoc();
 
     auto splatConst = arith::ConstantOp::materialize(
         rewriter, attr.getSplatValue<Attribute>(), attr.getElementType(), loc);
 
-    auto init = tensor::EmptyOp::create(
-        rewriter, loc,
-        cast<RankedTensorType>(op.getResult().getType()).getShape(),
-        attr.getElementType());
+    auto resultType = dyn_cast<RankedTensorType>(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+    auto init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                        attr.getElementType());
 
     rewriter.replaceOpWithNewOp<linalg::FillOp>(op, ValueRange{splatConst},
                                                 ValueRange{init});
@@ -2124,13 +2143,13 @@ public:
     POPULATE_UNARY_OP("__nv_coshf", math::CoshOp);
     POPULATE_UNARY_OP("__nv_cosh", math::CoshOp);
     POPULATE_UNARY_OP("__nv_tanhf", math::TanhOp);
-    POPULATE_UNARY_OP("__nv_tanhf", math::TanhOp);
+    POPULATE_UNARY_OP("__nv_tanh", math::TanhOp);
     POPULATE_UNARY_OP("__nv_acoshf", math::AcoshOp);
     POPULATE_UNARY_OP("__nv_acosh", math::AcoshOp);
     POPULATE_UNARY_OP("__nv_asinhf", math::AsinhOp);
     POPULATE_UNARY_OP("__nv_asinh", math::AsinhOp);
     POPULATE_UNARY_OP("__nv_atanhf", math::AtanhOp);
-    POPULATE_UNARY_OP("__nv_atanhf", math::AtanhOp);
+    POPULATE_UNARY_OP("__nv_atanh", math::AtanhOp);
     POPULATE_UNARY_OP("__nv_logf", math::LogOp);
     POPULATE_UNARY_OP("__nv_log", math::LogOp);
     POPULATE_UNARY_OP("__nv_log10f", math::Log10Op);
