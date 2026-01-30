@@ -292,11 +292,6 @@ class TritonUnstructuredFallbackPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<arith::ArithDialect, scf::SCFDialect, tensor::TensorDialect,
-                    triton::TritonDialect>();
-  }
-
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
     patterns.add<ScalarizeTensorLoad, ScalarizeTensorStore,

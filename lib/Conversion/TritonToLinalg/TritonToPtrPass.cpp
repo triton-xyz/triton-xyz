@@ -26,7 +26,6 @@
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
@@ -428,13 +427,6 @@ class TritonToPtrPass : public triton::impl::TritonToPtrBase<TritonToPtrPass> {
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<arith::ArithDialect, math::MathDialect, affine::AffineDialect,
-                scf::SCFDialect, tensor::TensorDialect, triton::TritonDialect,
-                tts::TritonStructuredDialect, ptr::PtrDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
 

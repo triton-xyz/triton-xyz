@@ -11,11 +11,9 @@
 
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/ValueRange.h"
@@ -186,10 +184,6 @@ class ReconcilePtrCastsPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<ptr::PtrDialect, memref::MemRefDialect, BuiltinDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
     RewritePatternSet patterns(&getContext());

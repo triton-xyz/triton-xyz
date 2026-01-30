@@ -1,4 +1,3 @@
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -21,7 +20,6 @@
 #include "mlir/Transforms/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisStructured/PtrAnalysis.h"
-#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -481,13 +479,6 @@ class TritonPtrToMemrefPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<arith::ArithDialect, math::MathDialect, affine::AffineDialect,
-                scf::SCFDialect, tensor::TensorDialect, triton::TritonDialect,
-                tts::TritonStructuredDialect, memref::MemRefDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
 

@@ -15,6 +15,18 @@ def TritonArithToLinalg : Pass<"triton-arith-to-linalg", "mlir::ModuleOp"> {
              "transpose any rank - 1 reduction to rank - 2 as the old behavior. These transposes "
              "are planned for removal as Triton Shared should not be responsible for this.">,
   ];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "arith::ArithDialect",
+    "math::MathDialect",
+    "linalg::LinalgDialect",
+    "affine::AffineDialect",
+    "scf::SCFDialect",
+    "cf::ControlFlowDialect",
+    "tensor::TensorDialect",
+    "bufferization::BufferizationDialect",
+    "ttx::TritonTilingExtDialect"
+  ];
 }
 
 def TritonPidsToFuncArgs : Pass<"triton-pids-to-func-args", "mlir::ModuleOp"> {

@@ -383,14 +383,6 @@ class UnstructuredToMemrefPass
   using Base::Base;
 
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<func::FuncDialect, arith::ArithDialect, math::MathDialect,
-                linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
-                tensor::TensorDialect, bufferization::BufferizationDialect,
-                memref::MemRefDialect, ttx::TritonTilingExtDialect>();
-  }
-
   void runOnOperation() override {
     auto moduleOp = getOperation();
 
