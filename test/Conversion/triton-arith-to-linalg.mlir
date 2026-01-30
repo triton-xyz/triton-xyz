@@ -495,10 +495,79 @@ module {
 
 module {
 // CHECK: #[[$ATTR_11:.+]] = affine_map<(d0) -> (d0)>
+// CHECK-LABEL:   func.func @argmax_nan_propagate_4() -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant -1 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0xFF800000 : f32
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant true
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
+// CHECK:           %[[FILL_0:.*]] = linalg.fill ins(%[[CONSTANT_3]] : f32) outs(%[[EMPTY_0]] : tensor<4xf32>) -> tensor<4xf32>
+// CHECK:           %[[EMPTY_1:.*]] = tensor.empty() : tensor<4xi32>
+// CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_11]]], iterator_types = ["parallel"]} outs(%[[EMPTY_1]] : tensor<4xi32>) {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[INDEX_0:.*]] = linalg.index 0 : index
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[INDEX_0]] : index to i32
+// CHECK:             linalg.yield %[[INDEX_CAST_0]] : i32
+// CHECK:           } -> tensor<4xi32>
+// CHECK:           %[[EMPTY_2:.*]] = tensor.empty() : tensor<f32>
+// CHECK:           %[[FILL_1:.*]] = linalg.fill ins(%[[CONSTANT_1]] : f32) outs(%[[EMPTY_2]] : tensor<f32>) -> tensor<f32>
+// CHECK:           %[[EMPTY_3:.*]] = tensor.empty() : tensor<i32>
+// CHECK:           %[[FILL_2:.*]] = linalg.fill ins(%[[CONSTANT_0]] : i32) outs(%[[EMPTY_3]] : tensor<i32>) -> tensor<i32>
+// CHECK:           %[[REDUCE_0:.*]]:2 = linalg.reduce ins(%[[FILL_0]], %[[GENERIC_0]] : tensor<4xf32>, tensor<4xi32>) outs(%[[FILL_1]], %[[FILL_2]] : tensor<f32>, tensor<i32>) dimensions = [0]
+// CHECK:             (%[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: i32, %[[VAL_3:.*]]: f32, %[[VAL_4:.*]]: i32) {
+// CHECK:               %[[CMPF_0:.*]] = arith.cmpf ogt, %[[VAL_1]], %[[VAL_3]] : f32
+// CHECK:               %[[CMPF_1:.*]] = arith.cmpf oeq, %[[VAL_1]], %[[VAL_3]] : f32
+// CHECK:               %[[CMPF_2:.*]] = arith.cmpf une, %[[VAL_1]], %[[VAL_1]] : f32
+// CHECK:               %[[CMPF_3:.*]] = arith.cmpf une, %[[VAL_3]], %[[VAL_3]] : f32
+// CHECK:               %[[XORI_0:.*]] = arith.xori %[[CMPF_3]], %[[CONSTANT_2]] : i1
+// CHECK:               %[[ANDI_0:.*]] = arith.andi %[[CMPF_2]], %[[XORI_0]] : i1
+// CHECK:               %[[ORI_0:.*]] = arith.ori %[[CMPF_0]], %[[ANDI_0]] : i1
+// CHECK:               %[[ANDI_1:.*]] = arith.andi %[[CMPF_2]], %[[CMPF_3]] : i1
+// CHECK:               %[[ORI_1:.*]] = arith.ori %[[CMPF_1]], %[[ANDI_1]] : i1
+// CHECK:               %[[CMPI_0:.*]] = arith.cmpi slt, %[[VAL_2]], %[[VAL_4]] : i32
+// CHECK:               %[[ANDI_2:.*]] = arith.andi %[[ORI_1]], %[[CMPI_0]] : i1
+// CHECK:               %[[ORI_2:.*]] = arith.ori %[[ORI_0]], %[[ANDI_2]] : i1
+// CHECK:               %[[SELECT_0:.*]] = arith.select %[[ORI_2]], %[[VAL_1]], %[[VAL_3]] : f32
+// CHECK:               %[[SELECT_1:.*]] = arith.select %[[ORI_2]], %[[VAL_2]], %[[VAL_4]] : i32
+// CHECK:               linalg.yield %[[SELECT_0]], %[[SELECT_1]] : f32, i32
+// CHECK:             }
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[REDUCE_0]]#1[] : tensor<i32>
+// CHECK:           return %[[EXTRACT_0]] : i32
+// CHECK:         }
+  tt.func @argmax_nan_propagate_4() -> i32 {
+    %true = arith.constant true
+    %vals = arith.constant dense<0.0> : tensor<4xf32>
+    %idx = tt.make_range {start = 0 : i32, end = 4 : i32} : tensor<4xi32>
+    %res:2 = "tt.reduce"(%vals, %idx) <{axis = 0 : i32}> ({
+    ^bb0(%v: f32, %i: i32, %v_acc: f32, %i_acc: i32):
+      %gt = arith.cmpf ogt, %v, %v_acc : f32
+      %eq = arith.cmpf oeq, %v, %v_acc : f32
+      %v_nan = arith.cmpf une, %v, %v : f32
+      %acc_nan = arith.cmpf une, %v_acc, %v_acc : f32
+      %acc_not_nan = arith.xori %acc_nan, %true : i1
+      %nan_pick = arith.andi %v_nan, %acc_not_nan : i1
+      %gt_or_nan = arith.ori %gt, %nan_pick : i1
+      %both_nan = arith.andi %v_nan, %acc_nan : i1
+      %eq_or_nan = arith.ori %eq, %both_nan : i1
+      %lt = arith.cmpi slt, %i, %i_acc : i32
+      %tie = arith.andi %eq_or_nan, %lt : i1
+      %pick = arith.ori %gt_or_nan, %tie : i1
+      %v_out = arith.select %pick, %v, %v_acc : f32
+      %i_out = arith.select %pick, %i, %i_acc : i32
+      tt.reduce.return %v_out, %i_out : f32, i32
+    }) : (tensor<4xf32>, tensor<4xi32>) -> (f32, i32)
+    tt.return %res#1 : i32
+  }
+}
+
+// -----
+
+module {
+// CHECK: #[[$ATTR_12:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @minmax_select(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
-// CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_11]], #[[$ATTR_11]], #[[$ATTR_11]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
+// CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_12]], #[[$ATTR_12]], #[[$ATTR_12]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[MAXIMUMF_0:.*]] = arith.maximumf %[[VAL_0]], %[[VAL_1]] : f32
 // CHECK:             linalg.yield %[[MAXIMUMF_0]] : f32
@@ -515,11 +584,11 @@ module {
 // -----
 
 module {
-// CHECK: #[[$ATTR_12:.+]] = affine_map<(d0) -> (d0)>
+// CHECK: #[[$ATTR_13:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_binary(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
-// CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_12]], #[[$ATTR_12]], #[[$ATTR_12]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
+// CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_13]], #[[$ATTR_13]], #[[$ATTR_13]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[VAL_3:.*]] = math.atan2 %[[VAL_0]], %[[VAL_1]] : f32
 // CHECK:             linalg.yield %[[VAL_3]] : f32

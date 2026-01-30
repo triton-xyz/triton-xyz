@@ -1553,10 +1553,29 @@ class ArgMinMaxBaseConverter : public OpConversionPattern<triton::ReduceOp> {
     return success();
   }
 
-  LogicalResult matchShouldUpdateValue(Value currValue, Value currIndex,
-                                       Value reduceValue, Value reduceIndex,
-                                       mlir::Block::iterator &it,
-                                       Value &shouldUpdate) const {
+  static bool isCommutativeMatch(Value lhs, Value rhs, Value a, Value b) {
+    return (lhs == a && rhs == b) || (lhs == b && rhs == a);
+  }
+
+  static bool isTrueConstant(Value value) {
+    auto constOp = value.getDefiningOp<arith::ConstantOp>();
+    if (!constOp) {
+      return false;
+    }
+    if (auto boolAttr = dyn_cast<BoolAttr>(constOp.getValue())) {
+      return boolAttr.getValue();
+    }
+    if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue())) {
+      return intAttr.getValue().isOne();
+    }
+    return false;
+  }
+
+  LogicalResult matchShouldUpdateValueSimple(Value currValue, Value currIndex,
+                                             Value reduceValue,
+                                             Value reduceIndex,
+                                             mlir::Block::iterator &it,
+                                             Value &shouldUpdate) const {
     Value tieResult;
     if (failed(matchTieBreakResult(currValue, currIndex, reduceValue,
                                    reduceIndex, it, tieResult))) {
@@ -1575,7 +1594,8 @@ class ArgMinMaxBaseConverter : public OpConversionPattern<triton::ReduceOp> {
     LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
     auto orOp = dyn_cast<arith::OrIOp>(*it++);
     if (orOp) {
-      if (orOp.getLhs() != comparisonResult || orOp.getRhs() != tieResult) {
+      if (!isCommutativeMatch(orOp.getLhs(), orOp.getRhs(), comparisonResult,
+                              tieResult)) {
         return failure();
       }
     } else {
@@ -1584,6 +1604,136 @@ class ArgMinMaxBaseConverter : public OpConversionPattern<triton::ReduceOp> {
 
     shouldUpdate = orOp;
     return success();
+  }
+
+  LogicalResult matchShouldUpdateValueNanPropagate(
+      Value currValue, Value currIndex, Value reduceValue, Value reduceIndex,
+      mlir::Block::iterator &it, Value &shouldUpdate) const {
+    // Match the following (nan-propagate variant):
+    //   %cmp = arith.cmpf ogt/olt, %curr, %acc : f32
+    //   %eq = arith.cmpf oeq, %curr, %acc : f32
+    //   %curr_nan = arith.cmpf une, %curr, %curr : f32
+    //   %acc_nan = arith.cmpf une, %acc, %acc : f32
+    //   %acc_not_nan = arith.xori %acc_nan, %true : i1
+    //   %nan_pick = arith.andi %curr_nan, %acc_not_nan : i1
+    //   %cmp_or_nan = arith.ori %cmp, %nan_pick : i1
+    //   %both_nan = arith.andi %curr_nan, %acc_nan : i1
+    //   %eq_or_nan = arith.ori %eq, %both_nan : i1
+    //   %idx_lt = arith.cmpi slt, %curr_idx, %acc_idx : i32
+    //   %tie = arith.andi %eq_or_nan, %idx_lt : i1
+    //   %pick = arith.ori %cmp_or_nan, %tie : i1
+
+    Value comparisonResult;
+    if (failed(T::matchComparisonResult(currValue, currIndex, reduceValue,
+                                        reduceIndex, it, comparisonResult))) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto eqCmpOp = dyn_cast<arith::CmpFOp>(*it++);
+    if (!eqCmpOp || eqCmpOp.getPredicate() != arith::CmpFPredicate::OEQ ||
+        currValue != eqCmpOp.getLhs() || reduceValue != eqCmpOp.getRhs()) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto currNanCmp = dyn_cast<arith::CmpFOp>(*it++);
+    if (!currNanCmp || currNanCmp.getPredicate() != arith::CmpFPredicate::UNE ||
+        currValue != currNanCmp.getLhs() || currValue != currNanCmp.getRhs()) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto accNanCmp = dyn_cast<arith::CmpFOp>(*it++);
+    if (!accNanCmp || accNanCmp.getPredicate() != arith::CmpFPredicate::UNE ||
+        reduceValue != accNanCmp.getLhs() ||
+        reduceValue != accNanCmp.getRhs()) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto accNotNanOp = dyn_cast<arith::XOrIOp>(*it++);
+    if (!accNotNanOp) {
+      return failure();
+    }
+    if (!((accNotNanOp.getLhs() == accNanCmp &&
+           isTrueConstant(accNotNanOp.getRhs())) ||
+          (accNotNanOp.getRhs() == accNanCmp &&
+           isTrueConstant(accNotNanOp.getLhs())))) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto nanPickOp = dyn_cast<arith::AndIOp>(*it++);
+    if (!nanPickOp ||
+        !isCommutativeMatch(nanPickOp.getLhs(), nanPickOp.getRhs(), currNanCmp,
+                            accNotNanOp)) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto cmpOrNanOp = dyn_cast<arith::OrIOp>(*it++);
+    if (!cmpOrNanOp ||
+        !isCommutativeMatch(cmpOrNanOp.getLhs(), cmpOrNanOp.getRhs(),
+                            comparisonResult, nanPickOp)) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto bothNanOp = dyn_cast<arith::AndIOp>(*it++);
+    if (!bothNanOp ||
+        !isCommutativeMatch(bothNanOp.getLhs(), bothNanOp.getRhs(), currNanCmp,
+                            accNanCmp)) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto eqOrNanOp = dyn_cast<arith::OrIOp>(*it++);
+    if (!eqOrNanOp ||
+        !isCommutativeMatch(eqOrNanOp.getLhs(), eqOrNanOp.getRhs(), eqCmpOp,
+                            bothNanOp)) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto sltCmpOp = dyn_cast<arith::CmpIOp>(*it++);
+    if (!sltCmpOp || sltCmpOp.getPredicate() != arith::CmpIPredicate::slt ||
+        currIndex != sltCmpOp.getLhs() || reduceIndex != sltCmpOp.getRhs()) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto tieOp = dyn_cast<arith::AndIOp>(*it++);
+    if (!tieOp || !isCommutativeMatch(tieOp.getLhs(), tieOp.getRhs(), eqOrNanOp,
+                                      sltCmpOp)) {
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
+    auto pickOp = dyn_cast<arith::OrIOp>(*it++);
+    if (!pickOp || !isCommutativeMatch(pickOp.getLhs(), pickOp.getRhs(),
+                                       cmpOrNanOp, tieOp)) {
+      return failure();
+    }
+
+    shouldUpdate = pickOp;
+    return success();
+  }
+
+  LogicalResult matchShouldUpdateValue(Value currValue, Value currIndex,
+                                       Value reduceValue, Value reduceIndex,
+                                       mlir::Block::iterator &it,
+                                       Value &shouldUpdate) const {
+    auto itStart = it;
+    if (succeeded(matchShouldUpdateValueSimple(currValue, currIndex,
+                                               reduceValue, reduceIndex, it,
+                                               shouldUpdate))) {
+      return success();
+    }
+
+    it = itStart;
+    return matchShouldUpdateValueNanPropagate(currValue, currIndex, reduceValue,
+                                              reduceIndex, it, shouldUpdate);
   }
 
   Value getInitTensor(ConversionPatternRewriter &rewriter,
