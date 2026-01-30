@@ -101,6 +101,23 @@ struct ExpandShapeConverter
   }
 };
 
+// Convert tensor.extract to use !ptr.ptr instead of !tt.ptr.
+struct TensorExtractConverter : public OpConversionPattern<tensor::ExtractOp> {
+  using OpConversionPattern<tensor::ExtractOp>::OpConversionPattern;
+
+  TensorExtractConverter(const TypeConverter &typeConverter,
+                         MLIRContext *context)
+      : OpConversionPattern<tensor::ExtractOp>(typeConverter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExtractOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExtractOp>(op, adaptor.getTensor(),
+                                                   adaptor.getIndices());
+    return success();
+  }
+};
+
 // arith.select could operate on triton pointers. Convert to use !ptr.ptr
 struct SelectOpConverter : public OpConversionPattern<arith::SelectOp> {
   using OpConversionPattern<arith::SelectOp>::OpConversionPattern;
@@ -437,9 +454,10 @@ public:
       return !triton::isPtrTypeLike(ptrType);
     });
 
-    target.addDynamicallyLegalOp<
-        linalg::FillOp, linalg::GenericOp, linalg::YieldOp, tensor::EmptyOp,
-        tensor::ExpandShapeOp, tensor::InsertSliceOp, arith::SelectOp>(
+    target.addDynamicallyLegalOp<linalg::FillOp, linalg::GenericOp,
+                                 linalg::YieldOp, tensor::EmptyOp,
+                                 tensor::ExpandShapeOp, tensor::ExtractOp,
+                                 tensor::InsertSliceOp, arith::SelectOp>(
         [](auto op) {
           return llvm::all_of(
               llvm::concat<Value>(op->getOperands(), op->getResults()),
@@ -454,9 +472,9 @@ public:
     patterns
         .add<AddPtrConverter, BitCastConverter, StoreConverter, LoadConverter,
              PtrToIntConverter, IntToPtrConverter, ExpandShapeConverter,
-             SelectOpConverter, InsertSliceConverter, EmptyTensorConverter,
-             LinalgFillPtrConverter, LinalgPtrConverter, LinalgYieldConverter>(
-            typeConverter, patterns.getContext());
+             TensorExtractConverter, SelectOpConverter, InsertSliceConverter,
+             EmptyTensorConverter, LinalgFillPtrConverter, LinalgPtrConverter,
+             LinalgYieldConverter>(typeConverter, patterns.getContext());
 
     mlir::scf::populateSCFStructuralTypeConversionsAndLegality(
         typeConverter, patterns, target);
