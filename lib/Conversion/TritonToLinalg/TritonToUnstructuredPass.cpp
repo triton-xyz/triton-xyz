@@ -208,6 +208,14 @@ static unsigned int getBitWidth(Type type) {
   return 0;
 }
 
+static bool isTensorOfPointers(Type type) {
+  auto tensorType = dyn_cast<RankedTensorType>(type);
+  if (!tensorType) {
+    return false;
+  }
+  return isa<triton::PointerType>(tensorType.getElementType());
+}
+
 class TritonToUnstructuredPass
     : public mlir::triton::impl::TritonToUnstructuredBase<
           TritonToUnstructuredPass> {
@@ -246,6 +254,11 @@ public:
         if (!triton::isPtrTypeLike(arg.getType())) {
           continue;
         }
+        if (isTensorOfPointers(arg.getType())) {
+          // Unstructured lowering requires a single scalar base pointer.
+          // Leave tensor-of-ptr args to the fallback pass.
+          continue;
+        }
 
         OpBuilder b(func->getRegion(0));
         Value zero =
@@ -264,7 +277,7 @@ public:
     getOperation().walk([&](triton::IntToPtrOp op) {
       // We only want to handle single source pointer,
       // skip if this op produces tensor of pointers
-      if (isa<RankedTensorType>(op.getType())) {
+      if (isTensorOfPointers(op.getType())) {
         return;
       }
       auto res = op.getResult();

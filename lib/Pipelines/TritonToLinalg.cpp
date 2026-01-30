@@ -30,7 +30,9 @@ void mlir::triton::buildTritonToLinalgPipeline(
   pm.addPass(createStructuredToMemref());
   pm.addPass(createUnstructuredToMemref());
   pm.addPass(createTritonPtrToMemref());
+
   pm.addPass(createTritonToPtr());
+  pm.addPass(createTritonTtPtrToPtr());
   pm.addPass(createReconcileUnrealizedCastsPass());
   pm.addPass(createReconcilePtrCasts());
 
