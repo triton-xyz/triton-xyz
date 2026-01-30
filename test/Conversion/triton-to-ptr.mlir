@@ -151,3 +151,22 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_extract_ptr(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[SPLAT_0]] : tensor<4x!tt.ptr<i32>> to tensor<4x!ptr.ptr<#ptr.generic_space>>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[UNREALIZED_CONVERSION_CAST_0]]{{\[}}%[[CONSTANT_0]]] : tensor<4x!ptr.ptr<#ptr.generic_space>>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @tensor_extract_ptr(%arg0: !tt.ptr<i32>) {
+    %splat = tt.splat %arg0 : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
+    %c0 = arith.constant 0 : index
+    %elem = tensor.extract %splat[%c0] : tensor<4x!tt.ptr<i32>>
+    tt.return
+  }
+}
