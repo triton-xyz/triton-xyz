@@ -448,7 +448,8 @@ public:
                 .Case<tts::MakeGatherScatterTensorPtrOp>(
                     [&](Operation *op) { return success(); })
                 .Case<triton::LoadOp, triton::StoreOp, triton::MakeTensorPtrOp,
-                      tts::MakeTensorPtrOp>([&](Operation *op) {
+                      tts::MakeTensorPtrOp, triton::AtomicRMWOp,
+                      triton::AtomicCASOp>([&](Operation *op) {
                   // Special case:
                   // We do not want to create "unstructured tensor pointer" into
                   // tts.make_tptr if the base pointer is directly from the
@@ -610,6 +611,40 @@ public:
                 return success();
               })
 
+              .Case<triton::AtomicRMWOp>([&](triton::AtomicRMWOp atomic) {
+                auto offsetInfo = offsetMap.at(atomic.getPtr());
+                OpBuilder b{atomic};
+                auto loc = atomic.getLoc();
+                Value basePtr = offsetInfo.ptr;
+                if (auto tensorType =
+                        dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
+                  basePtr = triton::SplatOp::create(b, loc, tensorType, basePtr)
+                                .getResult();
+                }
+                auto materializedAddPtr =
+                    triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
+                                             basePtr, offsetInfo.offset)
+                        .getResult();
+                atomic.getPtrMutable().set(materializedAddPtr);
+                return success();
+              })
+              .Case<triton::AtomicCASOp>([&](triton::AtomicCASOp atomic) {
+                auto offsetInfo = offsetMap.at(atomic.getPtr());
+                OpBuilder b{atomic};
+                auto loc = atomic.getLoc();
+                Value basePtr = offsetInfo.ptr;
+                if (auto tensorType =
+                        dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
+                  basePtr = triton::SplatOp::create(b, loc, tensorType, basePtr)
+                                .getResult();
+                }
+                auto materializedAddPtr =
+                    triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
+                                             basePtr, offsetInfo.offset)
+                        .getResult();
+                atomic.getPtrMutable().set(materializedAddPtr);
+                return success();
+              })
               .Default([&](Operation *op) {
                 op->emitError("unexpected op in ptr sequence");
                 return failure();
