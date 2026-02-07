@@ -31,6 +31,7 @@ add_triton_library(TritonToLinalg
   MLIRTransforms
   MLIRSupport
   MLIRReconcileUnrealizedCasts
+  MLIRPtrToLLVM
   TritonIR
   TritonTransforms
   TritonTilingExtIR
