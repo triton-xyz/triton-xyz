@@ -245,7 +245,7 @@ class XYZBackend(BaseBackend):
                     llir_path,
                 ]
             )
-            metadata["shared"] = 0
+            metadata["shared"] = 1
             return Path(llir_path).read_text()
 
     @staticmethod
