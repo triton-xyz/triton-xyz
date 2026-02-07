@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = ["E501", "E701", "E731", "E741"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+# https://github.com/astral-sh/ty/blob/main/docs/reference/configuration.md
+[tool.ty.environment]
+extra-paths = ["./third_party/triton/python"]

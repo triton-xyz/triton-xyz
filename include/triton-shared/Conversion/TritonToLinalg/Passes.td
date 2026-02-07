@@ -89,6 +89,16 @@ def ReconcilePtrCasts : Pass<"reconcile-ptr-casts", "mlir::ModuleOp"> {
   ];
 }
 
+def ConvertXyzToLLVM : Pass<"convert-xyz-to-llvm", "mlir::ModuleOp"> {
+  let summary = "Convert xyz ptr/memref IR to LLVM with ptr-aware memory space mapping";
+  let dependentDialects = [
+    "ptr::PtrDialect",
+    "memref::MemRefDialect",
+    "LLVM::LLVMDialect",
+    "func::FuncDialect"
+  ];
+}
+
 def CollapseShape : Pass<"collapse-shape", "mlir::ModuleOp"> {
   let summary = "Compress tensor dimensions to improve linalg{broadcast,transpose,fill,reduce} efficiency";
   let dependentDialects = [
