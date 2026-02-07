@@ -16,7 +16,7 @@ from triton.backends.compiler import BaseBackend, GPUTarget, Language
 from triton._C.libtriton import ir, llvm, passes  # ty:ignore[unresolved-import]
 from triton.runtime.build import _build
 
-_DUMP_INDEX = 0
+_DUMP_INDEX = 1
 
 
 def _env_truthy(name: str) -> bool:
