@@ -2,7 +2,9 @@ import ctypes
 import os
 import platform
 import tempfile
+import time
 
+import triton
 
 from triton.backends.driver import DriverBase
 from triton.backends.compiler import GPUTarget
@@ -128,6 +130,58 @@ class Utils(object):
         }
 
 
+class XYZDeviceInterface:
+    class HooksTimeAccessor:
+        def __init__(self, di):
+            self.di = di
+            self.record_idx = 0
+
+        def elapsed_time(self, end_event) -> float:
+            total_time = 0
+            for i in range(self.record_idx, end_event.record_idx):
+                total_time += self.di.kernel_times[i]
+            return total_time * 1000
+
+        def record(self):
+            self.record_idx = len(self.di.kernel_times)
+
+    class TimerEvent:
+        def __init__(self):
+            self.timer = 0
+
+        def elapsed_time(self, end_event) -> float:
+            return (end_event.timer - self.timer) * 1000
+
+        def record(self):
+            self.timer = time.perf_counter()
+
+    def __init__(self):
+        self.kernel_times = []
+        self.last_start = 0
+        self.use_hooks = False
+        triton.compiler.CompiledKernel.launch_enter_hook = None  # ty:ignore
+        triton.compiler.CompiledKernel.launch_exit_hook = None  # ty:ignore
+
+    def enable_hook_timing(self):
+        self.use_hooks = True
+        triton.compiler.CompiledKernel.launch_enter_hook = lambda arg: self._enter_hook()  # ty:ignore
+        triton.compiler.CompiledKernel.launch_exit_hook = lambda arg: self._exit_hook()  # ty:ignore
+
+    def synchronize(self):
+        pass
+
+    def _enter_hook(self):
+        self.last_start = time.perf_counter()
+
+    def _exit_hook(self):
+        self.kernel_times.append(time.perf_counter() - self.last_start)
+
+    def Event(self, enable_timing=True):
+        if self.use_hooks:
+            return XYZDeviceInterface.HooksTimeAccessor(self)
+        return XYZDeviceInterface.TimerEvent()
+
+
 class Launcher(object):
     def __init__(self, src, metadata):
         flat_signature = []
@@ -214,9 +268,7 @@ class XYZDriver(DriverBase):
         return True
 
     def get_device_interface(self):
-        import torch
-
-        return torch.cpu
+        return XYZDeviceInterface()
 
     def map_python_to_cpp_type(self, ty: str) -> str:
         return ty
