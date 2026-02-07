@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 import triton
@@ -62,6 +63,7 @@ def print_lastn(tensor, prefix, lastn=32):
     print(f"{prefix}: [{formatted_str}]", flush=True)
 
 
+@pytest.mark.parametrize("BLOCK_SIZE", [8192])
 def test_add(BLOCK_SIZE, log=False):
     device = DEVICE
     size = 8192 * 8 + 8192 * 5

@@ -1,12 +1,7 @@
 #pragma once
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
@@ -18,6 +13,7 @@
 #include "triton/Dialect/Triton/Transforms/Passes.h"
 
 inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
+  mlir::registerAllDialects(registry);
   mlir::registerAllPasses();
   mlir::registerAllExtensions(registry);
   mlir::registerLinalgPasses();
@@ -28,12 +24,7 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::triton::registerTritonArithToLinalgPasses();
   mlir::triton::registerTritonToLinalgPipelines();
 
-  registry
-      .insert<mlir::ptr::PtrDialect, mlir::ttx::TritonTilingExtDialect,
-              mlir::tts::TritonStructuredDialect, mlir::triton::TritonDialect,
-              mlir::cf::ControlFlowDialect, mlir::math::MathDialect,
-              mlir::arith::ArithDialect, mlir::scf::SCFDialect,
-              mlir::linalg::LinalgDialect, mlir::func::FuncDialect,
-              mlir::tensor::TensorDialect, mlir::memref::MemRefDialect,
-              mlir::bufferization::BufferizationDialect>();
+  registry.insert<mlir::ttx::TritonTilingExtDialect,
+                  mlir::tts::TritonStructuredDialect,
+                  mlir::triton::TritonDialect>();
 }

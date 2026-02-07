@@ -10,6 +10,7 @@ set(triton_shared_tool_libs
   ${triton_libs}
   MLIRRegisterAllPasses
   MLIRRegisterAllExtensions
+  MLIRRegisterAllDialects
 )
 
 add_llvm_executable(triton-xyz-opt triton-xyz-opt.cpp PARTIAL_SOURCES_INTENDED)

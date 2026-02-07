@@ -3,6 +3,7 @@ add_triton_library(TritonToLinalg
   StructuredToMemrefPass.cpp
   TritonPtrToMemrefPass.cpp
   ReconcilePtrCastsPass.cpp
+  ConvertXyzToLLVMPass.cpp
   TritonToPtrPass.cpp
   CollapseShape.cpp
   TritonToStructuredPass.cpp

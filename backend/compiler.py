@@ -217,8 +217,8 @@ class XYZBackend(BaseBackend):
             llvm_path = os.path.join(tmpdir, "llvm.mlir")
             llir_path = os.path.join(tmpdir, "ll.ir")
             Path(linalg_path).write_text(src)
-            cmd = [_find_tool("mlir-opt")]
-            cmd.extend(_mlir_debug_args("linalg_to_llvm"))
+            cmd = [_find_tool("triton-xyz-opt")]
+            cmd.extend(_mlir_debug_args("xyz_to_llvm"))
             cmd.extend(
                 [
                     linalg_path,
@@ -228,14 +228,16 @@ class XYZBackend(BaseBackend):
                     "--convert-scf-to-cf",
                     "--memref-expand",
                     "--expand-strided-metadata",
-                    "--finalize-memref-to-llvm",
-                    "--convert-to-llvm",
+                    "--convert-xyz-to-llvm",
                     "--reconcile-unrealized-casts",
+                    "--canonicalize",
+                    "--cse",
                     "-o",
                     llvm_path,
                 ]
             )
             subprocess.check_call(cmd)
+
             subprocess.check_call(
                 [
                     _find_tool("mlir-translate"),

@@ -1,6 +1,8 @@
 #pragma once
 
-#include "mlir/Pass/Pass.h" // IWYU pragma: keep
+#include "mlir/Dialect/Func/IR/FuncOps.h"  // IWYU pragma: keep
+#include "mlir/Dialect/MemRef/IR/MemRef.h" // IWYU pragma: keep
+#include "mlir/Pass/Pass.h"                // IWYU pragma: keep
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir {
