@@ -5,9 +5,14 @@
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Pipelines/Pipelines.h"
+#include "triton/Dialect/Triton/Transforms/Passes.h"
 
 void mlir::triton::buildTritonToLinalgTTAPipeline(
     OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
+  // TODO: Support block tensor pointers with boundary semantics directly in
+  // the TTA route so this pre-normalization pass can become optional.
+  pm.addPass(createTritonRewriteTensorPointer());
+
   pm.addPass(createTritonToTTAStructured());
   pm.addPass(createTritonToTTAUnstructured());
   pm.addPass(createCSEPass());
