@@ -24,6 +24,7 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::triton::registerTritonToLinalgPasses();
   mlir::triton::registerTritonArithToLinalgPasses();
   mlir::triton::registerTritonToLinalgPipelines();
+  mlir::triton::registerTritonToLinalgTTAPipelines();
 
   registry.insert<
       mlir::ttx::TritonTilingExtDialect, mlir::tta::TritonAddressDialect,
