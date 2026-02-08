@@ -1,133 +1,3 @@
-////////////////////////////////////////////////////////////////////////////////
-// Overview
-////////////////////////////////////////////////////////////////////////////////
-//
-// This pass attempts to lower all loads and stores of unstructured pointers to
-// tts.gather or tts.scatter that take a single base, a tensor of offsets, an
-// optional tensor of mask values, and a default value in case of load.
-//
-// In addition, all pointer-producing ops will be eliminated and replaced by
-// offset-producing ops. tts.gather and tts.scatter will use the pointer
-// directly from the kernel arguments as opposed to pointer produced by ops such
-// as tt.addptr and tt.splat.
-//
-// Example:
-//
-// %12 = tts.gather %arg0[%10] : (<f32>, tensor<64xi64>) -> tensor<64xf32>
-// tts.scatter %12 into %arg1[%arg3] : tensor<64xf32> into (<f32>,
-// tensor<64xi32>)
-//
-// Current assumptions and limitations:
-//   - For simplicity, the pass assumes that gather / scatter operations load /
-//   store from / to a single base with a tensor of random offsets. As a
-//   result, the following triton program would not work:
-//
-//    @triton.jit
-//    def gather_simple(in0, in1, out0):
-//        offs = tl.arange(0, 8)
-//        in0_ptrs = in0 + offs
-//        in1_ptrs = in1 + offs
-//        ptrs = tl.cat(in0_ptrs, in1_ptrs, can_reorder=True)
-//        c = tl.load(ptrs)
-//        out_offs = tl.arange(0, 16)
-//        tl.store(out0 + out_offs, c)
-//
-//   In the above program, `ptrs` contains 2 bases: `in0` and `in1` after the
-//   `cat` operation.
-//
-////////////////////////////////////////////////////////////////////////////////
-// Future work
-////////////////////////////////////////////////////////////////////////////////
-//
-// Future work may include scaling the algorithm to support such cases -- one
-// possible solution is to let tts.gather and tts.scatter take in an additional
-// tensor of base pointers corresponding to the tensor of offsets. But because
-// we do not want pointer-producing ops to be present after this pass, we can
-// use a tensor of index where each element indicates the index of the pointer
-// argument to be used. The drawback is a gather or scatter operation now needs
-// one extract lookup to get the base which will affect performance.
-//
-////////////////////////////////////////////////////////////////////////////////
-// Algorithm
-////////////////////////////////////////////////////////////////////////////////
-//
-// Because the goal of triton-shared is to eventually lower all triton ops and
-// types to mlir, we want to transform the IR such that the usages of triton
-// pointers are as limited as possible. Doing so will help simplify conversion
-// to mlir dialects in subsequent passes. In a familiar fashion to the
-// triton-to-structured pass, we want triton pointers to only appear in
-// tts.gather and tts.scatter only.
-//
-// With that goal in mind, we want to revisit the triton pointer type.
-//
-// Triton pointers are created and manipulated through a sequence of ops such as
-// tt.addptr, tt.splat, or tt.broadcast. If a triton pointer is created
-// through `tt.addptr %ptr %offset`, the new pointer will contain the same base
-// pointer as the original pointer; its offset will also be accumulated.
-//
-// Triton pointers created through tt.splat and tt.broadcast retain their base
-// pointers and offsets. Tensors of pointers, however, may have different bases
-// when tl.cat is present. For simplicity, we assume tl.cat isn't present as
-// mentioned in the overview section.
-//
-// Therefore, a single triton pointer (tt.ptr) has two pieces of info that is
-// implicit:
-//   - a base pointer which comes from the kernel arguments
-//   - an offset which could be either a tensor of offset or a single integer
-//   offset
-//
-// Leveraging this insight, in order to limit the usages of triton pointer, we
-// can explicitly compute and split the above two pieces of info. So chains of
-// tt.addptr, tt.splat, and tt.broadcast which produce triton pointers can be
-// transformed to sequences of offset (of integer type) manipulation ops and a
-// base pointer which comes from the kernel arguments. With this approach, only
-// tts.gather and tts.scatter need to be aware of the pointer type.
-//
-// In essence, this pass transforms all sequences of tt.addptr into sequences of
-// offset accumulation ops which are then fed into a single op
-// tts.gather or tts.scatter that takes:
-//
-//   - a base pointer from the kernel arguments
-//   - a tensor of offsets (or single offset) that indicates the offsets from
-//   the base pointer
-//
-// All intermediate tt.addptr ops are converted to arith.addi ops that compute
-// the offsets. Offsets start at 0 with the provided bit-width. All pointer
-// shape manipulation ops such as tt.splat and tt.broadcast will instead operate
-// on the offsets and will be converted to linalg in triton-arith-to-linalg.
-//
-// By default, the pass uses i32 for the initial offsets of all pointers
-// (configurable via offset-bit-width=width). If any intermediate tt.addptr
-// introduces a larger bitwidth offset, the offsets will be sign-extended to the
-// larger bitwidth.
-//
-////////////////////////////////////////////////////////////////////////////////
-// Algorithm
-////////////////////////////////////////////////////////////////////////////////
-//
-// This pass uses a standard worklist-based algorithm to walk the use-def chains
-// of all pointer arguments and create replacement ops that operate on offsets
-// instead of tt.ptr types.
-//
-// In cases such as tt.addptr, tt.splat, and tt.broadcast, we create
-// corresponding replacement ops which will then be used to map the results
-// at the end of the algorithm. We do not want to modify these ops in-place
-// because the use-def chains may be changed. In special cases like scf.for, we
-// also set the type of the iter-arg and result directly which is usually frown
-// upon (but justified).
-//
-// This approach is used in favor of the traditional ConversionPatternRewriter
-// which converts all pointer type into an offset integer type because
-// TypeConverter does not support dynamic type based on value. This limitation
-// means we have to decide the same bitwidth for all tt.addptr sequences which
-// is not ideal.
-//
-// For instance, assuming we have two sequences of tt.addptr: one operates on
-// 32-bit offsets while the other operates on 64-bit offsets. If we set the
-// default bitwidth to 64, the 32-bit sequence will require unncessary
-// sign-extending when computing the offsets. Contrast this with the manual
-// approach, we will only sign-extend where necessary.
-
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -214,6 +84,46 @@ static bool isTensorOfPointers(Type type) {
     return false;
   }
   return isa<triton::PointerType>(tensorType.getElementType());
+}
+
+static bool shouldHandleForFallback(triton::LoadOp op) {
+  if (!isTensorOfPointers(op.getPtr().getType())) {
+    return false;
+  }
+
+  if (op.getPtr().getDefiningOp<tta::MakeAddrOp>() ||
+      op.getPtr().getDefiningOp<tta::ReindexOp>() ||
+      op.getPtr().getDefiningOp<tta::AdvanceOp>()) {
+    return false;
+  }
+
+  if (op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>() &&
+      op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>()->hasAttr(
+          "tta.fallback")) {
+    return true;
+  }
+
+  return true;
+}
+
+static bool shouldHandleForFallback(triton::StoreOp op) {
+  if (!isTensorOfPointers(op.getPtr().getType())) {
+    return false;
+  }
+
+  if (op.getPtr().getDefiningOp<tta::MakeAddrOp>() ||
+      op.getPtr().getDefiningOp<tta::ReindexOp>() ||
+      op.getPtr().getDefiningOp<tta::AdvanceOp>()) {
+    return false;
+  }
+
+  if (op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>() &&
+      op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>()->hasAttr(
+          "tta.fallback")) {
+    return true;
+  }
+
+  return true;
 }
 
 static SmallVector<ReassociationIndices>
@@ -543,6 +453,56 @@ public:
     llvm::DenseMap<Value, PtrOffset> offsetMap;
     std::queue<Value> workList;
 
+    llvm::SmallDenseSet<Value> fallbackPtrs;
+    llvm::SmallDenseSet<Operation *> fallbackLoadOps;
+    llvm::SmallDenseSet<Operation *> fallbackStoreOps;
+    getOperation().walk([&](Operation *op) {
+      if (auto load = dyn_cast<triton::LoadOp>(op)) {
+        if (shouldHandleForFallback(load)) {
+          fallbackPtrs.insert(load.getPtr());
+          fallbackLoadOps.insert(load.getOperation());
+        }
+      } else if (auto store = dyn_cast<triton::StoreOp>(op)) {
+        if (shouldHandleForFallback(store)) {
+          fallbackPtrs.insert(store.getPtr());
+          fallbackStoreOps.insert(store.getOperation());
+        }
+      }
+    });
+
+    auto hasFallbackPathUse = [&](Value root) {
+      llvm::SmallVector<Value> queue{root};
+      llvm::SmallDenseSet<Value> visited;
+      while (!queue.empty()) {
+        Value current = queue.pop_back_val();
+        if (!visited.insert(current).second) {
+          continue;
+        }
+        if (fallbackPtrs.contains(current)) {
+          return true;
+        }
+        for (Operation *user : current.getUsers()) {
+          if (auto forOp = dyn_cast<scf::ForOp>(user)) {
+            for (auto [index, initArg] : llvm::enumerate(forOp.getInitArgs())) {
+              if (initArg != current) {
+                continue;
+              }
+              queue.push_back(forOp.getRegionIterArg(index));
+              queue.push_back(forOp.getResult(index));
+            }
+            continue;
+          }
+
+          for (Value result : user->getResults()) {
+            if (triton::isPtrTypeLike(result.getType())) {
+              queue.push_back(result);
+            }
+          }
+        }
+      }
+      return false;
+    };
+
     getOperation().walk([&](FunctionOpInterface func) {
       for (auto arg : func.getArguments()) {
         if (!triton::isPtrTypeLike(arg.getType())) {
@@ -551,6 +511,10 @@ public:
         if (isTensorOfPointers(arg.getType())) {
           // Unstructured lowering requires a single scalar base pointer.
           // Leave tensor-of-ptr args to the fallback pass.
+          continue;
+        }
+
+        if (!hasFallbackPathUse(arg)) {
           continue;
         }
 
@@ -572,6 +536,10 @@ public:
       // We only want to handle single source pointer,
       // skip if this op produces tensor of pointers
       if (isTensorOfPointers(op.getType())) {
+        return;
+      }
+
+      if (!hasFallbackPathUse(op.getResult())) {
         return;
       }
       auto res = op.getResult();
@@ -814,6 +782,9 @@ public:
       auto res =
           llvm::TypeSwitch<Operation *, LogicalResult>(op)
               .Case<triton::LoadOp>([&](triton::LoadOp load) {
+                if (!fallbackLoadOps.contains(load.getOperation())) {
+                  return success();
+                }
                 auto offsetInfo = offsetMap.at(load.getPtr());
 
                 auto maybeFlatOffset =
@@ -870,6 +841,9 @@ public:
                 return success();
               })
               .Case<triton::StoreOp>([&](triton::StoreOp store) {
+                if (!fallbackStoreOps.contains(store.getOperation())) {
+                  return success();
+                }
                 auto offsetInfo = offsetMap.at(store.getPtr());
 
                 auto maybeFlatOffset =

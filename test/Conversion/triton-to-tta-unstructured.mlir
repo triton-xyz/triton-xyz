@@ -1,16 +1,12 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
 // CHECK-NOT: tts.
 
 module {
 // CHECK-LABEL: tt.func public @masked_gather_scatter(
-// CHECK: %[[OFF:.*]] = tt.make_range
-// CHECK: %[[MASK:.*]] = arith.cmpi slt, %[[OFF]]
 // CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
-// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %[[OFF]], %[[MASK]])
-// CHECK: %[[V:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: %[[V:.*]] = "tta.load"(%[[A0]], %{{.*}}, %{{.*}})
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
-// CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %[[OFF]], %[[MASK]])
-// CHECK: "tta.store"(%[[R1]], %[[V]])
+// CHECK: "tta.store"(%[[A1]], %[[V]], %{{.*}})
   tt.func public @masked_gather_scatter(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -31,12 +27,11 @@ module {
 
 module {
 // CHECK-LABEL: tt.func public @offset_width_upgrade(
-// CHECK: %[[OFF64:.*]] = arith.addi
-// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
-// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %[[OFF64]])
-// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
-// CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}})
-// CHECK: "tta.store"(%[[R1]], %{{.*}})
+// CHECK: %[[C5:.*]] = arith.constant 5 : index
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4], strides: [1], offsets: [%[[C5]]], shape: [0], order: []
+// CHECK: %[[V:.*]] = "tta.load"(%[[A0]])
+// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: []
+// CHECK: "tta.store"(%[[A1]], %[[V]])
   tt.func public @offset_width_upgrade(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %c5_i64 = arith.constant 5 : i64
@@ -78,6 +73,41 @@ module {
       %next_out = tt.addptr %out, %range : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
       scf.yield %next_in, %next_out : tensor<4x!tt.ptr<f32>>, tensor<4x!tt.ptr<f32>>
     }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func public @masked_2d_fallback(
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [8]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}}, %{{.*}})
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [8]
+// CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}}, %{{.*}})
+// CHECK: "tta.store"(%[[R1]], %{{.*}})
+  tt.func public @masked_2d_fallback(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
+    %row = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
+    %col = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %row_exp = tt.expand_dims %row {axis = 1 : i32} : tensor<2xi32> -> tensor<2x1xi32>
+    %col_exp = tt.expand_dims %col {axis = 0 : i32} : tensor<4xi32> -> tensor<1x4xi32>
+    %row_bcast = tt.broadcast %row_exp : tensor<2x1xi32> -> tensor<2x4xi32>
+    %col_bcast = tt.broadcast %col_exp : tensor<1x4xi32> -> tensor<2x4xi32>
+    %c4 = arith.constant 4 : i32
+    %stride = tt.splat %c4 : i32 -> tensor<2x4xi32>
+    %row_linear = arith.muli %row_bcast, %stride : tensor<2x4xi32>
+    %offsets = arith.addi %row_linear, %col_bcast : tensor<2x4xi32>
+    %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
+    %in_ptrs = tt.addptr %in_base, %offsets : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
+    %limit = tt.splat %arg2 : i32 -> tensor<2x4xi32>
+    %mask = arith.cmpi slt, %offsets, %limit : tensor<2x4xi32>
+    %zero = arith.constant 0.0 : f32
+    %other = tt.splat %zero : f32 -> tensor<2x4xf32>
+    %val = tt.load %in_ptrs, %mask, %other : tensor<2x4x!tt.ptr<f32>>
+    %out_base = tt.splat %arg1 : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
+    %out_ptrs = tt.addptr %out_base, %offsets : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
+    tt.store %out_ptrs, %val, %mask : tensor<2x4x!tt.ptr<f32>>
     tt.return
   }
 }
