@@ -116,6 +116,7 @@ class CPUOptions:
     instrumentation_mode: str = ""
     allowed_dot_input_precisions: tuple[str] = ("ieee",)
     min_dot_size: int = 1
+    use_tta: bool = False
 
     def hash(self):
         hash_dict = dict(self.__dict__)
@@ -143,6 +144,7 @@ class XYZBackend(BaseBackend):
     def parse_options(self, options):
         args = {
             "arch": os.getenv("TRITON_CPU_ARCH", ""),
+            "use_tta": _env_truthy("TRITON_XYZ_USE_TTA"),
         }
         args.update(
             {k: options[k] for k in CPUOptions.__dataclass_fields__.keys() if k in options if options[k] is not None}
@@ -174,7 +176,7 @@ class XYZBackend(BaseBackend):
         pass
 
     @staticmethod
-    def make_ttir(mod, metadata, options):
+    def make_ttir(mod, metadata, options: CPUOptions):
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
         passes.common.add_inliner(pm)
@@ -191,18 +193,21 @@ class XYZBackend(BaseBackend):
         return mod
 
     @staticmethod
-    def make_linalg(mod, metadata, options):
+    def make_linalg(mod, metadata, options: CPUOptions):
         ttir_code = str(mod)
         with tempfile.TemporaryDirectory() as tmpdir:
             src_path = os.path.join(tmpdir, "ttir.mlir")
             dst_path = os.path.join(tmpdir, "linalg.mlir")
             Path(src_path).write_text(ttir_code)
+            pipeline = "triton-to-linalg"
+            if options.use_tta:
+                pipeline = "triton-to-linalg-tta"
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("ttir_to_linalg"))
             cmd.extend(
                 [
                     src_path,
-                    "--triton-to-linalg=pids-to-func-args=true",
+                    f"--{pipeline}=pids-to-func-args=true",
                     "-o",
                     dst_path,
                 ]
@@ -211,7 +216,7 @@ class XYZBackend(BaseBackend):
             return Path(dst_path).read_text()
 
     @staticmethod
-    def make_llir(src, metadata, options):
+    def make_llir(src, metadata, options: CPUOptions):
         with tempfile.TemporaryDirectory() as tmpdir:
             linalg_path = os.path.join(tmpdir, "linalg.mlir")
             llvm_path = os.path.join(tmpdir, "llvm.mlir")
@@ -251,7 +256,7 @@ class XYZBackend(BaseBackend):
             return Path(llir_path).read_text()
 
     @staticmethod
-    def make_asm(src, metadata, options):
+    def make_asm(src, metadata, options: CPUOptions):
         names = re.findall(r"define void @(?!(?:barrier)\\b)([a-zA-Z_][a-zA-Z0-9_]*)", src)
         if len(names) != 1:
             raise RuntimeError(f"Expected 1 kernel function, found {names}")
@@ -263,7 +268,7 @@ class XYZBackend(BaseBackend):
         return llvm.translate_to_asm(src, triple, proc, "", flags, options.enable_fp_fusion, False)
 
     @staticmethod
-    def make_library(src, metadata, options):
+    def make_library(src, metadata, options: CPUOptions):
         with tempfile.TemporaryDirectory() as tmpdir:
             asm_path = os.path.join(tmpdir, "kernel.s")
             Path(asm_path).write_text(src)
