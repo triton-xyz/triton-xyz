@@ -11,7 +11,9 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
     OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
   // TODO: Support block tensor pointers with boundary semantics directly in
   // the TTA route so this pre-normalization pass can become optional.
-  pm.addPass(createTritonRewriteTensorPointer());
+  if (options.ttaPreRewriteTensorPointer) {
+    pm.addPass(createTritonRewriteTensorPointer());
+  }
 
   pm.addPass(createTritonToTTAStructured());
   pm.addPass(createTritonToTTAUnstructured());

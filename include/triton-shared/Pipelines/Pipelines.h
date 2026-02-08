@@ -24,6 +24,11 @@ struct TritonToLinalgPipelineOptions
   PassOptions::Option<bool> assertToCf{
       *this, "assert-to-cf", llvm::cl::desc("Convert tt.assert to cf.assert"),
       llvm::cl::init(true)};
+  PassOptions::Option<bool> ttaPreRewriteTensorPointer{
+      *this, "tta-pre-rewrite-tensor-pointer",
+      llvm::cl::desc(
+          "Run triton-rewrite-tensor-pointer before triton-to-linalg-tta"),
+      llvm::cl::init(true)};
 };
 
 void buildTritonToLinalgPipeline(OpPassManager &pm,
