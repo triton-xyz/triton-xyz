@@ -21,6 +21,14 @@ def TritonToStructured : Pass<"triton-to-structured", "mlir::ModuleOp"> {
   ];
 }
 
+def TritonToTTAStructured : Pass<"triton-to-tta-structured", "mlir::ModuleOp"> {
+  let summary = "Convert tts structured address ops to tta ops";
+  let dependentDialects = [
+    "tta::TritonAddressDialect",
+    "tts::TritonStructuredDialect"
+  ];
+}
+
 def StructuredToMemref : Pass<"structured-to-memref", "mlir::ModuleOp"> {
   let summary = "Convert triton structured pointer ops to memref";
   let dependentDialects = [
@@ -47,6 +55,14 @@ def TritonToUnstructured : Pass<"triton-to-unstructured", "mlir::ModuleOp"> {
   ];
 }
 
+def TritonToTTAUnstructured : Pass<"triton-to-tta-unstructured", "mlir::ModuleOp"> {
+  let summary = "Convert tts unstructured gather/scatter ops to tta ops";
+  let dependentDialects = [
+    "tta::TritonAddressDialect",
+    "tts::TritonStructuredDialect"
+  ];
+}
+
 def UnstructuredToMemref : Pass<"unstructured-to-memref", "mlir::ModuleOp"> {
   let summary = "Convert unstructured triton ptr (gather / scatter) to memref";
   let dependentDialects = [
@@ -57,6 +73,21 @@ def UnstructuredToMemref : Pass<"unstructured-to-memref", "mlir::ModuleOp"> {
     "tensor::TensorDialect",
     "bufferization::BufferizationDialect",
     "memref::MemRefDialect"
+  ];
+}
+
+def TTAToMemref : Pass<"tta-to-memref", "mlir::ModuleOp"> {
+  let summary = "Lower tta load/store through shared tts-to-memref patterns";
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "affine::AffineDialect",
+    "linalg::LinalgDialect",
+    "scf::SCFDialect",
+    "tensor::TensorDialect",
+    "bufferization::BufferizationDialect",
+    "memref::MemRefDialect",
+    "tta::TritonAddressDialect",
+    "tts::TritonStructuredDialect"
   ];
 }
 

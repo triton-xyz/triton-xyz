@@ -1,13 +1,16 @@
 add_triton_library(TritonToLinalg
   StructuredToMemref.cpp
   StructuredToMemrefPass.cpp
+  TTAToMemrefPass.cpp
   TritonPtrToMemrefPass.cpp
   ReconcilePtrCastsPass.cpp
   ConvertXyzToLLVMPass.cpp
   TritonToPtrPass.cpp
   CollapseShape.cpp
   TritonToStructuredPass.cpp
+  TritonToTTAStructuredPass.cpp
   TritonToUnstructuredPass.cpp
+  TritonToTTAUnstructuredPass.cpp
   UnstructuredToMemrefPass.cpp
 
   TritonUnstructuredFallbackPass.cpp

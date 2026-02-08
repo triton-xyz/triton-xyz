@@ -27,8 +27,9 @@ void mlir::triton::buildTritonToLinalgPipeline(
   pm.addPass(createTritonTensorPtrToLinalg());
   pm.addPass(createNormalizeTensorPtrOrder());
 
-  pm.addPass(createStructuredToMemref());
-  pm.addPass(createUnstructuredToMemref());
+  pm.addPass(createTritonToTTAStructured());
+  pm.addPass(createTritonToTTAUnstructured());
+  pm.addPass(createTTAToMemref());
   pm.addPass(createTritonPtrToMemref());
 
   pm.addPass(createTritonToPtr());
