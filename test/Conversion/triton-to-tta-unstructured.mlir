@@ -1,4 +1,5 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-unstructured --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
+// CHECK-NOT: tts.
 
 module {
 // CHECK-LABEL: tt.func public @masked_gather_scatter(

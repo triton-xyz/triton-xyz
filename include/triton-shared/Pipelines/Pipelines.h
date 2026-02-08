@@ -29,6 +29,10 @@ struct TritonToLinalgPipelineOptions
 void buildTritonToLinalgPipeline(OpPassManager &pm,
                                  const TritonToLinalgPipelineOptions &options);
 
+void buildTritonToLinalgTTAPipeline(
+    OpPassManager &pm, const TritonToLinalgPipelineOptions &options);
+
 void registerTritonToLinalgPipelines();
+void registerTritonToLinalgTTAPipelines();
 
 } // namespace mlir::triton

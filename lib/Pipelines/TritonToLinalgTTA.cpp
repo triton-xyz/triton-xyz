@@ -6,15 +6,12 @@
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Pipelines/Pipelines.h"
 
-void mlir::triton::buildTritonToLinalgPipeline(
+void mlir::triton::buildTritonToLinalgTTAPipeline(
     OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
-  TritonToStructuredOptions tritonToStructuredOptions;
-  tritonToStructuredOptions.enableMakeGatherScatterTensorPtr =
-      options.enableMakeGatherScatterTensorPtr;
-  pm.addPass(createTritonToStructured(tritonToStructuredOptions));
+  pm.addPass(createTritonToTTAStructured());
+  pm.addPass(createTritonToTTAUnstructured());
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
-  pm.addPass(createTritonToUnstructured());
   pm.addPass(createTritonUnstructuredFallback());
 
   if (options.pidsToFuncArgs) {
@@ -25,10 +22,8 @@ void mlir::triton::buildTritonToLinalgPipeline(
   tritonArithToLinalgOptions.assertToCf = options.assertToCf;
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
   pm.addPass(createTritonTensorPtrToLinalg());
-  pm.addPass(createNormalizeTensorPtrOrder());
 
-  pm.addPass(createStructuredToMemref());
-  pm.addPass(createUnstructuredToMemref());
+  pm.addPass(createTTAToMemref());
   pm.addPass(createTritonPtrToMemref());
 
   pm.addPass(createTritonToPtr());
@@ -47,8 +42,8 @@ void mlir::triton::buildTritonToLinalgPipeline(
   }
 }
 
-void mlir::triton::registerTritonToLinalgPipelines() {
+void mlir::triton::registerTritonToLinalgTTAPipelines() {
   PassPipelineRegistration<TritonToLinalgPipelineOptions>(
-      "triton-to-linalg", "Convert Triton to Linalg dialect.",
-      buildTritonToLinalgPipeline);
+      "triton-to-linalg-tta", "Convert Triton to Linalg dialect via TTA.",
+      buildTritonToLinalgTTAPipeline);
 }

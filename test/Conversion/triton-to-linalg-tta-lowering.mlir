@@ -1,4 +1,4 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-linalg %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-linalg-tta %s | FileCheck %s
 
 // CHECK-NOT: tta.
 // CHECK-NOT: tts.

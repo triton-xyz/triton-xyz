@@ -1,11 +1,14 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-structured --triton-to-unstructured --triton-to-tta-structured --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
+// CHECK-NOT: tts.
 
 module {
 // CHECK-LABEL: tt.func @basic_addptr_1d(
 // CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: []
-// CHECK: %[[V:.*]] = "tta.load"(%[[A0]])
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[V:.*]] = "tta.load"(%[[R0]], %{{.*}})
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: []
-// CHECK: "tta.store"(%[[A1]], %[[V]])
+// CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}})
+// CHECK: "tta.store"(%[[R1]], %[[V]])
   tt.func @basic_addptr_1d(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -23,9 +26,11 @@ module {
 module {
 // CHECK-LABEL: tt.func @masked_1d(
 // CHECK: %[[IN:.*]] = tta.make_addr %arg0 to sizes: [8]
+// CHECK: %[[RIN:.*]] = "tta.reindex"(%[[IN]], %{{.*}}, %{{.*}})
+// CHECK: %[[V:.*]] = "tta.load"(%[[RIN]], %{{.*}})
 // CHECK: %[[OUT:.*]] = tta.make_addr %arg1 to sizes: [8]
-// CHECK: "tta.load"(%[[IN]], %{{.*}}, %{{.*}})
-// CHECK: "tta.store"(%[[OUT]], %{{.*}}, %{{.*}})
+// CHECK: %[[ROUT:.*]] = "tta.reindex"(%[[OUT]], %{{.*}}, %{{.*}})
+// CHECK: "tta.store"(%[[ROUT]], %[[V]])
   tt.func @masked_1d(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %range = tt.make_range {end = 8 : i32, start = 0 : i32} : tensor<8xi32>
     %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<8x!tt.ptr<f32>>
@@ -68,12 +73,14 @@ module {
 module {
 // CHECK-LABEL: tt.func @gather_scatter_2d(
 // CHECK: %[[IDX_ADDR:.*]] = tta.make_addr %arg1 to sizes: [4]
-// CHECK: %[[IDX:.*]] = "tta.load"(%[[IDX_ADDR]])
-// CHECK: %[[SRC_ADDR:.*]] = tta.make_addr %arg0 to sizes: [4, 4]
-// CHECK: %[[R:.*]] = "tta.reindex"(%[[SRC_ADDR]], %[[IDX]])
-// CHECK: %[[V:.*]] = "tta.load"(%[[R]])
-// CHECK: %[[DST_ADDR:.*]] = tta.make_addr %arg2 to sizes: [4, 4]
-// CHECK: "tta.store"(%[[DST_ADDR]], %[[V]])
+// CHECK: %[[IDX_PTR:.*]] = "tta.reindex"(%[[IDX_ADDR]], %{{.*}})
+// CHECK: %[[IDX:.*]] = "tta.load"(%[[IDX_PTR]], %{{.*}})
+// CHECK: %[[SRC_ADDR:.*]] = tta.make_addr %arg0 to sizes: [16]
+// CHECK: %[[R:.*]] = "tta.reindex"(%[[SRC_ADDR]], %{{.*}})
+// CHECK: %[[V:.*]] = "tta.load"(%[[R]], %{{.*}})
+// CHECK: %[[DST_ADDR:.*]] = tta.make_addr %arg2 to sizes: [16]
+// CHECK: %[[RDST:.*]] = "tta.reindex"(%[[DST_ADDR]], %{{.*}})
+// CHECK: "tta.store"(%[[RDST]], %[[V]])
   tt.func @gather_scatter_2d(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<i32>, %arg2: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %idx_base = tt.splat %arg1 : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
