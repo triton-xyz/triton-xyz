@@ -100,6 +100,8 @@ def TTA_MakeAddrOp
              !isStructuredPtr();
     }
   }];
+
+  let hasVerifier = 1;
 }
 
 def TTA_ReindexOp : TTA_Op<"reindex", [AttrSizedOperandSegments, Pure]> {
@@ -226,6 +228,8 @@ def TTA_LoadOp : TTA_Op<"load", [
       return !getMixedMaskDims().empty();
     }
   }];
+
+  let hasVerifier = 1;
 }
 
 def TTA_StoreOp : TTA_Op<"store", [
@@ -254,6 +258,8 @@ def TTA_StoreOp : TTA_Op<"store", [
       return !getMixedMaskDims().empty();
     }
   }];
+
+  let hasVerifier = 1;
 }
 
 #endif

@@ -75,3 +75,48 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @address_masked_load_store(
+  tt.func @address_masked_load_store(%base: !tt.ptr<f32>) {
+    %m = arith.constant 1 : index
+    %other = arith.constant 0.000000e+00 : f32
+    %addr = tta.make_addr %base to sizes: [2, 2], strides: [2, 1], offsets: [0, 0], shape: [0, 0], order: [] : <f32> to tensor<2x2x!tt.ptr<f32>>
+    // CHECK: "tta.load"(%{{.*}}, %{{.*}}, %{{.*}})
+    %v = "tta.load"(%addr, %m, %other) <{operandSegmentSizes = array<i32: 1, 1, 1>, static_mask_dims = array<i64: -9223372036854775808, 2>}> : (tensor<2x2x!tt.ptr<f32>>, index, f32) -> tensor<2x2xf32>
+    // CHECK: "tta.store"(%{{.*}}, %{{.*}}, %{{.*}})
+    "tta.store"(%addr, %v, %m) <{static_mask_dims = array<i64: -9223372036854775808, 2>}> : (tensor<2x2x!tt.ptr<f32>>, tensor<2x2xf32>, index) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @address_atomic_all_kinds(
+  tt.func @address_atomic_all_kinds(%ibase: !tt.ptr<i32>, %fbase: !tt.ptr<f32>, %off: i32) {
+    %i = arith.constant 1 : i32
+    %f = arith.constant 1.000000e+00 : f32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "add"}>
+    %r0 = "tta.atomic"(%ibase, %off, %i) <{kind = "add"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "and"}>
+    %r1 = "tta.atomic"(%ibase, %off, %r0) <{kind = "and"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "or"}>
+    %r2 = "tta.atomic"(%ibase, %off, %r1) <{kind = "or"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xor"}>
+    %r3 = "tta.atomic"(%ibase, %off, %r2) <{kind = "xor"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "max"}>
+    %r4 = "tta.atomic"(%ibase, %off, %r3) <{kind = "max"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "min"}>
+    %r5 = "tta.atomic"(%ibase, %off, %r4) <{kind = "min"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xchg"}>
+    %r6 = "tta.atomic"(%ibase, %off, %r5) <{kind = "xchg"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "cmpxchg"}>
+    %r7 = "tta.atomic"(%ibase, %off, %r6) <{kind = "cmpxchg"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "fadd"}>
+    %rf = "tta.atomic"(%fbase, %off, %f) <{kind = "fadd"}> : (!tt.ptr<f32>, i32, f32) -> f32
+    tt.return
+  }
+}

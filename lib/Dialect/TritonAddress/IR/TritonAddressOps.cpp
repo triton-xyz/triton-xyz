@@ -1,8 +1,10 @@
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
@@ -17,6 +19,12 @@ namespace mlir {
 namespace tta {
 
 namespace {
+struct LoadedAddressInfo {
+  int64_t rank;
+  Type elementType;
+  SmallVector<int64_t> shape;
+};
+
 std::optional<int64_t> getAddressRank(Type type) {
   if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
     if (isa<triton::PointerType>(tensorType.getElementType())) {
@@ -36,12 +44,107 @@ std::optional<int64_t> getAddressRank(Type type) {
   return std::nullopt;
 }
 
+std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
+  if (auto ptrTensorType = dyn_cast<RankedTensorType>(type)) {
+    auto elementPtrType =
+        dyn_cast<triton::PointerType>(ptrTensorType.getElementType());
+    if (!elementPtrType) {
+      return std::nullopt;
+    }
+
+    LoadedAddressInfo info{ptrTensorType.getRank(),
+                           elementPtrType.getPointeeType(),
+                           SmallVector<int64_t>(ptrTensorType.getShape())};
+    return info;
+  }
+
+  if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
+    auto pointeeTensorType =
+        dyn_cast<RankedTensorType>(ptrType.getPointeeType());
+    if (!pointeeTensorType) {
+      return std::nullopt;
+    }
+
+    LoadedAddressInfo info{pointeeTensorType.getRank(),
+                           pointeeTensorType.getElementType(),
+                           SmallVector<int64_t>(pointeeTensorType.getShape())};
+    return info;
+  }
+
+  return std::nullopt;
+}
+
 bool isValidAtomicKind(StringRef kind) {
   static constexpr std::array<StringLiteral, 9> kKinds = {
       "add", "and", "or", "xor", "max", "min", "xchg", "cmpxchg", "fadd"};
   return llvm::is_contained(kKinds, kind);
 }
 } // namespace
+
+LogicalResult MakeAddrOp::verify() {
+  int64_t rank = getSizes().size();
+
+  if (static_cast<int64_t>(getMixedStrides().size()) != rank) {
+    return emitOpError("strides must match sizes rank");
+  }
+  if (static_cast<int64_t>(getMixedOffsets().size()) != rank) {
+    return emitOpError("offsets must match sizes rank");
+  }
+  if (static_cast<int64_t>(getMixedShape().size()) != rank) {
+    return emitOpError("shape must match sizes rank");
+  }
+
+  auto resultType = getResult().getType();
+  if (auto ptrTensorType = dyn_cast<RankedTensorType>(resultType)) {
+    if (!isa<triton::PointerType>(ptrTensorType.getElementType())) {
+      return emitOpError("tensor result must have pointer element type");
+    }
+    if (ptrTensorType.getRank() != rank) {
+      return emitOpError("tensor result rank must match sizes rank");
+    }
+    if (!llvm::equal(ptrTensorType.getShape(), getSizes())) {
+      return emitOpError("tensor result shape must match sizes");
+    }
+    if (!getOrder().empty()) {
+      return emitOpError("order must be empty for tensor-of-ptr result");
+    }
+    return success();
+  }
+
+  auto ptrType = dyn_cast<triton::PointerType>(resultType);
+  if (!ptrType) {
+    return emitOpError("result must be tensor-of-ptr or ptr<tensor<...>>");
+  }
+
+  auto pointeeTensorType = dyn_cast<RankedTensorType>(ptrType.getPointeeType());
+  if (!pointeeTensorType) {
+    return emitOpError("pointer result must be ptr<tensor<...>>");
+  }
+
+  if (pointeeTensorType.getRank() != rank) {
+    return emitOpError("pointer pointee rank must match sizes rank");
+  }
+  if (!llvm::equal(pointeeTensorType.getShape(), getSizes())) {
+    return emitOpError("pointer pointee shape must match sizes");
+  }
+
+  if (static_cast<int64_t>(getOrder().size()) != rank) {
+    return emitOpError(
+        "order length must match sizes rank for block pointer result");
+  }
+
+  SmallVector<int64_t> order;
+  order.reserve(getOrder().size());
+  for (int32_t value : getOrder()) {
+    order.push_back(value);
+  }
+
+  if (!isPermutationVector(order)) {
+    return emitOpError("order must be a permutation of [0, rank)");
+  }
+
+  return success();
+}
 
 void MakeAddrOp::build(OpBuilder &b, OperationState &state, Value base,
                        ArrayRef<int64_t> sizes, ArrayRef<OpFoldResult> strides,
@@ -203,6 +306,41 @@ LogicalResult AtomicOp::verify() {
     return emitOpError("unsupported atomic kind: ") << getKindAttr().getValue();
   }
 
+  Type valueType = getValue().getType();
+  Type offsetType = getOffset().getType();
+
+  auto valueTensorType = dyn_cast<RankedTensorType>(valueType);
+  auto offsetTensorType = dyn_cast<RankedTensorType>(offsetType);
+  if (static_cast<bool>(valueTensorType) !=
+      static_cast<bool>(offsetTensorType)) {
+    return emitOpError(
+        "offset and value must both be scalars or both be tensors");
+  }
+  if (valueTensorType && offsetTensorType &&
+      !llvm::equal(valueTensorType.getShape(), offsetTensorType.getShape())) {
+    return emitOpError("offset and value tensor shapes must match");
+  }
+
+  auto ptrType = cast<triton::PointerType>(getPtr().getType());
+  Type valueElemType = mlir::getElementTypeOrSelf(valueType);
+  if (ptrType.getPointeeType() != valueElemType) {
+    return emitOpError("value element type must match pointer pointee type");
+  }
+
+  StringRef kind = getKindAttr().getValue();
+  if (kind == "fadd" && !isa<FloatType>(valueElemType)) {
+    return emitOpError("fadd requires floating-point value type");
+  }
+  if ((kind == "and" || kind == "or" || kind == "xor") &&
+      !valueElemType.isIntOrIndex()) {
+    return emitOpError(kind) << " requires integer value type";
+  }
+  if ((kind == "add" || kind == "max" || kind == "min") &&
+      !valueElemType.isIntOrFloat()) {
+    return emitOpError(kind)
+           << " requires integer or floating-point value type";
+  }
+
   return success();
 }
 
@@ -232,6 +370,38 @@ void LoadOp::build(OpBuilder &b, OperationState &state, Value ptr,
         b.getDenseI64ArrayAttr(staticDims), other);
 }
 
+LogicalResult LoadOp::verify() {
+  auto loadedInfo = getLoadedAddressInfo(getPtr().getType());
+  if (!loadedInfo) {
+    return emitOpError(
+        "ptr must be tensor<...x!tt.ptr<...>> or !tt.ptr<tensor<...>>");
+  }
+
+  int64_t maskRank = getMixedMaskDims().size();
+  if (maskRank != 0 && maskRank != loadedInfo->rank) {
+    return emitOpError("mask_dims must be empty or match pointer rank");
+  }
+
+  auto resultType = dyn_cast<RankedTensorType>(getResult().getType());
+  if (!resultType) {
+    return emitOpError("result must be a ranked tensor");
+  }
+  if (!llvm::equal(resultType.getShape(), loadedInfo->shape)) {
+    return emitOpError("result shape must match loaded pointer shape");
+  }
+  if (resultType.getElementType() != loadedInfo->elementType) {
+    return emitOpError("result element type must match pointer pointee type");
+  }
+
+  if (Value other = getOther()) {
+    if (other.getType() != loadedInfo->elementType) {
+      return emitOpError("other type must match pointer pointee element type");
+    }
+  }
+
+  return success();
+}
+
 void StoreOp::build(OpBuilder &b, OperationState &state, Value ptr, Value value,
                     ArrayRef<OpFoldResult> dims) {
   SmallVector<int64_t> staticDims;
@@ -239,6 +409,32 @@ void StoreOp::build(OpBuilder &b, OperationState &state, Value ptr, Value value,
   dispatchIndexOpFoldResults(dims, dynamicDims, staticDims);
 
   build(b, state, ptr, value, dynamicDims, b.getDenseI64ArrayAttr(staticDims));
+}
+
+LogicalResult StoreOp::verify() {
+  auto loadedInfo = getLoadedAddressInfo(getPtr().getType());
+  if (!loadedInfo) {
+    return emitOpError(
+        "ptr must be tensor<...x!tt.ptr<...>> or !tt.ptr<tensor<...>>");
+  }
+
+  int64_t maskRank = getMixedMaskDims().size();
+  if (maskRank != 0 && maskRank != loadedInfo->rank) {
+    return emitOpError("mask_dims must be empty or match pointer rank");
+  }
+
+  auto valueType = dyn_cast<RankedTensorType>(getValue().getType());
+  if (!valueType) {
+    return emitOpError("value must be a ranked tensor");
+  }
+  if (!llvm::equal(valueType.getShape(), loadedInfo->shape)) {
+    return emitOpError("value shape must match stored pointer shape");
+  }
+  if (valueType.getElementType() != loadedInfo->elementType) {
+    return emitOpError("value element type must match pointer pointee type");
+  }
+
+  return success();
 }
 
 } // namespace tta
