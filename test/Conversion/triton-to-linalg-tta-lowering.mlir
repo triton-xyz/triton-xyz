@@ -62,3 +62,34 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL: func.func @atomic_scalar_tta_route(
+// CHECK-SAME: memref<*xi32>
+// CHECK: memref.generic_atomic_rmw
+// CHECK: arith.select
+// CHECK: memref.atomic_yield
+  tt.func @atomic_scalar_tta_route(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i1) {
+    %r = tt.atomic_rmw add, acq_rel, gpu, %arg0, %arg1, %arg2 : (!tt.ptr<i32>, i32, i1) -> i32
+    %u = arith.addi %r, %arg1 : i32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: func.func @atomic_cas_scalar_tta_route(
+// CHECK-SAME: memref<*xi32>
+// CHECK: memref.generic_atomic_rmw
+// CHECK: arith.cmpi eq
+// CHECK: arith.select
+// CHECK: memref.atomic_yield
+  tt.func @atomic_cas_scalar_tta_route(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i32) {
+    %r = tt.atomic_cas acq_rel, gpu, %arg0, %arg1, %arg2 : (!tt.ptr<i32>, i32, i32) -> i32
+    %u = arith.addi %r, %arg2 : i32
+    tt.return
+  }
+}

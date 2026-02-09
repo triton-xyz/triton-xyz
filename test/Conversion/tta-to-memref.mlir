@@ -54,3 +54,129 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @indirect_non_zero_offset(
+// CHECK: scf.for
+// CHECK: arith.addi
+// CHECK: bufferization.materialize_in_destination
+  tt.func @indirect_non_zero_offset(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
+    %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+
+    %src_addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %src_idx = "tta.reindex"(%src_addr, %offsets) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 0>, static_offsets = array<i64: 1>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>) -> tensor<4x!tt.ptr<f32>>
+    %val = "tta.load"(%src_idx) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>) -> tensor<4xf32>
+
+    %dst_addr = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %dst_idx = "tta.reindex"(%dst_addr, %offsets) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 0>, static_offsets = array<i64: 1>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>) -> tensor<4x!tt.ptr<f32>>
+    "tta.store"(%dst_idx, %val) <{static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xf32>) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @chained_indirect_same_dim(
+// CHECK: arith.index_cast
+// CHECK: arith.addi
+// CHECK: arith.andi
+// CHECK: scf.for
+  tt.func @chained_indirect_same_dim(%src: !tt.ptr<f32>, %idx0: tensor<4xi32>, %idx1: tensor<4xi32>, %mask0: tensor<4xi1>, %mask1: tensor<4xi1>) {
+    %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %r0 = "tta.reindex"(%addr, %idx0, %mask0) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>, tensor<4xi1>) -> tensor<4x!tt.ptr<f32>>
+    %r1 = "tta.reindex"(%r0, %idx1, %mask1) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>, tensor<4xi1>) -> tensor<4x!tt.ptr<f32>>
+    %val = "tta.load"(%r1) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>) -> tensor<4xf32>
+
+    %out_addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %out_r0 = "tta.reindex"(%out_addr, %idx0, %mask0) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>, tensor<4xi1>) -> tensor<4x!tt.ptr<f32>>
+    %out_r1 = "tta.reindex"(%out_r0, %idx1, %mask1) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>, tensor<4xi1>) -> tensor<4x!tt.ptr<f32>>
+    "tta.store"(%out_r1, %val) <{static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xf32>) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @chained_indirect_dynamic_static_dim(
+// CHECK: tensor.cast
+// CHECK: arith.addi
+// CHECK: arith.andi
+// CHECK: scf.for
+  tt.func @chained_indirect_dynamic_static_dim(%src: !tt.ptr<f32>, %idx_dyn: tensor<?xi32>, %idx_static: tensor<4xi32>, %mask_dyn: tensor<?xi1>, %mask_static: tensor<4xi1>) {
+    %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %r0 = "tta.reindex"(%addr, %idx_dyn, %mask_dyn) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<?xi32>, tensor<?xi1>) -> tensor<4x!tt.ptr<f32>>
+    %r1 = "tta.reindex"(%r0, %idx_static, %mask_static) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>, tensor<4xi1>) -> tensor<4x!tt.ptr<f32>>
+    %val = "tta.load"(%r1) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>) -> tensor<4xf32>
+
+    %out_addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %out_r0 = "tta.reindex"(%out_addr, %idx_dyn, %mask_dyn) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<?xi32>, tensor<?xi1>) -> tensor<4x!tt.ptr<f32>>
+    %out_r1 = "tta.reindex"(%out_r0, %idx_static, %mask_static) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xi32>, tensor<4xi1>) -> tensor<4x!tt.ptr<f32>>
+    "tta.store"(%out_r1, %val) <{static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>, tensor<4xf32>) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @atomic_scalar_basic(
+// CHECK: memref.generic_atomic_rmw
+// CHECK: arith.select
+// CHECK: memref.atomic_yield
+// CHECK: memref.generic_atomic_rmw
+  tt.func @atomic_scalar_basic(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %mask: i1) {
+    %r0 = "tta.atomic"(%ptr, %off, %val, %mask) <{kind = "add"}> : (!tt.ptr<i32>, i32, i32, i1) -> i32
+    %r1 = "tta.atomic"(%ptr, %off, %r0) <{kind = "xchg"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    %r2 = arith.addi %r0, %r1 : i32
+    %r3 = arith.addi %r2, %val : i32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @atomic_float_add(
+// CHECK: memref.generic_atomic_rmw
+// CHECK: arith.addf
+// CHECK: memref.atomic_yield
+  tt.func @atomic_float_add(%ptr: !tt.ptr<f32>, %off: i32, %val: f32) {
+    %r = "tta.atomic"(%ptr, %off, %val) <{kind = "fadd"}> : (!tt.ptr<f32>, i32, f32) -> f32
+    %u = arith.addf %r, %val : f32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @atomic_cas_scalar(
+// CHECK: memref.generic_atomic_rmw
+// CHECK: arith.cmpi eq
+// CHECK: arith.select
+// CHECK: memref.atomic_yield
+  tt.func @atomic_cas_scalar(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32) {
+    %r = "tta.atomic_cas"(%ptr, %off, %cmp, %val) : (!tt.ptr<i32>, i32, i32, i32) -> i32
+    %u = arith.addi %r, %val : i32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @atomic_cas_float(
+// CHECK: memref.generic_atomic_rmw
+// CHECK: arith.cmpf oeq
+// CHECK: arith.select
+// CHECK: memref.atomic_yield
+  tt.func @atomic_cas_float(%ptr: !tt.ptr<f32>, %off: i32, %cmp: f32, %val: f32) {
+    %r = "tta.atomic_cas"(%ptr, %off, %cmp, %val) : (!tt.ptr<f32>, i32, f32, f32) -> f32
+    %u = arith.addf %r, %val : f32
+    tt.return
+  }
+}

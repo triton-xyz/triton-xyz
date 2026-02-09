@@ -75,8 +75,8 @@ std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
 }
 
 bool isValidAtomicKind(StringRef kind) {
-  static constexpr std::array<StringLiteral, 9> kKinds = {
-      "add", "and", "or", "xor", "max", "min", "xchg", "cmpxchg", "fadd"};
+  static constexpr std::array<StringLiteral, 8> kKinds = {
+      "add", "and", "or", "xor", "max", "min", "xchg", "fadd"};
   return llvm::is_contained(kKinds, kind);
 }
 } // namespace
@@ -339,6 +339,46 @@ LogicalResult AtomicOp::verify() {
       !valueElemType.isIntOrFloat()) {
     return emitOpError(kind)
            << " requires integer or floating-point value type";
+  }
+
+  return success();
+}
+
+void AtomicCASOp::build(OpBuilder &b, OperationState &state, Value ptr,
+                        Value offset, Value compare, Value value) {
+  build(b, state, value.getType(), ptr, offset, compare, value);
+}
+
+LogicalResult AtomicCASOp::verify() {
+  Type valueType = getValue().getType();
+  Type compareType = getCompare().getType();
+  Type offsetType = getOffset().getType();
+
+  if (valueType != compareType) {
+    return emitOpError("compare and value types must match");
+  }
+
+  auto valueTensorType = dyn_cast<RankedTensorType>(valueType);
+  auto offsetTensorType = dyn_cast<RankedTensorType>(offsetType);
+  if (static_cast<bool>(valueTensorType) !=
+      static_cast<bool>(offsetTensorType)) {
+    return emitOpError(
+        "offset and value must both be scalars or both be tensors");
+  }
+  if (valueTensorType && offsetTensorType &&
+      !llvm::equal(valueTensorType.getShape(), offsetTensorType.getShape())) {
+    return emitOpError("offset and value tensor shapes must match");
+  }
+
+  auto ptrType = cast<triton::PointerType>(getPtr().getType());
+  Type valueElemType = mlir::getElementTypeOrSelf(valueType);
+  if (ptrType.getPointeeType() != valueElemType) {
+    return emitOpError("value element type must match pointer pointee type");
+  }
+
+  if (!valueElemType.isIntOrFloat()) {
+    return emitOpError(
+        "atomic_cas requires integer or floating-point value type");
   }
 
   return success();
