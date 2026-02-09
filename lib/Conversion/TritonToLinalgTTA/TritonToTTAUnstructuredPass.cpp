@@ -427,6 +427,16 @@ buildLinearMakeAddr(OpBuilder &builder, Location loc, Value ptr, Value offset) {
   return tta::MakeAddrOp::create(builder, loc, ptr, sizes, strides, offsets,
                                  shape, ArrayRef<int32_t>{});
 }
+
+static FailureOr<Value> buildLinearImportedAddr(OpBuilder &builder,
+                                                Location loc, Value ptr,
+                                                Value offset) {
+  auto maybeMakeAddr = buildLinearMakeAddr(builder, loc, ptr, offset);
+  if (failed(maybeMakeAddr)) {
+    return failure();
+  }
+  return maybeMakeAddr->getResult();
+}
 class TritonToTTAUnstructuredPass
     : public mlir::triton::impl::TritonToTTAUnstructuredBase<
           TritonToTTAUnstructuredPass> {
@@ -794,9 +804,9 @@ public:
                   return failure();
                 }
 
-                auto maybeMakeAddr = buildLinearMakeAddr(b, loc, offsetInfo.ptr,
+                auto maybeAddr = buildLinearImportedAddr(b, loc, offsetInfo.ptr,
                                                          *maybeFlatOffset);
-                if (failed(maybeMakeAddr)) {
+                if (failed(maybeAddr)) {
                   load->emitRemark("cannot build linear tta.make_addr");
                   return failure();
                 }
@@ -811,11 +821,11 @@ public:
                   }
 
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
-                      *maybeFlatMask, /*indirectDim=*/0, zeroOffsets);
+                      b, loc, *maybeAddr, *maybeFlatOffset, *maybeFlatMask,
+                      /*indirectDim=*/0, zeroOffsets);
                 } else {
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
+                      b, loc, *maybeAddr, *maybeFlatOffset,
                       /*indirectDim=*/0, zeroOffsets);
                 }
 
@@ -825,9 +835,21 @@ public:
                   return failure();
                 }
 
-                auto ttaLoad =
-                    tta::LoadOp::create(b, loc, reindex.getResult(),
-                                        ArrayRef<OpFoldResult>{}, *scalarOther);
+                auto flatOffsetType =
+                    dyn_cast<RankedTensorType>((*maybeFlatOffset).getType());
+                if (!flatOffsetType) {
+                  load->emitRemark("flat offset must be ranked tensor");
+                  return failure();
+                }
+
+                auto flatLoadType =
+                    RankedTensorType::get(flatOffsetType.getShape(),
+                                          getElementTypeOrSelf(load.getType()));
+
+                auto ttaLoad = tta::LoadOp::create(
+                    b, loc, flatLoadType, reindex.getResult(),
+                    ArrayRef<Value>{}, b.getDenseI64ArrayAttr({}),
+                    *scalarOther);
 
                 auto maybeResult = rebuildLoadResultFrom1DTensor(
                     ttaLoad.getResult(), load.getType(), loc, b);
@@ -853,9 +875,9 @@ public:
                   return failure();
                 }
 
-                auto maybeMakeAddr = buildLinearMakeAddr(b, loc, offsetInfo.ptr,
+                auto maybeAddr = buildLinearImportedAddr(b, loc, offsetInfo.ptr,
                                                          *maybeFlatOffset);
-                if (failed(maybeMakeAddr)) {
+                if (failed(maybeAddr)) {
                   store->emitRemark("cannot build linear tta.make_addr");
                   return failure();
                 }
@@ -870,11 +892,11 @@ public:
                   }
 
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
-                      *maybeFlatMask, /*indirectDim=*/0, zeroOffsets);
+                      b, loc, *maybeAddr, *maybeFlatOffset, *maybeFlatMask,
+                      /*indirectDim=*/0, zeroOffsets);
                 } else {
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
+                      b, loc, *maybeAddr, *maybeFlatOffset,
                       /*indirectDim=*/0, zeroOffsets);
                 }
 

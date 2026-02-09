@@ -6,5 +6,8 @@
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h.inc"
 #include "triton/Dialect/Triton/IR/Dialect.h" // IWYU pragma: keep
 
+#define GET_TYPEDEF_CLASSES
+#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressTypes.h.inc"
+
 #define GET_OP_CLASSES
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressOps.h.inc"

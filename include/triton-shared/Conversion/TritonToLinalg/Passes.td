@@ -97,6 +97,20 @@ def TTAToMemref : Pass<"tta-to-memref", "mlir::ModuleOp"> {
   ];
 }
 
+def VerifyTTABridgeEliminated : Pass<"verify-tta-bridge-eliminated", "mlir::ModuleOp"> {
+  let summary = "Verify that tta bridge ops are removed after import stage";
+  let dependentDialects = [
+    "tta::TritonAddressDialect"
+  ];
+}
+
+def VerifyTTALowered : Pass<"verify-tta-lowered", "mlir::ModuleOp"> {
+  let summary = "Verify that tta address IR is fully lowered away";
+  let dependentDialects = [
+    "tta::TritonAddressDialect"
+  ];
+}
+
 def TritonPtrToMemref : Pass<"triton-ptr-to-memref", "mlir::ModuleOp"> {
   let summary = "Convert triton pointer to unranked memref";
   let dependentDialects = [

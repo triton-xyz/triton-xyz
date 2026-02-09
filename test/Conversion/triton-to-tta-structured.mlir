@@ -47,12 +47,12 @@ module {
 
 module {
 // CHECK-LABEL: tt.func @block_ptr_basic(
-// CHECK: %[[NEXT:.*]] = tta.make_addr %arg0 to sizes: [4, 4]
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4, 4]
 // CHECK: order: [1, 0]
-// CHECK: %[[VAL:.*]] = "tta.load"(%[[NEXT]])
-// CHECK: %[[ADDR:.*]] = tta.make_addr %arg0 to sizes: [4, 4]
+// CHECK: %[[VAL:.*]] = "tta.load"(%[[A0]])
+// CHECK: %[[A1:.*]] = tta.make_addr %arg0 to sizes: [4, 4]
 // CHECK: order: [1, 0]
-// CHECK: "tta.store"(%[[ADDR]], %[[VAL]])
+// CHECK: "tta.store"(%[[A1]], %[[VAL]])
   tt.func @block_ptr_basic(%arg0: !tt.ptr<f16>) {
     %c4_i64 = arith.constant 4 : i64
     %c1_i64 = arith.constant 1 : i64
@@ -140,10 +140,10 @@ module {
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: []
 // CHECK: "tta.store"(%[[A1]], %[[V]])
   tt.func @prebuilt_tta_addr(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
-    %a0 = tta.make_addr %arg0 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
-    %v = tt.load %a0 : tensor<4x!tt.ptr<f32>>
-    %a1 = tta.make_addr %arg1 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
-    tt.store %a1, %v : tensor<4x!tt.ptr<f32>>
+    %a0 = tta.make_addr %arg0 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %v = "tta.load"(%a0) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+    %a1 = tta.make_addr %arg1 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    "tta.store"(%a1, %v) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
     tt.return
   }
 }

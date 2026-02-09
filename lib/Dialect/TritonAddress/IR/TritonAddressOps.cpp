@@ -1,3 +1,4 @@
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
@@ -19,32 +20,19 @@ namespace mlir {
 namespace tta {
 
 namespace {
+struct ImportedAddressInfo {
+  int64_t rank;
+  Type elementType;
+  int addressSpace;
+};
+
 struct LoadedAddressInfo {
   int64_t rank;
   Type elementType;
   SmallVector<int64_t> shape;
 };
 
-std::optional<int64_t> getAddressRank(Type type) {
-  if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-    if (isa<triton::PointerType>(tensorType.getElementType())) {
-      return tensorType.getRank();
-    }
-    return std::nullopt;
-  }
-
-  if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
-    if (auto tensorType =
-            dyn_cast<RankedTensorType>(ptrType.getPointeeType())) {
-      return tensorType.getRank();
-    }
-    return 1;
-  }
-
-  return std::nullopt;
-}
-
-std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
+std::optional<ImportedAddressInfo> getImportedAddressInfo(Type type) {
   if (auto ptrTensorType = dyn_cast<RankedTensorType>(type)) {
     auto elementPtrType =
         dyn_cast<triton::PointerType>(ptrTensorType.getElementType());
@@ -52,23 +40,49 @@ std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
       return std::nullopt;
     }
 
-    LoadedAddressInfo info{ptrTensorType.getRank(),
-                           elementPtrType.getPointeeType(),
-                           SmallVector<int64_t>(ptrTensorType.getShape())};
+    ImportedAddressInfo info{ptrTensorType.getRank(),
+                             elementPtrType.getPointeeType(),
+                             elementPtrType.getAddressSpace()};
     return info;
   }
 
   if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
-    auto pointeeTensorType =
-        dyn_cast<RankedTensorType>(ptrType.getPointeeType());
-    if (!pointeeTensorType) {
-      return std::nullopt;
+    Type pointeeType = ptrType.getPointeeType();
+    Type elementType = pointeeType;
+    int64_t rank = 1;
+    if (auto pointeeTensorType = dyn_cast<RankedTensorType>(pointeeType)) {
+      rank = pointeeTensorType.getRank();
+      elementType = pointeeTensorType.getElementType();
     }
 
-    LoadedAddressInfo info{pointeeTensorType.getRank(),
-                           pointeeTensorType.getElementType(),
-                           SmallVector<int64_t>(pointeeTensorType.getShape())};
+    ImportedAddressInfo info{rank, elementType, ptrType.getAddressSpace()};
     return info;
+  }
+
+  return std::nullopt;
+}
+
+std::optional<int64_t> getAddressRank(Type type) {
+  if (auto addrType = dyn_cast<AddrType>(type)) {
+    return addrType.getRank();
+  }
+
+  return std::nullopt;
+}
+
+std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
+  if (auto addrType = dyn_cast<AddrType>(type)) {
+    SmallVector<int64_t> shape(addrType.getRank(), ShapedType::kDynamic);
+    return LoadedAddressInfo{addrType.getRank(), addrType.getElementType(),
+                             std::move(shape)};
+  }
+
+  return std::nullopt;
+}
+
+std::optional<Type> getAtomicElementType(Type type) {
+  if (auto addrType = dyn_cast<AddrType>(type)) {
+    return addrType.getElementType();
   }
 
   return std::nullopt;
@@ -79,7 +93,279 @@ bool isValidAtomicKind(StringRef kind) {
       "add", "and", "or", "xor", "max", "min", "xchg", "cmpxchg", "fadd"};
   return llvm::is_contained(kKinds, kind);
 }
+
+bool areAllZero(ArrayRef<OpFoldResult> values) {
+  return llvm::all_of(
+      values, [](OpFoldResult value) { return isConstantIntValue(value, 0); });
+}
+
+Value materializeIndexValue(OpFoldResult ofr, Location loc,
+                            PatternRewriter &rewriter) {
+  if (auto value = dyn_cast<Value>(ofr)) {
+    if (value.getType().isIndex()) {
+      return value;
+    }
+    return arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      value)
+        .getResult();
+  }
+
+  auto intValue = cast<IntegerAttr>(cast<Attribute>(ofr)).getInt();
+  return arith::ConstantOp::create(rewriter, loc,
+                                   rewriter.getIndexAttr(intValue))
+      .getResult();
+}
+
+SmallVector<OpFoldResult> composePairwiseAdd(ArrayRef<OpFoldResult> lhs,
+                                             ArrayRef<OpFoldResult> rhs,
+                                             Location loc,
+                                             PatternRewriter &rewriter) {
+  SmallVector<OpFoldResult> composed;
+  composed.reserve(lhs.size());
+
+  for (auto [lhsValue, rhsValue] : llvm::zip(lhs, rhs)) {
+    auto lhsConstant = getConstantIntValue(lhsValue);
+    auto rhsConstant = getConstantIntValue(rhsValue);
+    if (lhsConstant && rhsConstant) {
+      composed.push_back(rewriter.getIndexAttr(*lhsConstant + *rhsConstant));
+      continue;
+    }
+
+    if (lhsConstant && *lhsConstant == 0) {
+      composed.push_back(rhsValue);
+      continue;
+    }
+
+    if (rhsConstant && *rhsConstant == 0) {
+      composed.push_back(lhsValue);
+      continue;
+    }
+
+    Value lhsIndex = materializeIndexValue(lhsValue, loc, rewriter);
+    Value rhsIndex = materializeIndexValue(rhsValue, loc, rewriter);
+    composed.push_back(
+        arith::AddIOp::create(rewriter, loc, lhsIndex, rhsIndex).getResult());
+  }
+
+  return composed;
+}
+
+ReindexOp createReindexWithSameIndirection(PatternRewriter &rewriter,
+                                           Location loc, Value address,
+                                           Value indirectIndex, Value mask,
+                                           IntegerAttr indirectDimAttr,
+                                           ArrayRef<OpFoldResult> offsets) {
+  if (!indirectIndex) {
+    return ReindexOp::create(rewriter, loc, address, offsets);
+  }
+
+  int64_t indirectDim = indirectDimAttr.getInt();
+  if (mask) {
+    return ReindexOp::create(rewriter, loc, address, indirectIndex, mask,
+                             indirectDim, offsets);
+  }
+
+  return ReindexOp::create(rewriter, loc, address, indirectIndex, indirectDim,
+                           offsets);
+}
+
+struct ComposeReindexOfReindexPattern : public OpRewritePattern<ReindexOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ReindexOp op,
+                                PatternRewriter &rewriter) const override {
+    auto producer = op.getAddress().getDefiningOp<ReindexOp>();
+    if (!producer || op.getIndirectIndex() || op.getMask() ||
+        producer.getIndirectIndex() || producer.getMask()) {
+      return failure();
+    }
+
+    auto outerOffsets = op.getMixedOffsets();
+    auto innerOffsets = producer.getMixedOffsets();
+    if (outerOffsets.size() != innerOffsets.size()) {
+      return failure();
+    }
+
+    auto mergedOffsets =
+        composePairwiseAdd(innerOffsets, outerOffsets, op.getLoc(), rewriter);
+
+    auto replacement = ReindexOp::create(rewriter, op.getLoc(),
+                                         producer.getAddress(), mergedOffsets);
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
+
+struct ComposeAdvanceOfAdvancePattern : public OpRewritePattern<AdvanceOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AdvanceOp op,
+                                PatternRewriter &rewriter) const override {
+    auto producer = op.getAddress().getDefiningOp<AdvanceOp>();
+    if (!producer) {
+      return failure();
+    }
+
+    auto outerDeltas = op.getMixedDeltas();
+    auto innerDeltas = producer.getMixedDeltas();
+    if (outerDeltas.size() != innerDeltas.size()) {
+      return failure();
+    }
+
+    auto mergedDeltas =
+        composePairwiseAdd(innerDeltas, outerDeltas, op.getLoc(), rewriter);
+
+    auto replacement = AdvanceOp::create(rewriter, op.getLoc(),
+                                         producer.getAddress(), mergedDeltas);
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
+
+struct ComposeAdvanceOfReindexPattern : public OpRewritePattern<AdvanceOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AdvanceOp op,
+                                PatternRewriter &rewriter) const override {
+    auto producer = op.getAddress().getDefiningOp<ReindexOp>();
+    if (!producer) {
+      return failure();
+    }
+
+    auto outerDeltas = op.getMixedDeltas();
+    auto innerOffsets = producer.getMixedOffsets();
+    if (outerDeltas.size() != innerOffsets.size()) {
+      return failure();
+    }
+
+    auto mergedOffsets =
+        composePairwiseAdd(innerOffsets, outerDeltas, op.getLoc(), rewriter);
+    auto replacement = createReindexWithSameIndirection(
+        rewriter, op.getLoc(), producer.getAddress(),
+        producer.getIndirectIndex(), producer.getMask(),
+        producer.getIndirectDimAttr(), mergedOffsets);
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
+
+struct ComposeReindexOfAdvancePattern : public OpRewritePattern<ReindexOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ReindexOp op,
+                                PatternRewriter &rewriter) const override {
+    auto producer = op.getAddress().getDefiningOp<AdvanceOp>();
+    if (!producer) {
+      return failure();
+    }
+
+    auto outerOffsets = op.getMixedOffsets();
+    auto innerDeltas = producer.getMixedDeltas();
+    if (outerOffsets.size() != innerDeltas.size()) {
+      return failure();
+    }
+
+    auto mergedOffsets =
+        composePairwiseAdd(innerDeltas, outerOffsets, op.getLoc(), rewriter);
+    auto replacement = createReindexWithSameIndirection(
+        rewriter, op.getLoc(), producer.getAddress(), op.getIndirectIndex(),
+        op.getMask(), op.getIndirectDimAttr(), mergedOffsets);
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
+
+struct HoistFromTTPtrThroughReindexPattern
+    : public OpRewritePattern<FromTTPtrOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FromTTPtrOp op,
+                                PatternRewriter &rewriter) const override {
+    auto reindex = op.getSource().getDefiningOp<ReindexOp>();
+    if (!reindex) {
+      return failure();
+    }
+
+    auto importedAddress =
+        FromTTPtrOp::create(rewriter, op.getLoc(), reindex.getAddress())
+            .getResult();
+    auto replacement = createReindexWithSameIndirection(
+        rewriter, op.getLoc(), importedAddress, reindex.getIndirectIndex(),
+        reindex.getMask(), reindex.getIndirectDimAttr(),
+        reindex.getMixedOffsets());
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
+
+struct HoistFromTTPtrThroughAdvancePattern
+    : public OpRewritePattern<FromTTPtrOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FromTTPtrOp op,
+                                PatternRewriter &rewriter) const override {
+    auto advance = op.getSource().getDefiningOp<AdvanceOp>();
+    if (!advance) {
+      return failure();
+    }
+
+    auto importedAddress =
+        FromTTPtrOp::create(rewriter, op.getLoc(), advance.getAddress())
+            .getResult();
+    auto replacement = AdvanceOp::create(rewriter, op.getLoc(), importedAddress,
+                                         advance.getMixedDeltas());
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
 } // namespace
+
+void FromTTPtrOp::build(OpBuilder &b, OperationState &state, Value source) {
+  auto importedInfo = getImportedAddressInfo(source.getType());
+  assert(importedInfo && "tta.from_tt_ptr source must be tt.ptr-like");
+
+  auto resultType = AddrType::get(importedInfo->elementType, importedInfo->rank,
+                                  importedInfo->addressSpace);
+  build(b, state, resultType, source);
+}
+
+LogicalResult FromTTPtrOp::verify() {
+  auto importedInfo = getImportedAddressInfo(getSource().getType());
+  if (!importedInfo) {
+    return emitOpError("source must be !tt.ptr<...>, tensor<...x!tt.ptr<...>>, "
+                       "or !tt.ptr<tensor<...>>");
+  }
+
+  if (isa<triton::PointerType>(importedInfo->elementType) ||
+      isa<TensorType>(importedInfo->elementType)) {
+    return emitOpError("source pointee element type must be scalar "
+                       "(non-pointer, non-tensor)");
+  }
+
+  auto resultType = dyn_cast<AddrType>(getResult().getType());
+  if (!resultType) {
+    return emitOpError("result must be !tta.addr<elem, rank, space>");
+  }
+  if (resultType.getElementType() != importedInfo->elementType) {
+    return emitOpError("result element type must match source pointee "
+                       "element type");
+  }
+  if (resultType.getRank() != importedInfo->rank) {
+    return emitOpError("result rank must match imported pointer rank");
+  }
+  if (resultType.getAddressSpace() != importedInfo->addressSpace) {
+    return emitOpError("result address space must match source address "
+                       "space");
+  }
+
+  return success();
+}
+
+void FromTTPtrOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                              MLIRContext *context) {
+  results.add<HoistFromTTPtrThroughReindexPattern,
+              HoistFromTTPtrThroughAdvancePattern>(context);
+}
 
 LogicalResult MakeAddrOp::verify() {
   int64_t rank = getSizes().size();
@@ -94,53 +380,41 @@ LogicalResult MakeAddrOp::verify() {
     return emitOpError("shape must match sizes rank");
   }
 
-  auto resultType = getResult().getType();
-  if (auto ptrTensorType = dyn_cast<RankedTensorType>(resultType)) {
-    if (!isa<triton::PointerType>(ptrTensorType.getElementType())) {
-      return emitOpError("tensor result must have pointer element type");
-    }
-    if (ptrTensorType.getRank() != rank) {
-      return emitOpError("tensor result rank must match sizes rank");
-    }
-    if (!llvm::equal(ptrTensorType.getShape(), getSizes())) {
-      return emitOpError("tensor result shape must match sizes");
-    }
-    if (!getOrder().empty()) {
-      return emitOpError("order must be empty for tensor-of-ptr result");
-    }
-    return success();
+  auto baseType = dyn_cast<triton::PointerType>(getBase().getType());
+  if (!baseType) {
+    return emitOpError("base must be !tt.ptr<...>");
   }
 
-  auto ptrType = dyn_cast<triton::PointerType>(resultType);
-  if (!ptrType) {
-    return emitOpError("result must be tensor-of-ptr or ptr<tensor<...>>");
+  auto resultType = dyn_cast<AddrType>(getResult().getType());
+  if (!resultType) {
+    return emitOpError("result must be !tta.addr<...>");
   }
 
-  auto pointeeTensorType = dyn_cast<RankedTensorType>(ptrType.getPointeeType());
-  if (!pointeeTensorType) {
-    return emitOpError("pointer result must be ptr<tensor<...>>");
+  if (resultType.getRank() != rank) {
+    return emitOpError("result rank must match sizes rank");
+  }
+  if (resultType.getElementType() != baseType.getPointeeType()) {
+    return emitOpError("result element type must match base pointee type");
+  }
+  if (resultType.getAddressSpace() != baseType.getAddressSpace()) {
+    return emitOpError("result address space must match base address space");
   }
 
-  if (pointeeTensorType.getRank() != rank) {
-    return emitOpError("pointer pointee rank must match sizes rank");
-  }
-  if (!llvm::equal(pointeeTensorType.getShape(), getSizes())) {
-    return emitOpError("pointer pointee shape must match sizes");
-  }
-
-  if (static_cast<int64_t>(getOrder().size()) != rank) {
+  if (!getOrder().empty() && static_cast<int64_t>(getOrder().size()) != rank) {
     return emitOpError(
         "order length must match sizes rank for block pointer result");
   }
 
-  SmallVector<int64_t> order;
-  order.reserve(getOrder().size());
-  for (int32_t value : getOrder()) {
-    order.push_back(value);
-  }
+  if (!getOrder().empty()) {
+    SmallVector<int64_t> order;
+    order.reserve(getOrder().size());
+    for (int32_t value : getOrder()) {
+      order.push_back(value);
+    }
 
-  if (!isPermutationVector(order)) {
-    return emitOpError("order must be a permutation of [0, rank)");
+    if (!isPermutationVector(order)) {
+      return emitOpError("order must be a permutation of [0, rank)");
+    }
   }
 
   return success();
@@ -157,15 +431,9 @@ void MakeAddrOp::build(OpBuilder &b, OperationState &state, Value base,
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
   dispatchIndexOpFoldResults(shape, dynamicShape, staticShape);
 
-  Type resultType;
   auto basePtr = cast<triton::PointerType>(base.getType());
-  auto elemType = basePtr.getPointeeType();
-  if (order.empty()) {
-    resultType = RankedTensorType::get(sizes, basePtr);
-  } else {
-    resultType = triton::PointerType::get(
-        RankedTensorType::get(sizes, elemType), basePtr.getAddressSpace());
-  }
+  Type resultType = AddrType::get(basePtr.getPointeeType(), sizes.size(),
+                                  basePtr.getAddressSpace());
 
   build(b, state, resultType, base, sizes, dynamicStrides, dynamicOffsets,
         dynamicShape, b.getDenseI64ArrayAttr(staticStrides),
@@ -210,7 +478,7 @@ void ReindexOp::build(OpBuilder &b, OperationState &state, Value address,
 LogicalResult ReindexOp::verify() {
   auto rank = getAddressRank(getAddress().getType());
   if (!rank.has_value()) {
-    return emitOpError("address must be pointer-like type");
+    return emitOpError("address must be !tta.addr<...>");
   }
 
   if (static_cast<int64_t>(getMixedOffsets().size()) != *rank) {
@@ -262,6 +530,19 @@ LogicalResult ReindexOp::verify() {
   return success();
 }
 
+OpFoldResult ReindexOp::fold(FoldAdaptor adaptor) {
+  if (!getIndirectIndex() && !getMask() && areAllZero(getMixedOffsets())) {
+    return getAddress();
+  }
+  return {};
+}
+
+void ReindexOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                            MLIRContext *context) {
+  results.add<ComposeReindexOfReindexPattern, ComposeReindexOfAdvancePattern>(
+      context);
+}
+
 void AdvanceOp::build(OpBuilder &b, OperationState &state, Value address,
                       ArrayRef<OpFoldResult> deltas) {
   SmallVector<int64_t> staticDeltas;
@@ -275,7 +556,7 @@ void AdvanceOp::build(OpBuilder &b, OperationState &state, Value address,
 LogicalResult AdvanceOp::verify() {
   auto rank = getAddressRank(getAddress().getType());
   if (!rank.has_value()) {
-    return emitOpError("address must be pointer-like type");
+    return emitOpError("address must be !tta.addr<...>");
   }
 
   if (static_cast<int64_t>(getMixedDeltas().size()) != *rank) {
@@ -287,6 +568,19 @@ LogicalResult AdvanceOp::verify() {
   }
 
   return success();
+}
+
+OpFoldResult AdvanceOp::fold(FoldAdaptor adaptor) {
+  if (areAllZero(getMixedDeltas())) {
+    return getAddress();
+  }
+  return {};
+}
+
+void AdvanceOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                            MLIRContext *context) {
+  results.add<ComposeAdvanceOfAdvancePattern, ComposeAdvanceOfReindexPattern>(
+      context);
 }
 
 void AtomicOp::build(OpBuilder &b, OperationState &state, StringRef kind,
@@ -321,10 +615,14 @@ LogicalResult AtomicOp::verify() {
     return emitOpError("offset and value tensor shapes must match");
   }
 
-  auto ptrType = cast<triton::PointerType>(getPtr().getType());
+  auto ptrElementType = getAtomicElementType(getPtr().getType());
+  if (!ptrElementType) {
+    return emitOpError("ptr must be !tta.addr<...>");
+  }
+
   Type valueElemType = mlir::getElementTypeOrSelf(valueType);
-  if (ptrType.getPointeeType() != valueElemType) {
-    return emitOpError("value element type must match pointer pointee type");
+  if (*ptrElementType != valueElemType) {
+    return emitOpError("value element type must match address element type");
   }
 
   StringRef kind = getKindAttr().getValue();
@@ -350,21 +648,9 @@ void LoadOp::build(OpBuilder &b, OperationState &state, Value ptr,
   SmallVector<Value> dynamicDims;
   dispatchIndexOpFoldResults(maskDims, dynamicDims, staticDims);
 
-  auto ptrTensorType = dyn_cast<RankedTensorType>(ptr.getType());
-  auto tensorPtrType = dyn_cast<triton::PointerType>(ptr.getType());
-
-  Type resultType;
-  if (ptrTensorType) {
-    auto ptrType = cast<triton::PointerType>(ptrTensorType.getElementType());
-    auto elemType = ptrType.getPointeeType();
-    resultType = RankedTensorType::get(ptrTensorType.getShape(), elemType);
-  } else if (tensorPtrType) {
-    auto tensorType = dyn_cast<ShapedType>(tensorPtrType.getPointeeType());
-    assert(tensorType &&
-           "tta.load requires ptr<tensor<...>> for non-tensor pointer input");
-    resultType = RankedTensorType::get(tensorType.getShape(),
-                                       tensorType.getElementType());
-  }
+  auto addrType = cast<AddrType>(ptr.getType());
+  SmallVector<int64_t> shape(addrType.getRank(), ShapedType::kDynamic);
+  Type resultType = RankedTensorType::get(shape, addrType.getElementType());
 
   build(b, state, resultType, ptr, dynamicDims,
         b.getDenseI64ArrayAttr(staticDims), other);
@@ -373,8 +659,7 @@ void LoadOp::build(OpBuilder &b, OperationState &state, Value ptr,
 LogicalResult LoadOp::verify() {
   auto loadedInfo = getLoadedAddressInfo(getPtr().getType());
   if (!loadedInfo) {
-    return emitOpError(
-        "ptr must be tensor<...x!tt.ptr<...>> or !tt.ptr<tensor<...>>");
+    return emitOpError("ptr must be !tta.addr<...>");
   }
 
   int64_t maskRank = getMixedMaskDims().size();
@@ -386,16 +671,25 @@ LogicalResult LoadOp::verify() {
   if (!resultType) {
     return emitOpError("result must be a ranked tensor");
   }
-  if (!llvm::equal(resultType.getShape(), loadedInfo->shape)) {
+  if (loadedInfo->shape.size() != static_cast<size_t>(loadedInfo->rank)) {
+    return emitOpError("internal error: loaded shape rank mismatch");
+  }
+
+  if (llvm::all_of(loadedInfo->shape,
+                   [](int64_t dim) { return ShapedType::isDynamic(dim); })) {
+    if (resultType.getRank() != loadedInfo->rank) {
+      return emitOpError("result rank must match address rank");
+    }
+  } else if (!llvm::equal(resultType.getShape(), loadedInfo->shape)) {
     return emitOpError("result shape must match loaded pointer shape");
   }
   if (resultType.getElementType() != loadedInfo->elementType) {
-    return emitOpError("result element type must match pointer pointee type");
+    return emitOpError("result element type must match address element type");
   }
 
   if (Value other = getOther()) {
     if (other.getType() != loadedInfo->elementType) {
-      return emitOpError("other type must match pointer pointee element type");
+      return emitOpError("other type must match address element type");
     }
   }
 
@@ -414,8 +708,7 @@ void StoreOp::build(OpBuilder &b, OperationState &state, Value ptr, Value value,
 LogicalResult StoreOp::verify() {
   auto loadedInfo = getLoadedAddressInfo(getPtr().getType());
   if (!loadedInfo) {
-    return emitOpError(
-        "ptr must be tensor<...x!tt.ptr<...>> or !tt.ptr<tensor<...>>");
+    return emitOpError("ptr must be !tta.addr<...>");
   }
 
   int64_t maskRank = getMixedMaskDims().size();
@@ -427,11 +720,16 @@ LogicalResult StoreOp::verify() {
   if (!valueType) {
     return emitOpError("value must be a ranked tensor");
   }
-  if (!llvm::equal(valueType.getShape(), loadedInfo->shape)) {
+  if (llvm::all_of(loadedInfo->shape,
+                   [](int64_t dim) { return ShapedType::isDynamic(dim); })) {
+    if (valueType.getRank() != loadedInfo->rank) {
+      return emitOpError("value rank must match address rank");
+    }
+  } else if (!llvm::equal(valueType.getShape(), loadedInfo->shape)) {
     return emitOpError("value shape must match stored pointer shape");
   }
   if (valueType.getElementType() != loadedInfo->elementType) {
-    return emitOpError("value element type must match pointer pointee type");
+    return emitOpError("value element type must match address element type");
   }
 
   return success();
