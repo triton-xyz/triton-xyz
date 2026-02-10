@@ -44,6 +44,15 @@ namespace mlir::triton {
 
 namespace {
 
+static constexpr StringLiteral kFallbackAttrName = "tta.fallback";
+static constexpr StringLiteral kFallbackReasonAttrName = "tta.fallback_reason";
+
+static void markFallback(Operation *op, StringRef reason) {
+  op->setAttr(kFallbackAttrName, UnitAttr::get(op->getContext()));
+  op->setAttr(kFallbackReasonAttrName,
+              StringAttr::get(op->getContext(), reason));
+}
+
 // Given a type, return the offset type corresponding to that type with the
 // specified width.
 // If the type is a tensor, return a tensor of offsets of the same shape. If the
@@ -99,7 +108,7 @@ static bool shouldHandleForFallback(triton::LoadOp op) {
 
   if (op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>() &&
       op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>()->hasAttr(
-          "tta.fallback")) {
+          kFallbackAttrName)) {
     return true;
   }
 
@@ -119,7 +128,7 @@ static bool shouldHandleForFallback(triton::StoreOp op) {
 
   if (op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>() &&
       op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>()->hasAttr(
-          "tta.fallback")) {
+          kFallbackAttrName)) {
     return true;
   }
 
@@ -273,6 +282,31 @@ static FailureOr<Value> castOffsetToSupportedType(Value offset, Location loc,
   }
 
   return failure();
+}
+
+static std::optional<StringRef> getTTAAtomicKind(triton::RMWOp rmwOp) {
+  switch (rmwOp) {
+  case triton::RMWOp::ADD:
+    return StringRef("add");
+  case triton::RMWOp::AND:
+    return StringRef("and");
+  case triton::RMWOp::OR:
+    return StringRef("or");
+  case triton::RMWOp::XOR:
+    return StringRef("xor");
+  case triton::RMWOp::MAX:
+    return StringRef("max");
+  case triton::RMWOp::MIN:
+    return StringRef("min");
+  case triton::RMWOp::XCHG:
+    return StringRef("xchg");
+  case triton::RMWOp::FADD:
+    return StringRef("fadd");
+  case triton::RMWOp::UMAX:
+  case triton::RMWOp::UMIN:
+    return std::nullopt;
+  }
+  return std::nullopt;
 }
 
 static FailureOr<Value> normalizeOffsetTo1DTensor(Value offset, Location loc,
@@ -448,14 +482,111 @@ public:
     Value offset;
   };
 
+  bool isFallbackOp(Operation *op) const {
+    return op && op->hasAttr(kFallbackAttrName);
+  }
+
+  bool shouldSkipLowering(Value root) const {
+    if (!root) {
+      return true;
+    }
+    if (root.getDefiningOp<tta::MakeAddrOp>() ||
+        root.getDefiningOp<tta::ReindexOp>() ||
+        root.getDefiningOp<tta::AdvanceOp>()) {
+      return true;
+    }
+    return false;
+  }
+
+  template <typename T>
+  bool tryGetOffsetInfo(Value ptr, llvm::DenseMap<Value, T> &offsetMap,
+                        T &out) const {
+    auto it = offsetMap.find(ptr);
+    if (it == offsetMap.end()) {
+      return false;
+    }
+    out = it->second;
+    return true;
+  }
+
   LogicalResult processUnstructuredPtrs(unsigned int defaultBitWidth = 32) {
     llvm::SmallDenseSet<Value> ptrArgs;
     llvm::DenseMap<Value, PtrOffset> offsetMap;
     std::queue<Value> workList;
 
     llvm::SmallDenseSet<Value> fallbackPtrs;
+    llvm::SmallDenseSet<Value> atomicPtrs;
     llvm::SmallDenseSet<Operation *> fallbackLoadOps;
     llvm::SmallDenseSet<Operation *> fallbackStoreOps;
+    llvm::SmallDenseSet<Value> preservedPtrValues;
+
+    auto preservePtrChain = [&](Value root) {
+      if (!root || !triton::isPtrTypeLike(root.getType())) {
+        return;
+      }
+
+      llvm::SmallVector<Value> queue{root};
+      llvm::SmallDenseSet<Value> visited;
+      while (!queue.empty()) {
+        Value current = queue.pop_back_val();
+        if (!current || !triton::isPtrTypeLike(current.getType()) ||
+            !visited.insert(current).second) {
+          continue;
+        }
+
+        preservedPtrValues.insert(current);
+
+        if (Operation *def = current.getDefiningOp()) {
+          for (Value operand : def->getOperands()) {
+            if (triton::isPtrTypeLike(operand.getType())) {
+              queue.push_back(operand);
+            }
+          }
+          continue;
+        }
+
+        auto blockArg = dyn_cast<BlockArgument>(current);
+        if (!blockArg) {
+          continue;
+        }
+
+        Block *owner = blockArg.getOwner();
+        auto forOp = dyn_cast_or_null<scf::ForOp>(owner->getParentOp());
+        if (!forOp || owner != &forOp.getRegion().front()) {
+          continue;
+        }
+
+        unsigned argNumber = blockArg.getArgNumber();
+        if (argNumber == 0) {
+          continue;
+        }
+
+        unsigned iterIndex = argNumber - 1;
+        if (iterIndex >= forOp.getInitArgs().size()) {
+          continue;
+        }
+
+        Value initArg = forOp.getInitArgs()[iterIndex];
+        if (triton::isPtrTypeLike(initArg.getType())) {
+          queue.push_back(initArg);
+        }
+        Value result = forOp.getResult(iterIndex);
+        if (triton::isPtrTypeLike(result.getType())) {
+          queue.push_back(result);
+        }
+      }
+    };
+
+    auto markFallbackAndPreserve = [&](Operation *op, StringRef reason) {
+      markFallback(op, reason);
+      for (Value operand : op->getOperands()) {
+        preservePtrChain(operand);
+      }
+      for (Value result : op->getResults()) {
+        preservePtrChain(result);
+      }
+    };
+
     getOperation().walk([&](Operation *op) {
       if (auto load = dyn_cast<triton::LoadOp>(op)) {
         if (shouldHandleForFallback(load)) {
@@ -467,6 +598,10 @@ public:
           fallbackPtrs.insert(store.getPtr());
           fallbackStoreOps.insert(store.getOperation());
         }
+      } else if (auto atomic = dyn_cast<triton::AtomicRMWOp>(op)) {
+        atomicPtrs.insert(atomic.getPtr());
+      } else if (auto atomic = dyn_cast<triton::AtomicCASOp>(op)) {
+        atomicPtrs.insert(atomic.getPtr());
       }
     });
 
@@ -478,7 +613,7 @@ public:
         if (!visited.insert(current).second) {
           continue;
         }
-        if (fallbackPtrs.contains(current)) {
+        if (fallbackPtrs.contains(current) || atomicPtrs.contains(current)) {
           return true;
         }
         for (Operation *user : current.getUsers()) {
@@ -561,6 +696,10 @@ public:
       auto val = workList.front();
       workList.pop();
 
+      if (preservedPtrValues.contains(val)) {
+        continue;
+      }
+
       for (auto &use : val.getUses()) {
         auto user = use.getOwner();
 
@@ -569,10 +708,16 @@ public:
 
                 .Case<triton::PtrToIntOp>([&](triton::PtrToIntOp op) {
                   if (isa<RankedTensorType>(op.getType())) {
-                    return failure();
+                    markFallbackAndPreserve(
+                        op, "ptr_to_int_tensor_result_unsupported");
+                    return success();
                   }
 
-                  auto offsetInfo = offsetMap.at(op.getSrc());
+                  PtrOffset offsetInfo;
+                  if (!tryGetOffsetInfo(op.getSrc(), offsetMap, offsetInfo)) {
+                    markFallbackAndPreserve(op, "offset_info_missing");
+                    return success();
+                  }
 
                   OpBuilder b{op};
                   // We are converting a pointer to an integer here,
@@ -597,13 +742,20 @@ public:
                   // if the pointer returning from both branches will have the
                   // same source
                   if (addptr->getParentOfType<scf::IfOp>()) {
-                    return failure();
+                    markFallbackAndPreserve(addptr,
+                                            "addptr_in_scf_if_unsupported");
+                    return success();
                   }
 
                   OpBuilder b{addptr};
                   auto loc = addptr->getLoc();
 
-                  auto offsetInfo = offsetMap.at(addptr.getPtr());
+                  PtrOffset offsetInfo;
+                  if (!tryGetOffsetInfo(addptr.getPtr(), offsetMap,
+                                        offsetInfo)) {
+                    markFallbackAndPreserve(addptr, "offset_info_missing");
+                    return success();
+                  }
 
                   auto prevOff = offsetInfo.offset;
                   auto off = addptr.getOffset();
@@ -654,7 +806,11 @@ public:
                   }
 
                   auto ptr = op->getOperand(0);
-                  auto offsetInfo = offsetMap.at(ptr);
+                  PtrOffset offsetInfo;
+                  if (!tryGetOffsetInfo(ptr, offsetMap, offsetInfo)) {
+                    markFallbackAndPreserve(op, "offset_info_missing");
+                    return success();
+                  }
 
                   OpBuilder b{op};
                   auto clone =
@@ -684,7 +840,12 @@ public:
                     return success();
                   }
 
-                  auto offsetInfo = offsetMap.at(bitcast.getSrc());
+                  PtrOffset offsetInfo;
+                  if (!tryGetOffsetInfo(bitcast.getSrc(), offsetMap,
+                                        offsetInfo)) {
+                    markFallbackAndPreserve(bitcast, "offset_info_missing");
+                    return success();
+                  }
                   Value basePtr = offsetInfo.ptr;
 
                   Type newBasePtrType = resType;
@@ -721,7 +882,12 @@ public:
                   auto argIndex = use.getOperandNumber() - 3;
                   auto init = forOp.getInitArgs()[argIndex];
 
-                  auto offsetInfo = offsetMap.at(init);
+                  PtrOffset offsetInfo;
+                  if (!tryGetOffsetInfo(init, offsetMap, offsetInfo)) {
+                    markFallbackAndPreserve(forOp,
+                                            "iter_arg_offset_info_missing");
+                    return success();
+                  }
 
                   auto offsetType =
                       getPtrOffsetType(offsetInfo.ptrType, offsetInfo.bitWidth);
@@ -760,18 +926,17 @@ public:
                   return success();
                 })
                 .Case<scf::YieldOp>([](auto) { return success(); })
-                .Case<triton::CatOp>([](triton::CatOp op) {
-                  op->emitRemark("Do not support gather / scatter with "
-                                 "multiple bases yet");
-                  return failure();
+                .Case<triton::CatOp>([&](triton::CatOp op) {
+                  markFallbackAndPreserve(op, "multi_base_cat_unsupported");
+                  return success();
                 })
                 .Default([&](Operation *op) {
-                  LLVM_DEBUG(op->emitRemark("unexpected op in ptr sequence"));
-                  return failure();
+                  markFallbackAndPreserve(op, "unexpected_ptr_sequence_op");
+                  return success();
                 });
 
         if (failed(res)) {
-          return failure();
+          continue;
         }
       }
     }
@@ -785,20 +950,30 @@ public:
                 if (!fallbackLoadOps.contains(load.getOperation())) {
                   return success();
                 }
-                auto offsetInfo = offsetMap.at(load.getPtr());
+
+                if (shouldSkipLowering(load.getPtr())) {
+                  markFallbackAndPreserve(load, "skip_due_to_fallback_root");
+                  return success();
+                }
+
+                PtrOffset offsetInfo;
+                if (!tryGetOffsetInfo(load.getPtr(), offsetMap, offsetInfo)) {
+                  markFallbackAndPreserve(load, "offset_info_missing");
+                  return success();
+                }
 
                 auto maybeFlatOffset =
                     normalizeOffsetTo1DTensor(offsetInfo.offset, loc, b);
                 if (failed(maybeFlatOffset)) {
-                  load->emitRemark("cannot normalize offset to 1D tensor");
-                  return failure();
+                  markFallbackAndPreserve(load, "offset_not_1d_normalizable");
+                  return success();
                 }
 
                 auto maybeMakeAddr = buildLinearMakeAddr(b, loc, offsetInfo.ptr,
                                                          *maybeFlatOffset);
                 if (failed(maybeMakeAddr)) {
-                  load->emitRemark("cannot build linear tta.make_addr");
-                  return failure();
+                  markFallbackAndPreserve(load, "make_addr_build_failed");
+                  return success();
                 }
 
                 SmallVector<OpFoldResult> zeroOffsets{b.getIndexAttr(0)};
@@ -806,8 +981,8 @@ public:
                 if (Value mask = load.getMask()) {
                   auto maybeFlatMask = normalizeMaskTo1DTensor(mask, loc, b);
                   if (failed(maybeFlatMask)) {
-                    load->emitRemark("cannot normalize mask to 1D tensor");
-                    return failure();
+                    markFallbackAndPreserve(load, "mask_not_1d_normalizable");
+                    return success();
                   }
 
                   reindex = tta::ReindexOp::create(
@@ -821,8 +996,8 @@ public:
 
                 auto scalarOther = getScalarOther(load, loc, b);
                 if (failed(scalarOther)) {
-                  load->emitRemark("cannot parse scalar `other` value");
-                  return failure();
+                  markFallbackAndPreserve(load, "other_not_scalar_splat");
+                  return success();
                 }
 
                 auto ttaLoad =
@@ -832,8 +1007,9 @@ public:
                 auto maybeResult = rebuildLoadResultFrom1DTensor(
                     ttaLoad.getResult(), load.getType(), loc, b);
                 if (failed(maybeResult)) {
-                  load->emitRemark("cannot rebuild load result shape");
-                  return failure();
+                  markFallbackAndPreserve(load,
+                                          "load_result_shape_rebuild_failed");
+                  return success();
                 }
 
                 load.getResult().replaceAllUsesWith(*maybeResult);
@@ -844,20 +1020,30 @@ public:
                 if (!fallbackStoreOps.contains(store.getOperation())) {
                   return success();
                 }
-                auto offsetInfo = offsetMap.at(store.getPtr());
+
+                if (shouldSkipLowering(store.getPtr())) {
+                  markFallbackAndPreserve(store, "skip_due_to_fallback_root");
+                  return success();
+                }
+
+                PtrOffset offsetInfo;
+                if (!tryGetOffsetInfo(store.getPtr(), offsetMap, offsetInfo)) {
+                  markFallbackAndPreserve(store, "offset_info_missing");
+                  return success();
+                }
 
                 auto maybeFlatOffset =
                     normalizeOffsetTo1DTensor(offsetInfo.offset, loc, b);
                 if (failed(maybeFlatOffset)) {
-                  store->emitRemark("cannot normalize offset to 1D tensor");
-                  return failure();
+                  markFallbackAndPreserve(store, "offset_not_1d_normalizable");
+                  return success();
                 }
 
                 auto maybeMakeAddr = buildLinearMakeAddr(b, loc, offsetInfo.ptr,
                                                          *maybeFlatOffset);
                 if (failed(maybeMakeAddr)) {
-                  store->emitRemark("cannot build linear tta.make_addr");
-                  return failure();
+                  markFallbackAndPreserve(store, "make_addr_build_failed");
+                  return success();
                 }
 
                 SmallVector<OpFoldResult> zeroOffsets{b.getIndexAttr(0)};
@@ -865,8 +1051,8 @@ public:
                 if (Value mask = store.getMask()) {
                   auto maybeFlatMask = normalizeMaskTo1DTensor(mask, loc, b);
                   if (failed(maybeFlatMask)) {
-                    store->emitRemark("cannot normalize mask to 1D tensor");
-                    return failure();
+                    markFallbackAndPreserve(store, "mask_not_1d_normalizable");
+                    return success();
                   }
 
                   reindex = tta::ReindexOp::create(
@@ -881,9 +1067,9 @@ public:
                 auto maybeFlatValue =
                     normalizeStoreValueTo1DTensor(store.getValue(), loc, b);
                 if (failed(maybeFlatValue)) {
-                  store->emitRemark(
-                      "cannot normalize store value to 1D tensor");
-                  return failure();
+                  markFallbackAndPreserve(store,
+                                          "store_value_not_1d_normalizable");
+                  return success();
                 }
 
                 tta::StoreOp::create(b, loc, reindex.getResult(),
@@ -893,10 +1079,21 @@ public:
               })
               .Case<triton::MakeTensorPtrOp>([&](triton::MakeTensorPtrOp
                                                      makeTensorPtr) {
+                if (shouldSkipLowering(makeTensorPtr.getBase())) {
+                  markFallbackAndPreserve(makeTensorPtr,
+                                          "skip_due_to_fallback_root");
+                  return success();
+                }
+
                 // For block pointers, the base could come from a sequence of
                 // `tt.addptr`. Accumulate the target offset with the offset
                 // we have saved.
-                auto offsetInfo = offsetMap.at(makeTensorPtr.getBase());
+                PtrOffset offsetInfo;
+                if (!tryGetOffsetInfo(makeTensorPtr.getBase(), offsetMap,
+                                      offsetInfo)) {
+                  markFallbackAndPreserve(makeTensorPtr, "offset_info_missing");
+                  return success();
+                }
                 auto baseOffset = offsetInfo.offset;
 
                 makeTensorPtr.getBaseMutable().set(offsetInfo.ptr);
@@ -943,51 +1140,156 @@ public:
               })
 
               .Case<triton::AtomicRMWOp>([&](triton::AtomicRMWOp atomic) {
-                auto offsetInfo = offsetMap.at(atomic.getPtr());
+                if (shouldSkipLowering(atomic.getPtr())) {
+                  markFallbackAndPreserve(atomic, "skip_due_to_fallback_root");
+                  return success();
+                }
+
+                PtrOffset offsetInfo;
+                if (!tryGetOffsetInfo(atomic.getPtr(), offsetMap, offsetInfo)) {
+                  markFallbackAndPreserve(atomic, "offset_info_missing");
+                  return success();
+                }
                 OpBuilder b{atomic};
                 auto loc = atomic.getLoc();
-                Value basePtr = offsetInfo.ptr;
-                if (auto tensorType =
-                        dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
-                  basePtr = triton::SplatOp::create(b, loc, tensorType, basePtr)
-                                .getResult();
+
+                auto materializeAtomicPtr = [&]() {
+                  Value basePtr = offsetInfo.ptr;
+                  if (auto tensorType =
+                          dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
+                    basePtr =
+                        triton::SplatOp::create(b, loc, tensorType, basePtr)
+                            .getResult();
+                  }
+                  auto materializedAddPtr =
+                      triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
+                                               basePtr, offsetInfo.offset)
+                          .getResult();
+                  atomic.getPtrMutable().set(materializedAddPtr);
+                };
+
+                if (isa<ShapedType>(atomic.getType())) {
+                  materializeAtomicPtr();
+                  return success();
                 }
-                auto materializedAddPtr =
-                    triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
-                                             basePtr, offsetInfo.offset)
-                        .getResult();
-                atomic.getPtrMutable().set(materializedAddPtr);
+
+                auto maybeAtomicKind =
+                    getTTAAtomicKind(atomic.getAtomicRmwOp());
+                if (!maybeAtomicKind.has_value()) {
+                  markFallbackAndPreserve(atomic, "atomic_kind_unsupported");
+                  materializeAtomicPtr();
+                  return success();
+                }
+
+                if (!isa<triton::PointerType>(offsetInfo.ptr.getType())) {
+                  markFallbackAndPreserve(atomic, "atomic_base_ptr_not_scalar");
+                  materializeAtomicPtr();
+                  return success();
+                }
+
+                auto maybeAtomicOffset =
+                    castOffsetToSupportedType(offsetInfo.offset, loc, b);
+                if (failed(maybeAtomicOffset)) {
+                  markFallbackAndPreserve(atomic, "atomic_offset_cast_failed");
+                  materializeAtomicPtr();
+                  return success();
+                }
+
+                tta::AtomicOp ttaAtomic;
+                if (Value mask = atomic.getMask()) {
+                  ttaAtomic = tta::AtomicOp::create(
+                      b, loc, *maybeAtomicKind, offsetInfo.ptr,
+                      *maybeAtomicOffset, atomic.getVal(), mask);
+                } else {
+                  ttaAtomic = tta::AtomicOp::create(
+                      b, loc, *maybeAtomicKind, offsetInfo.ptr,
+                      *maybeAtomicOffset, atomic.getVal());
+                }
+                atomic.replaceAllUsesWith(ttaAtomic.getResult());
+                atomic->erase();
                 return success();
               })
               .Case<triton::AtomicCASOp>([&](triton::AtomicCASOp atomic) {
-                auto offsetInfo = offsetMap.at(atomic.getPtr());
+                if (shouldSkipLowering(atomic.getPtr())) {
+                  markFallbackAndPreserve(atomic, "skip_due_to_fallback_root");
+                  return success();
+                }
+
+                PtrOffset offsetInfo;
+                if (!tryGetOffsetInfo(atomic.getPtr(), offsetMap, offsetInfo)) {
+                  markFallbackAndPreserve(atomic, "offset_info_missing");
+                  return success();
+                }
                 OpBuilder b{atomic};
                 auto loc = atomic.getLoc();
-                Value basePtr = offsetInfo.ptr;
-                if (auto tensorType =
-                        dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
-                  basePtr = triton::SplatOp::create(b, loc, tensorType, basePtr)
-                                .getResult();
+
+                auto materializeAtomicPtr = [&]() {
+                  Value basePtr = offsetInfo.ptr;
+                  if (auto tensorType =
+                          dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
+                    basePtr =
+                        triton::SplatOp::create(b, loc, tensorType, basePtr)
+                            .getResult();
+                  }
+                  auto materializedAddPtr =
+                      triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
+                                               basePtr, offsetInfo.offset)
+                          .getResult();
+                  atomic.getPtrMutable().set(materializedAddPtr);
+                };
+
+                if (isa<ShapedType>(atomic.getType())) {
+                  materializeAtomicPtr();
+                  return success();
                 }
-                auto materializedAddPtr =
-                    triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
-                                             basePtr, offsetInfo.offset)
-                        .getResult();
-                atomic.getPtrMutable().set(materializedAddPtr);
+
+                if (!isa<triton::PointerType>(offsetInfo.ptr.getType())) {
+                  markFallbackAndPreserve(atomic, "atomic_base_ptr_not_scalar");
+                  materializeAtomicPtr();
+                  return success();
+                }
+
+                auto maybeAtomicOffset =
+                    castOffsetToSupportedType(offsetInfo.offset, loc, b);
+                if (failed(maybeAtomicOffset)) {
+                  markFallbackAndPreserve(atomic, "atomic_offset_cast_failed");
+                  materializeAtomicPtr();
+                  return success();
+                }
+
+                auto ttaAtomic = tta::AtomicCASOp::create(
+                    b, loc, offsetInfo.ptr, *maybeAtomicOffset, atomic.getCmp(),
+                    atomic.getVal());
+                atomic.replaceAllUsesWith(ttaAtomic.getResult());
+                atomic->erase();
                 return success();
               })
               .Default([&](Operation *op) {
-                LLVM_DEBUG(op->emitRemark("unexpected op in ptr sequence"));
-                return failure();
+                markFallbackAndPreserve(op, "unexpected_ptr_user_op");
+                return success();
               });
 
       if (failed(res)) {
-        return failure();
+        continue;
       }
     }
 
     for (auto op : toDelete) {
-      auto ptrInfo = offsetMap.at(op->getResult(0));
+      bool shouldPreserve = false;
+      for (Value result : op->getResults()) {
+        if (preservedPtrValues.contains(result)) {
+          shouldPreserve = true;
+          break;
+        }
+      }
+      if (shouldPreserve) {
+        continue;
+      }
+
+      PtrOffset ptrInfo;
+      if (!tryGetOffsetInfo(op->getResult(0), offsetMap, ptrInfo)) {
+        continue;
+      }
       op->replaceAllUsesWith(ValueRange{ptrInfo.offset});
       op->erase();
     }

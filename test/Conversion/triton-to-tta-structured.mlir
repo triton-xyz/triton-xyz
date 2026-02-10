@@ -72,7 +72,7 @@ module {
 // CHECK-LABEL: tt.func @gather_scatter_2d(
 // CHECK: %[[IDX_ADDR:.*]] = tta.make_addr %arg1 to sizes: [4]
 // CHECK: %[[IDX:.*]] = "tta.load"(%[[IDX_ADDR]]
-// CHECK: tt.load %{{.*}} : tensor<4x4x!tt.ptr<f32>>
+// CHECK: tt.load %{{.*}} {tta.fallback, tta.fallback_reason = "address_analysis_failed"}
 // CHECK: "tta.store"(%{{.*}}, %{{.*}})
   tt.func @gather_scatter_2d(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<i32>, %arg2: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
@@ -152,8 +152,8 @@ module {
 
 module {
 // CHECK-LABEL: tt.func @masked_2d_fallback(
-// CHECK: tt.load %{{.*}}, %{{.*}}, %{{.*}} : tensor<2x4x!tt.ptr<f32>>
-// CHECK: tt.store %{{.*}}, %{{.*}}, %{{.*}} : tensor<2x4x!tt.ptr<f32>>
+// CHECK: tt.load %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "mask_rank_not_1d"}
+// CHECK: tt.store %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "mask_rank_not_1d"}
   tt.func @masked_2d_fallback(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %row = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
     %col = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
