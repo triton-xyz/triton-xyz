@@ -47,10 +47,24 @@ namespace {
 static constexpr StringLiteral kFallbackAttrName = "tta.fallback";
 static constexpr StringLiteral kFallbackReasonAttrName = "tta.fallback_reason";
 
+static bool hasLoweredTTAAddressRoot(Value value) {
+  if (!value) {
+    return false;
+  }
+
+  return value.getDefiningOp<tta::MakeAddrOp>() ||
+         value.getDefiningOp<tta::ReindexOp>() ||
+         value.getDefiningOp<tta::AdvanceOp>();
+}
+
 static void markFallback(Operation *op, StringRef reason) {
-  op->setAttr(kFallbackAttrName, UnitAttr::get(op->getContext()));
-  op->setAttr(kFallbackReasonAttrName,
-              StringAttr::get(op->getContext(), reason));
+  if (!op) {
+    return;
+  }
+
+  MLIRContext *ctx = op->getContext();
+  op->setAttr(kFallbackAttrName, UnitAttr::get(ctx));
+  op->setAttr(kFallbackReasonAttrName, StringAttr::get(ctx, reason));
 }
 
 // Given a type, return the offset type corresponding to that type with the
@@ -100,19 +114,7 @@ static bool shouldHandleForFallback(triton::LoadOp op) {
     return false;
   }
 
-  if (op.getPtr().getDefiningOp<tta::MakeAddrOp>() ||
-      op.getPtr().getDefiningOp<tta::ReindexOp>() ||
-      op.getPtr().getDefiningOp<tta::AdvanceOp>()) {
-    return false;
-  }
-
-  if (op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>() &&
-      op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>()->hasAttr(
-          kFallbackAttrName)) {
-    return true;
-  }
-
-  return true;
+  return !hasLoweredTTAAddressRoot(op.getPtr());
 }
 
 static bool shouldHandleForFallback(triton::StoreOp op) {
@@ -120,19 +122,7 @@ static bool shouldHandleForFallback(triton::StoreOp op) {
     return false;
   }
 
-  if (op.getPtr().getDefiningOp<tta::MakeAddrOp>() ||
-      op.getPtr().getDefiningOp<tta::ReindexOp>() ||
-      op.getPtr().getDefiningOp<tta::AdvanceOp>()) {
-    return false;
-  }
-
-  if (op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>() &&
-      op.getPtr().getDefiningOp<triton::MakeTensorPtrOp>()->hasAttr(
-          kFallbackAttrName)) {
-    return true;
-  }
-
-  return true;
+  return !hasLoweredTTAAddressRoot(op.getPtr());
 }
 
 static SmallVector<ReassociationIndices>
@@ -493,20 +483,11 @@ public:
     Value offset;
   };
 
-  bool isFallbackOp(Operation *op) const {
-    return op && op->hasAttr(kFallbackAttrName);
-  }
-
   bool shouldSkipLowering(Value root) const {
     if (!root) {
       return true;
     }
-    if (root.getDefiningOp<tta::MakeAddrOp>() ||
-        root.getDefiningOp<tta::ReindexOp>() ||
-        root.getDefiningOp<tta::AdvanceOp>()) {
-      return true;
-    }
-    return false;
+    return hasLoweredTTAAddressRoot(root);
   }
 
   template <typename T>
