@@ -9,6 +9,9 @@ export MLIR_ENABLE_DUMP=1
 # check ir dumps in dir `triton_xyz_mlir_dump`
 export MLIR_ENABLE_DUMP_DIR=$DIR/triton_xyz_mlir_dump
 
+# use tta pipeline by default
+export TRITON_XYZ_USE_TTA=1
+
 args=(
   # demo kernel
   python/tests/test_vec_add.py

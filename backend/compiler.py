@@ -19,10 +19,10 @@ from triton.runtime.build import _build
 _DUMP_INDEX = 1
 
 
-def _env_truthy(name: str) -> bool:
+def _env_truthy(name: str, default: bool = False) -> bool:
     val = os.getenv(name)
     if val is None:
-        return False
+        return default
     val = val.strip().lower()
     if val in ("", "0", "false", "no", "off"):
         return False
@@ -116,7 +116,7 @@ class CPUOptions:
     instrumentation_mode: str = ""
     allowed_dot_input_precisions: tuple[str] = ("ieee",)
     min_dot_size: int = 1
-    use_tta: bool = False
+    use_tta: bool = True
 
     def hash(self):
         hash_dict = dict(self.__dict__)
@@ -144,7 +144,7 @@ class XYZBackend(BaseBackend):
     def parse_options(self, options):
         args = {
             "arch": os.getenv("TRITON_CPU_ARCH", ""),
-            "use_tta": _env_truthy("TRITON_XYZ_USE_TTA"),
+            "use_tta": _env_truthy("TRITON_XYZ_USE_TTA", default=True),
         }
         args.update(
             {k: options[k] for k in CPUOptions.__dataclass_fields__.keys() if k in options if options[k] is not None}
