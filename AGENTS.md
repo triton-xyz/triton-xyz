@@ -23,8 +23,9 @@
 
 ## Build, Test, and Development Commands
 
-- Use `utils/agent/run_kernel_demo.sh` as a reference test harness for Triton Python kernels.
+- Use `utils/agent/run_kernel_case_template.sh` as the reference test harness for Triton Python kernels.
 - During testing, create task-specific scripts when needed (for example under `debug_agent/`), and inspect intermediate IR dumps/logs in the corresponding output directory.
+- For each kernel test, set a distinct `AGENT_DUMP_DIR` (for example `AGENT_DUMP_DIR=vec_add_case`) when running `utils/agent/run_kernel_case_template.sh` to keep IR dumps separated across runs.
 
 - Configure and build all cmake targets.
 
@@ -53,8 +54,9 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 
 - Keep local kernels and runtime checks in `python/tests/` (or `python/examples/` for demos) with deterministic tensor sizes and dtypes.
 - Prefer starting from a minimal kernel shape (single purpose, explicit `tl.constexpr` meta-parameters, masked memory ops for bounds safety).
-- Reuse or adapt `utils/agent/run_kernel_demo.sh` for iteration; treat it as a template that sets useful defaults (for example `TRITON_ALWAYS_COMPILE=1` and MLIR dump flags).
-- Read `debug_agent/run_kernel_demo/compile.log` first for compiler/runtime failures, then inspect dumps in `debug_agent/run_kernel_demo/triton_xyz_mlir_dump/`.
+- Reuse or adapt `utils/agent/run_kernel_case_template.sh` for iteration; treat it as a template that sets useful defaults (for example `TRITON_ALWAYS_COMPILE=1` and MLIR dump flags).
+- Use a unique `AGENT_DUMP_DIR` per test case so `compile.log` and `triton_xyz_mlir_dump/` outputs are easy to compare and do not overwrite each other.
+- Read `debug_agent/$AGENT_DUMP_DIR/compile.log` first for compiler/runtime failures, then inspect dumps in `debug_agent/$AGENT_DUMP_DIR/triton_xyz_mlir_dump/`.
 - Use upstream references in `third_party/triton/python/tutorials/`, `third_party/triton/python/test/`, and `third_party/triton/python/triton_kernels/` for API patterns and expected semantics.
 - When a kernel change relies on compiler transformations, add/update a focused `lit` test in `test/Conversion/` in addition to Python runtime coverage.
 
