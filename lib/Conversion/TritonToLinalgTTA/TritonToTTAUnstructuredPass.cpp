@@ -471,6 +471,7 @@ static FailureOr<Value> buildLinearImportedAddr(OpBuilder &builder,
   }
   return maybeMakeAddr->getResult();
 }
+
 class TritonToTTAUnstructuredPass
     : public mlir::triton::impl::TritonToTTAUnstructuredBase<
           TritonToTTAUnstructuredPass> {
