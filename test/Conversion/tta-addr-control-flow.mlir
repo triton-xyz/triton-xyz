@@ -1,5 +1,7 @@
 // RUN: triton-xyz-opt --split-input-file --triton-to-linalg-tta %s | FileCheck %s
 
+// TODO: rm this test
+
 // CHECK-NOT: tta.
 // CHECK-NOT: !tta.addr
 
