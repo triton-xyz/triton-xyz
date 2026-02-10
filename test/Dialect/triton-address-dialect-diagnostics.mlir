@@ -357,10 +357,10 @@ module {
 // -----
 
 module {
-  tt.func @invalid_atomic_cmpxchg_deprecated(%arg0: !tt.ptr<i32>, %arg1: i32) {
+  tt.func @invalid_atomic_cmpxchg_deprecated(%arg0: !tta.addr<i32, 1, 1>, %arg1: i32) {
     %val = arith.constant 1 : i32
     // expected-error@+1 {{unsupported atomic kind: cmpxchg}}
-    %r = "tta.atomic"(%arg0, %arg1, %val) <{kind = "cmpxchg"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    %r = "tta.atomic"(%arg0, %arg1, %val) <{kind = "cmpxchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
     tt.return
   }
 }
