@@ -110,3 +110,14 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @overwrite_existing_fallback_reason(
+// CHECK: tt.atomic_rmw umax, acq_rel, gpu, %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "atomic_kind_unsupported"}
+  tt.func @overwrite_existing_fallback_reason(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i1) {
+    %r = tt.atomic_rmw umax, acq_rel, gpu, %arg0, %arg1, %arg2 {tta.fallback, tta.fallback_reason = "pre_marked_reason"} : (!tt.ptr<i32>, i32, i1) -> i32
+    tt.return
+  }
+}
