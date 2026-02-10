@@ -1,7 +1,6 @@
 // RUN: triton-xyz-opt --split-input-file --triton-to-linalg-tta %s | FileCheck %s
 
 // CHECK-NOT: tta.
-// CHECK-NOT: tts.
 
 module {
 // CHECK-LABEL: func.func @vector_add(

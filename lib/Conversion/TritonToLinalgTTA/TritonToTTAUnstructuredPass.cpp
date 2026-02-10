@@ -73,14 +73,13 @@ static void markFallback(Operation *op, StringRef reason) {
 // type is a pointer, return a single offset type.
 static Type getPtrOffsetType(Type type, unsigned int bitWidth) {
   if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-    if (auto ptrType =
-            dyn_cast<triton::PointerType>(tensorType.getElementType())) {
+    if (isa<triton::PointerType>(tensorType.getElementType())) {
       return RankedTensorType::get(
           tensorType.getShape(), IntegerType::get(type.getContext(), bitWidth));
     }
   }
 
-  if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
+  if (isa<triton::PointerType>(type)) {
     return IntegerType::get(type.getContext(), bitWidth);
   }
 
@@ -109,15 +108,8 @@ static bool isTensorOfPointers(Type type) {
   return isa<triton::PointerType>(tensorType.getElementType());
 }
 
-static bool shouldHandleForFallback(triton::LoadOp op) {
-  if (!isTensorOfPointers(op.getPtr().getType())) {
-    return false;
-  }
-
-  return !hasLoweredTTAAddressRoot(op.getPtr());
-}
-
-static bool shouldHandleForFallback(triton::StoreOp op) {
+template <typename LoadStoreLikeOp>
+static bool shouldHandleForFallback(LoadStoreLikeOp op) {
   if (!isTensorOfPointers(op.getPtr().getType())) {
     return false;
   }
@@ -462,6 +454,55 @@ static FailureOr<Value> buildLinearImportedAddr(OpBuilder &builder,
   return maybeMakeAddr->getResult();
 }
 
+static Value createZeroOffset(OpBuilder &builder, Location loc,
+                              unsigned int bitWidth) {
+  return arith::ConstantOp::create(
+             builder, loc,
+             builder.getIntegerAttr(builder.getIntegerType(bitWidth), 0))
+      .getResult();
+}
+
+static tta::ReindexOp buildLinearReindex(OpBuilder &builder, Location loc,
+                                         Value importedAddr, Value flatOffset,
+                                         Value flatMask = Value()) {
+  SmallVector<OpFoldResult> zeroOffsets{builder.getIndexAttr(0)};
+  if (flatMask) {
+    return tta::ReindexOp::create(builder, loc, importedAddr, flatOffset,
+                                  flatMask, /*indirectDim=*/0, zeroOffsets);
+  }
+  return tta::ReindexOp::create(builder, loc, importedAddr, flatOffset,
+                                /*indirectDim=*/0, zeroOffsets);
+}
+
+static Value materializeAddPtrFromOffset(OpBuilder &builder, Location loc,
+                                         Value basePtr, Type ptrType,
+                                         Value offset) {
+  if (auto tensorPtrType = dyn_cast<RankedTensorType>(ptrType)) {
+    if (basePtr.getType() != tensorPtrType) {
+      basePtr = triton::SplatOp::create(builder, loc, tensorPtrType, basePtr)
+                    .getResult();
+    }
+  }
+
+  return triton::AddPtrOp::create(builder, loc, ptrType, basePtr, offset)
+      .getResult();
+}
+
+static FailureOr<Value> buildAtomicImportedAddr(OpBuilder &builder,
+                                                Location loc, Value ptr) {
+  if (!isa<triton::PointerType>(ptr.getType())) {
+    return failure();
+  }
+
+  SmallVector<int64_t> sizes{1};
+  SmallVector<OpFoldResult> strides{builder.getIndexAttr(1)};
+  SmallVector<OpFoldResult> offsets{builder.getIndexAttr(0)};
+  SmallVector<OpFoldResult> shape{builder.getIndexAttr(0)};
+  return tta::MakeAddrOp::create(builder, loc, ptr, sizes, strides, offsets,
+                                 shape, ArrayRef<int32_t>{})
+      .getResult();
+}
+
 class TritonToTTAUnstructuredPass
     : public mlir::triton::impl::TritonToTTAUnstructuredBase<
           TritonToTTAUnstructuredPass> {
@@ -502,7 +543,6 @@ public:
   }
 
   LogicalResult processUnstructuredPtrs(unsigned int defaultBitWidth = 32) {
-    llvm::SmallDenseSet<Value> ptrArgs;
     llvm::DenseMap<Value, PtrOffset> offsetMap;
     std::queue<Value> workList;
 
@@ -579,6 +619,16 @@ public:
       }
     };
 
+    auto tryGetOffsetInfoOrFallback =
+        [&](Operation *op, Value ptr, PtrOffset &out,
+            StringRef reason = "offset_info_missing") {
+          if (tryGetOffsetInfo(ptr, offsetMap, out)) {
+            return true;
+          }
+          markFallbackAndPreserve(op, reason);
+          return false;
+        };
+
     getOperation().walk([&](Operation *op) {
       if (auto load = dyn_cast<triton::LoadOp>(op)) {
         if (shouldHandleForFallback(load)) {
@@ -646,14 +696,8 @@ public:
         }
 
         OpBuilder b(func->getRegion(0));
-        Value zero =
-            arith::ConstantOp::create(
-                b, arg.getLoc(),
-                b.getIntegerAttr(
-                    IntegerType::get(&getContext(), defaultBitWidth), 0))
-                .getResult();
+        Value zero = createZeroOffset(b, arg.getLoc(), defaultBitWidth);
 
-        ptrArgs.insert(arg);
         offsetMap.insert({arg, {arg, arg.getType(), defaultBitWidth, zero}});
         workList.push(arg);
       }
@@ -671,11 +715,7 @@ public:
       }
       auto res = op.getResult();
       OpBuilder b(op);
-      Value zero = arith::ConstantOp::create(
-                       b, op.getLoc(),
-                       b.getIntegerAttr(
-                           IntegerType::get(&getContext(), defaultBitWidth), 0))
-                       .getResult();
+      Value zero = createZeroOffset(b, op.getLoc(), defaultBitWidth);
 
       offsetMap.insert({res, {res, res.getType(), defaultBitWidth, zero}});
       workList.push(res);
@@ -706,8 +746,8 @@ public:
                   }
 
                   PtrOffset offsetInfo;
-                  if (!tryGetOffsetInfo(op.getSrc(), offsetMap, offsetInfo)) {
-                    markFallbackAndPreserve(op, "offset_info_missing");
+                  if (!tryGetOffsetInfoOrFallback(op, op.getSrc(),
+                                                  offsetInfo)) {
                     return success();
                   }
 
@@ -715,11 +755,9 @@ public:
                   // We are converting a pointer to an integer here,
                   // materialized the pointer using the accumulated offset
                   // that we have stored so far.
-                  auto materializedAddPtr =
-                      triton::AddPtrOp::create(
-                          b, op->getLoc(), offsetInfo.ptrType, offsetInfo.ptr,
-                          offsetInfo.offset)
-                          .getResult();
+                  auto materializedAddPtr = materializeAddPtrFromOffset(
+                      b, op->getLoc(), offsetInfo.ptr, offsetInfo.ptrType,
+                      offsetInfo.offset);
 
                   // Change the op to use the "simplified" pointer above.
                   // This should not affect the traversal of uses, but hacky.
@@ -743,9 +781,8 @@ public:
                   auto loc = addptr->getLoc();
 
                   PtrOffset offsetInfo;
-                  if (!tryGetOffsetInfo(addptr.getPtr(), offsetMap,
-                                        offsetInfo)) {
-                    markFallbackAndPreserve(addptr, "offset_info_missing");
+                  if (!tryGetOffsetInfoOrFallback(addptr, addptr.getPtr(),
+                                                  offsetInfo)) {
                     return success();
                   }
 
@@ -799,8 +836,7 @@ public:
 
                   auto ptr = op->getOperand(0);
                   PtrOffset offsetInfo;
-                  if (!tryGetOffsetInfo(ptr, offsetMap, offsetInfo)) {
-                    markFallbackAndPreserve(op, "offset_info_missing");
+                  if (!tryGetOffsetInfoOrFallback(op, ptr, offsetInfo)) {
                     return success();
                   }
 
@@ -833,9 +869,8 @@ public:
                   }
 
                   PtrOffset offsetInfo;
-                  if (!tryGetOffsetInfo(bitcast.getSrc(), offsetMap,
-                                        offsetInfo)) {
-                    markFallbackAndPreserve(bitcast, "offset_info_missing");
+                  if (!tryGetOffsetInfoOrFallback(bitcast, bitcast.getSrc(),
+                                                  offsetInfo)) {
                     return success();
                   }
                   Value basePtr = offsetInfo.ptr;
@@ -875,9 +910,9 @@ public:
                   auto init = forOp.getInitArgs()[argIndex];
 
                   PtrOffset offsetInfo;
-                  if (!tryGetOffsetInfo(init, offsetMap, offsetInfo)) {
-                    markFallbackAndPreserve(forOp,
-                                            "iter_arg_offset_info_missing");
+                  if (!tryGetOffsetInfoOrFallback(
+                          forOp, init, offsetInfo,
+                          "iter_arg_offset_info_missing")) {
                     return success();
                   }
 
@@ -949,8 +984,8 @@ public:
                 }
 
                 PtrOffset offsetInfo;
-                if (!tryGetOffsetInfo(load.getPtr(), offsetMap, offsetInfo)) {
-                  markFallbackAndPreserve(load, "offset_info_missing");
+                if (!tryGetOffsetInfoOrFallback(load, load.getPtr(),
+                                                offsetInfo)) {
                   return success();
                 }
 
@@ -968,23 +1003,18 @@ public:
                   return success();
                 }
 
-                SmallVector<OpFoldResult> zeroOffsets{b.getIndexAttr(0)};
-                tta::ReindexOp reindex;
+                Value flatMask;
                 if (Value mask = load.getMask()) {
                   auto maybeFlatMask = normalizeMaskTo1DTensor(mask, loc, b);
                   if (failed(maybeFlatMask)) {
                     markFallbackAndPreserve(load, "mask_not_1d_normalizable");
                     return success();
                   }
-
-                  reindex = tta::ReindexOp::create(
-                      b, loc, *maybeAddr, *maybeFlatOffset, *maybeFlatMask,
-                      /*indirectDim=*/0, zeroOffsets);
-                } else {
-                  reindex = tta::ReindexOp::create(
-                      b, loc, *maybeAddr, *maybeFlatOffset,
-                      /*indirectDim=*/0, zeroOffsets);
+                  flatMask = *maybeFlatMask;
                 }
+
+                auto reindex = buildLinearReindex(b, loc, *maybeAddr,
+                                                  *maybeFlatOffset, flatMask);
 
                 auto scalarOther = getScalarOther(load, loc, b);
                 if (failed(scalarOther)) {
@@ -1031,8 +1061,8 @@ public:
                 }
 
                 PtrOffset offsetInfo;
-                if (!tryGetOffsetInfo(store.getPtr(), offsetMap, offsetInfo)) {
-                  markFallbackAndPreserve(store, "offset_info_missing");
+                if (!tryGetOffsetInfoOrFallback(store, store.getPtr(),
+                                                offsetInfo)) {
                   return success();
                 }
 
@@ -1050,23 +1080,18 @@ public:
                   return success();
                 }
 
-                SmallVector<OpFoldResult> zeroOffsets{b.getIndexAttr(0)};
-                tta::ReindexOp reindex;
+                Value flatMask;
                 if (Value mask = store.getMask()) {
                   auto maybeFlatMask = normalizeMaskTo1DTensor(mask, loc, b);
                   if (failed(maybeFlatMask)) {
                     markFallbackAndPreserve(store, "mask_not_1d_normalizable");
                     return success();
                   }
-
-                  reindex = tta::ReindexOp::create(
-                      b, loc, *maybeAddr, *maybeFlatOffset, *maybeFlatMask,
-                      /*indirectDim=*/0, zeroOffsets);
-                } else {
-                  reindex = tta::ReindexOp::create(
-                      b, loc, *maybeAddr, *maybeFlatOffset,
-                      /*indirectDim=*/0, zeroOffsets);
+                  flatMask = *maybeFlatMask;
                 }
+
+                auto reindex = buildLinearReindex(b, loc, *maybeAddr,
+                                                  *maybeFlatOffset, flatMask);
 
                 auto maybeFlatValue =
                     normalizeStoreValueTo1DTensor(store.getValue(), loc, b);
@@ -1093,9 +1118,8 @@ public:
                 // `tt.addptr`. Accumulate the target offset with the offset
                 // we have saved.
                 PtrOffset offsetInfo;
-                if (!tryGetOffsetInfo(makeTensorPtr.getBase(), offsetMap,
-                                      offsetInfo)) {
-                  markFallbackAndPreserve(makeTensorPtr, "offset_info_missing");
+                if (!tryGetOffsetInfoOrFallback(
+                        makeTensorPtr, makeTensorPtr.getBase(), offsetInfo)) {
                   return success();
                 }
                 auto baseOffset = offsetInfo.offset;
@@ -1150,25 +1174,17 @@ public:
                 }
 
                 PtrOffset offsetInfo;
-                if (!tryGetOffsetInfo(atomic.getPtr(), offsetMap, offsetInfo)) {
-                  markFallbackAndPreserve(atomic, "offset_info_missing");
+                if (!tryGetOffsetInfoOrFallback(atomic, atomic.getPtr(),
+                                                offsetInfo)) {
                   return success();
                 }
                 OpBuilder b{atomic};
                 auto loc = atomic.getLoc();
 
                 auto materializeAtomicPtr = [&]() {
-                  Value basePtr = offsetInfo.ptr;
-                  if (auto tensorType =
-                          dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
-                    basePtr =
-                        triton::SplatOp::create(b, loc, tensorType, basePtr)
-                            .getResult();
-                  }
-                  auto materializedAddPtr =
-                      triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
-                                               basePtr, offsetInfo.offset)
-                          .getResult();
+                  auto materializedAddPtr = materializeAddPtrFromOffset(
+                      b, loc, offsetInfo.ptr, offsetInfo.ptrType,
+                      offsetInfo.offset);
                   atomic.getPtrMutable().set(materializedAddPtr);
                 };
 
@@ -1199,25 +1215,23 @@ public:
                   return success();
                 }
 
-                SmallVector<int64_t> atomicSizes{1};
-                SmallVector<OpFoldResult> atomicStrides{b.getIndexAttr(1)};
-                SmallVector<OpFoldResult> atomicOffsets{b.getIndexAttr(0)};
-                SmallVector<OpFoldResult> atomicShape{b.getIndexAttr(0)};
-                Value importedPtr =
-                    tta::MakeAddrOp::create(b, loc, offsetInfo.ptr, atomicSizes,
-                                            atomicStrides, atomicOffsets,
-                                            atomicShape, ArrayRef<int32_t>{})
-                        .getResult();
+                auto maybeImportedPtr =
+                    buildAtomicImportedAddr(b, loc, offsetInfo.ptr);
+                if (failed(maybeImportedPtr)) {
+                  markFallbackAndPreserve(atomic, "make_addr_build_failed");
+                  materializeAtomicPtr();
+                  return success();
+                }
 
                 tta::AtomicOp ttaAtomic;
                 if (Value mask = atomic.getMask()) {
                   ttaAtomic = tta::AtomicOp::create(
-                      b, loc, *maybeAtomicKind, importedPtr, *maybeAtomicOffset,
-                      atomic.getVal(), mask);
+                      b, loc, *maybeAtomicKind, *maybeImportedPtr,
+                      *maybeAtomicOffset, atomic.getVal(), mask);
                 } else {
                   ttaAtomic = tta::AtomicOp::create(
-                      b, loc, *maybeAtomicKind, importedPtr, *maybeAtomicOffset,
-                      atomic.getVal());
+                      b, loc, *maybeAtomicKind, *maybeImportedPtr,
+                      *maybeAtomicOffset, atomic.getVal());
                 }
                 atomic.replaceAllUsesWith(ttaAtomic.getResult());
                 atomic->erase();
@@ -1230,25 +1244,17 @@ public:
                 }
 
                 PtrOffset offsetInfo;
-                if (!tryGetOffsetInfo(atomic.getPtr(), offsetMap, offsetInfo)) {
-                  markFallbackAndPreserve(atomic, "offset_info_missing");
+                if (!tryGetOffsetInfoOrFallback(atomic, atomic.getPtr(),
+                                                offsetInfo)) {
                   return success();
                 }
                 OpBuilder b{atomic};
                 auto loc = atomic.getLoc();
 
                 auto materializeAtomicPtr = [&]() {
-                  Value basePtr = offsetInfo.ptr;
-                  if (auto tensorType =
-                          dyn_cast<RankedTensorType>(offsetInfo.ptrType)) {
-                    basePtr =
-                        triton::SplatOp::create(b, loc, tensorType, basePtr)
-                            .getResult();
-                  }
-                  auto materializedAddPtr =
-                      triton::AddPtrOp::create(b, loc, offsetInfo.ptrType,
-                                               basePtr, offsetInfo.offset)
-                          .getResult();
+                  auto materializedAddPtr = materializeAddPtrFromOffset(
+                      b, loc, offsetInfo.ptr, offsetInfo.ptrType,
+                      offsetInfo.offset);
                   atomic.getPtrMutable().set(materializedAddPtr);
                 };
 
@@ -1271,19 +1277,17 @@ public:
                   return success();
                 }
 
-                SmallVector<int64_t> atomicSizes{1};
-                SmallVector<OpFoldResult> atomicStrides{b.getIndexAttr(1)};
-                SmallVector<OpFoldResult> atomicOffsets{b.getIndexAttr(0)};
-                SmallVector<OpFoldResult> atomicShape{b.getIndexAttr(0)};
-                Value importedPtr =
-                    tta::MakeAddrOp::create(b, loc, offsetInfo.ptr, atomicSizes,
-                                            atomicStrides, atomicOffsets,
-                                            atomicShape, ArrayRef<int32_t>{})
-                        .getResult();
+                auto maybeImportedPtr =
+                    buildAtomicImportedAddr(b, loc, offsetInfo.ptr);
+                if (failed(maybeImportedPtr)) {
+                  markFallbackAndPreserve(atomic, "make_addr_build_failed");
+                  materializeAtomicPtr();
+                  return success();
+                }
 
                 auto ttaAtomic = tta::AtomicCASOp::create(
-                    b, loc, importedPtr, *maybeAtomicOffset, atomic.getCmp(),
-                    atomic.getVal());
+                    b, loc, *maybeImportedPtr, *maybeAtomicOffset,
+                    atomic.getCmp(), atomic.getVal());
                 atomic.replaceAllUsesWith(ttaAtomic.getResult());
                 atomic->erase();
                 return success();

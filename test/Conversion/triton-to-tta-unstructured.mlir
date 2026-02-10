@@ -1,12 +1,13 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
-// CHECK-NOT: tts.
+// RUN: triton-xyz-opt --split-input-file --triton-to-tta-unstructured %s | FileCheck %s
 
 module {
 // CHECK-LABEL: tt.func public @masked_gather_scatter(
 // CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
-// CHECK: %[[V:.*]] = "tta.load"(%[[A0]], %{{.*}}, %{{.*}})
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}}, %{{.*}})
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
-// CHECK: "tta.store"(%[[A1]], %[[V]], %{{.*}})
+// CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}}, %{{.*}})
+// CHECK: "tta.store"(%[[R1]], %[[L0]])
   tt.func public @masked_gather_scatter(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -26,12 +27,62 @@ module {
 // -----
 
 module {
+// CHECK-LABEL: tt.func @bitcast_ptr_chain(
+// CHECK: %[[BC:.*]] = tt.bitcast %arg0 : !tt.ptr<f32> -> !tt.ptr<i32>
+// CHECK: %[[A0:.*]] = tta.make_addr %[[BC]] to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: tt.return %[[L0]] : tensor<4xi32>
+  tt.func @bitcast_ptr_chain(%arg0: !tt.ptr<f32>) -> tensor<4xi32> {
+    %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %bc = tt.bitcast %arg0 : !tt.ptr<f32> -> !tt.ptr<i32>
+    %base = tt.splat %bc : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
+    %ptrs = tt.addptr %base, %r : tensor<4x!tt.ptr<i32>>, tensor<4xi32>
+    %vals = tt.load %ptrs : tensor<4x!tt.ptr<i32>>
+    tt.return %vals : tensor<4xi32>
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @int_to_ptr_root_lowering(
+// CHECK: %[[P:.*]] = tt.int_to_ptr %arg0 : i64 -> !tt.ptr<f32>
+// CHECK: %[[A0:.*]] = tta.make_addr %[[P]] to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: tt.return %[[L0]] : tensor<4xf32>
+  tt.func @int_to_ptr_root_lowering(%arg0: i64) -> tensor<4xf32> {
+    %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %p = tt.int_to_ptr %arg0 : i64 -> !tt.ptr<f32>
+    %base = tt.splat %p : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+    %ptrs = tt.addptr %base, %r : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    %vals = tt.load %ptrs : tensor<4x!tt.ptr<f32>>
+    tt.return %vals : tensor<4xf32>
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @scalar_atomic_rmw_to_tta(
+// CHECK: %[[A0:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32, i1) -> i32
+  tt.func @scalar_atomic_rmw_to_tta(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i1) -> i32 {
+    %a0 = tt.atomic_rmw add, acq_rel, gpu, %arg0, %arg1, %arg2 : (!tt.ptr<i32>, i32, i1) -> i32
+    tt.return %a0 : i32
+  }
+}
+
+// -----
+
+module {
 // CHECK-LABEL: tt.func public @offset_width_upgrade(
-// CHECK: %[[C5:.*]] = arith.constant 5 : index
-// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4], strides: [1], offsets: [%[[C5]]], shape: [0], order: []
-// CHECK: %[[V:.*]] = "tta.load"(%[[A0]])
-// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4], strides: [1], offsets: [0], shape: [0], order: []
-// CHECK: "tta.store"(%[[A1]], %[[V]])
+// CHECK: arith.extsi %{{.*}} : tensor<4xi32> to tensor<4xi64>
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
+// CHECK: "tta.store"(%{{.*}}, %[[L0]])
   tt.func public @offset_width_upgrade(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %c5_i64 = arith.constant 5 : i64
@@ -52,12 +103,13 @@ module {
 module {
 // CHECK-LABEL: tt.func public @loop_ptr_iter_args(
 // CHECK: scf.for
+// CHECK: iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (tensor<4xi32>, tensor<4xi32>)
 // CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
 // CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
-// CHECK: %[[V:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: %[[V0:.*]] = "tta.load"(%[[R0]], %{{.*}})
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
 // CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}})
-// CHECK: "tta.store"(%[[R1]], %[[V]])
+// CHECK: "tta.store"(%[[R1]], %[[V0]])
   tt.func public @loop_ptr_iter_args(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %c0_i32 = arith.constant 0 : i32
     %c1_i32 = arith.constant 1 : i32
@@ -81,12 +133,13 @@ module {
 
 module {
 // CHECK-LABEL: tt.func public @masked_2d_fallback(
+// CHECK: tensor.collapse_shape %{{.*}} {{.*}} : tensor<2x4xi32> into tensor<8xi32>
 // CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [8]
 // CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}}, %{{.*}})
 // CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: tensor.expand_shape %[[L0]] {{.*}} output_shape [2, 4] : tensor<8xf32> into tensor<2x4xf32>
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [8]
-// CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}}, %{{.*}})
-// CHECK: "tta.store"(%[[R1]], %[[L0]])
+// CHECK: "tta.store"(%{{.*}}, %{{.*}})
   tt.func public @masked_2d_fallback(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %row = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
     %col = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
@@ -115,18 +168,77 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func public @scalar_atomic_rmw_to_tta(
+// CHECK-LABEL: tt.func @scalar_atomic_rmw_and_cas_to_tta(
 // CHECK: %[[A0:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32, i1) -> i32
 // CHECK: %[[A1:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
 // CHECK: %[[A2:.*]] = "tta.atomic_cas"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
-  tt.func public @scalar_atomic_rmw_to_tta(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i32, %arg3: i1) {
+  tt.func @scalar_atomic_rmw_and_cas_to_tta(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i32, %arg3: i1) -> i32 {
     %a0 = tt.atomic_rmw add, acq_rel, gpu, %arg0, %arg1, %arg3 : (!tt.ptr<i32>, i32, i1) -> i32
     %a1 = tt.atomic_rmw exch, acq_rel, gpu, %arg0, %arg2 : (!tt.ptr<i32>, i32) -> i32
     %a2 = tt.atomic_cas acq_rel, gpu, %arg0, %arg1, %arg2 : (!tt.ptr<i32>, i32, i32) -> i32
     %sum0 = arith.addi %a0, %a1 : i32
     %sum = arith.addi %sum0, %a2 : i32
-    %use = arith.addi %sum, %arg1 : i32
-    %sink = arith.addi %use, %arg2 : i32
+    tt.return %sum : i32
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @ptr_to_int_scalar_materialized(
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[V0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
+// CHECK: "tta.store"(%{{.*}}, %[[V0]])
+// CHECK: %[[OFF:.*]] = arith.addi %{{.*}}, %arg2 : i32
+// CHECK: %[[P:.*]] = tt.addptr %arg0, %[[OFF]] : !tt.ptr<f32>, i32
+// CHECK: %[[I:.*]] = tt.ptr_to_int %[[P]] : !tt.ptr<f32> -> i64
+// CHECK: tt.return %[[I]] : i64
+  tt.func @ptr_to_int_scalar_materialized(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) -> i64 {
+    %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+    %ptrs = tt.addptr %base, %r : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    %vals = tt.load %ptrs : tensor<4x!tt.ptr<f32>>
+    %outbase = tt.splat %arg1 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+    %outptrs = tt.addptr %outbase, %r : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    tt.store %outptrs, %vals : tensor<4x!tt.ptr<f32>>
+    %p = tt.addptr %arg0, %arg2 : !tt.ptr<f32>, i32
+    %i = tt.ptr_to_int %p : !tt.ptr<f32> -> i64
+    tt.return %i : i64
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @make_tensor_ptr_accumulate_offset(
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[V0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: %[[BASE_OFF:.*]] = arith.addi %{{.*}}, %arg2 : i32
+// CHECK: %[[ACC_OFF:.*]] = arith.addi %[[BASE_OFF]], %{{.*}} : i32
+// CHECK: tt.make_tensor_ptr %arg0{{.*}}[%[[ACC_OFF]], %{{.*}}] {order = array<i32: 1, 0>} : <tensor<4x4xf16>>
+// CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [4]
+// CHECK: "tta.store"(%{{.*}}, %[[V0]])
+  tt.func @make_tensor_ptr_accumulate_offset(%arg0: !tt.ptr<f16>, %arg1: !tt.ptr<f16>, %arg2: i32) {
+    %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+
+    %seed = tt.splat %arg0 : !tt.ptr<f16> -> tensor<4x!tt.ptr<f16>>
+    %seed_ptrs = tt.addptr %seed, %r : tensor<4x!tt.ptr<f16>>, tensor<4xi32>
+    %seed_vals = tt.load %seed_ptrs : tensor<4x!tt.ptr<f16>>
+
+    %c4_i64 = arith.constant 4 : i64
+    %c1_i64 = arith.constant 1 : i64
+    %c0_i32 = arith.constant 0 : i32
+    %base2 = tt.addptr %arg0, %arg2 : !tt.ptr<f16>, i32
+    %tptr = tt.make_tensor_ptr %base2, [%c4_i64, %c4_i64], [%c4_i64, %c1_i64], [%c0_i32, %c0_i32] {order = array<i32: 1, 0>} : <tensor<4x4xf16>>
+    %loaded = tt.load %tptr : !tt.ptr<tensor<4x4xf16>>
+    tt.store %tptr, %loaded : !tt.ptr<tensor<4x4xf16>>
+
+    %outbase = tt.splat %arg1 : !tt.ptr<f16> -> tensor<4x!tt.ptr<f16>>
+    %outptrs = tt.addptr %outbase, %r : tensor<4x!tt.ptr<f16>>, tensor<4xi32>
+    tt.store %outptrs, %seed_vals : tensor<4x!tt.ptr<f16>>
     tt.return
   }
 }

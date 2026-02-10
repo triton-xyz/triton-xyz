@@ -1,4 +1,4 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-tta-unstructured --remove-dead-values --canonicalize %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-tta-unstructured %s | FileCheck %s
 
 module {
 // CHECK-LABEL: tt.func @local_failure_cat_does_not_block(
@@ -119,5 +119,24 @@ module {
   tt.func @overwrite_existing_fallback_reason(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i1) {
     %r = tt.atomic_rmw umax, acq_rel, gpu, %arg0, %arg1, %arg2 {tta.fallback, tta.fallback_reason = "pre_marked_reason"} : (!tt.ptr<i32>, i32, i1) -> i32
     tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @fallback_ptr_to_int_tensor_result(
+// CHECK: tt.ptr_to_int %{{.*}} {tta.fallback, tta.fallback_reason = "ptr_to_int_tensor_result_unsupported"}
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: tt.return %[[L0]], %{{.*}} : tensor<4xf32>, tensor<4xi64>
+  tt.func @fallback_ptr_to_int_tensor_result(%arg0: !tt.ptr<f32>) -> (tensor<4xf32>, tensor<4xi64>) {
+    %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+    %ptrs = tt.addptr %base, %r : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    %ints = tt.ptr_to_int %ptrs : tensor<4x!tt.ptr<f32>> -> tensor<4xi64>
+    %vals = tt.load %ptrs : tensor<4x!tt.ptr<f32>>
+    tt.return %vals, %ints : tensor<4xf32>, tensor<4xi64>
   }
 }

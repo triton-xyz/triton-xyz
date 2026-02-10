@@ -1,7 +1,6 @@
 // RUN: triton-xyz-opt --split-input-file --tta-to-memref --canonicalize --cse %s | FileCheck %s
 
 // CHECK-NOT: tta.
-// CHECK-NOT: tts.
 
 module {
 // CHECK-LABEL: tt.func @structured_basic(

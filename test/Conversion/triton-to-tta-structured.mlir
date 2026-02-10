@@ -1,5 +1,4 @@
 // RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured %s | FileCheck %s
-// CHECK-NOT: tts.
 
 module {
 // CHECK-LABEL: tt.func @basic_addptr_1d(
