@@ -16,7 +16,7 @@ def TTA_AddrType : TritonAddressTypeDef<"Addr", "addr"> {
 
   let description = [{
     Unified address type used by the Triton Address dialect to represent
-    abstract addresses independent of legacy pointer encodings.
+    abstract addresses independent of triton pointer encodings.
   }];
 
   let parameters = (ins "Type":$elementType,

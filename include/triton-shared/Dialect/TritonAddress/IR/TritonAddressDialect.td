@@ -39,7 +39,7 @@ include "triton-shared/Dialect/TritonAddress/IR/TritonAddressTypes.td"
 def TTA_IndexTensorLike : AnyTypeOf<[I32Tensor, I64Tensor]>;
 
 def TTA_FromTTPtrOp : TTA_Op<"from_tt_ptr", [Pure]> {
-  let summary = "import legacy tt.ptr-like value into tta.addr domain";
+  let summary = "import tt.ptr-like value into tta.addr domain";
 
   let arguments = (ins TT_PtrLike:$source);
 
