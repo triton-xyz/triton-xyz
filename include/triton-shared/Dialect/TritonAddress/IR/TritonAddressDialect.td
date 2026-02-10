@@ -239,7 +239,7 @@ def TTA_AtomicCASOp : TTA_Op<"atomic_cas", [
 
   let arguments = (
     ins
-    TT_Ptr:$ptr,
+    TTA_AddrTypePred:$ptr,
     TT_IntLike:$offset,
     TT_Type:$compare,
     TT_Type:$value

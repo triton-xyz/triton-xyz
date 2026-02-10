@@ -118,7 +118,7 @@ module {
 // CHECK-LABEL: tt.func public @scalar_atomic_rmw_to_tta(
 // CHECK: %[[A0:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32, i1) -> i32
 // CHECK: %[[A1:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
-// CHECK: %[[A2:.*]] = "tta.atomic_cas"(%arg0, %{{.*}}, %{{.*}}, %{{.*}}) : (!tt.ptr<i32>, i32, i32, i32) -> i32
+// CHECK: %[[A2:.*]] = "tta.atomic_cas"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
   tt.func public @scalar_atomic_rmw_to_tta(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i32, %arg3: i1) {
     %a0 = tt.atomic_rmw add, acq_rel, gpu, %arg0, %arg1, %arg3 : (!tt.ptr<i32>, i32, i1) -> i32
     %a1 = tt.atomic_rmw exch, acq_rel, gpu, %arg0, %arg2 : (!tt.ptr<i32>, i32) -> i32

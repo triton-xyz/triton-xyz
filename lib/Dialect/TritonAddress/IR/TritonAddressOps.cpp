@@ -668,10 +668,14 @@ LogicalResult AtomicCASOp::verify() {
     return emitOpError("offset and value tensor shapes must match");
   }
 
-  auto ptrType = cast<triton::PointerType>(getPtr().getType());
+  auto ptrElementType = getAtomicElementType(getPtr().getType());
+  if (!ptrElementType) {
+    return emitOpError("ptr must be !tta.addr<...>");
+  }
+
   Type valueElemType = mlir::getElementTypeOrSelf(valueType);
-  if (ptrType.getPointeeType() != valueElemType) {
-    return emitOpError("value element type must match pointer pointee type");
+  if (*ptrElementType != valueElemType) {
+    return emitOpError("value element type must match address element type");
   }
 
   if (!valueElemType.isIntOrFloat()) {

@@ -152,7 +152,7 @@ module {
     // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xchg"}>
     %r6 = "tta.atomic"(%ibase_i, %off, %r5) <{kind = "xchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
     // CHECK: "tta.atomic_cas"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
-    %r7 = "tta.atomic_cas"(%ibase, %off, %r6, %i) : (!tt.ptr<i32>, i32, i32, i32) -> i32
+    %r7 = "tta.atomic_cas"(%ibase_i, %off, %r6, %i) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
     // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "fadd"}>
     %rf = "tta.atomic"(%fbase_i, %off, %f) <{kind = "fadd"}> : (!tta.addr<f32, 1, 1>, i32, f32) -> f32
     tt.return

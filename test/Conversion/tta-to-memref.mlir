@@ -282,7 +282,8 @@ module {
 // CHECK: arith.select
 // CHECK: memref.atomic_yield
   tt.func @atomic_cas_scalar(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32) {
-    %r = "tta.atomic_cas"(%ptr, %off, %cmp, %val) : (!tt.ptr<i32>, i32, i32, i32) -> i32
+    %ptr_i = tta.make_addr %ptr to sizes: [1], strides: [1], offsets: [0], shape: [0], order: [] : <i32> to !tta.addr<i32, 1, 1>
+    %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
     %u = arith.addi %r, %val : i32
     tt.return
   }
@@ -297,7 +298,8 @@ module {
 // CHECK: arith.select
 // CHECK: memref.atomic_yield
   tt.func @atomic_cas_float(%ptr: !tt.ptr<f32>, %off: i32, %cmp: f32, %val: f32) {
-    %r = "tta.atomic_cas"(%ptr, %off, %cmp, %val) : (!tt.ptr<f32>, i32, f32, f32) -> f32
+    %ptr_i = tta.make_addr %ptr to sizes: [1], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<f32, 1, 1>, i32, f32, f32) -> f32
     %u = arith.addf %r, %val : f32
     tt.return
   }

@@ -1290,8 +1290,18 @@ public:
                   return success();
                 }
 
+                SmallVector<int64_t> atomicSizes{1};
+                SmallVector<OpFoldResult> atomicStrides{b.getIndexAttr(1)};
+                SmallVector<OpFoldResult> atomicOffsets{b.getIndexAttr(0)};
+                SmallVector<OpFoldResult> atomicShape{b.getIndexAttr(0)};
+                Value importedPtr =
+                    tta::MakeAddrOp::create(b, loc, offsetInfo.ptr, atomicSizes,
+                                            atomicStrides, atomicOffsets,
+                                            atomicShape, ArrayRef<int32_t>{})
+                        .getResult();
+
                 auto ttaAtomic = tta::AtomicCASOp::create(
-                    b, loc, offsetInfo.ptr, *maybeAtomicOffset, atomic.getCmp(),
+                    b, loc, importedPtr, *maybeAtomicOffset, atomic.getCmp(),
                     atomic.getVal());
                 atomic.replaceAllUsesWith(ttaAtomic.getResult());
                 atomic->erase();

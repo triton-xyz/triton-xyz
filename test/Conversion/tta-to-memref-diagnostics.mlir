@@ -160,9 +160,10 @@ module {
 
 module {
   tt.func @atomic_cas_tensor_unsupported(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %cmp: tensor<4xi32>, %val: tensor<4xi32>) {
+    %ptr_i = tta.from_tt_ptr %ptr : !tt.ptr<i32> to !tta.addr<i32, 1, 1>
     // expected-error@+2 {{tta-to-memref: tensor tta.atomic_cas is unsupported}}
     // expected-error@+1 {{failed to legalize operation 'tta.atomic_cas' that was explicitly marked illegal}}
-    %r = "tta.atomic_cas"(%ptr, %off, %cmp, %val) : (!tt.ptr<i32>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
+    %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
     tt.return
   }
 }

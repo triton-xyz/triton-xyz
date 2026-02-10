@@ -1505,13 +1505,43 @@ struct ConvertTTAAtomicCASPattern
                                   "tensor tta.atomic_cas is unsupported");
     }
 
-    if (!isa<triton::PointerType>(op.getPtr().getType())) {
+    if (!isa<tta::AddrType>(op.getPtr().getType())) {
       return emitTTAToMemrefError(op.getOperation(),
-                                  "tta.atomic_cas pointer must be scalar ptr");
+                                  "tta.atomic_cas pointer must be scalar addr");
     }
 
-    auto maybeBaseMemref = getBaseMemref(
-        adaptor.getPtr(), op.getValue().getType(), op.getLoc(), rewriter);
+    std::optional<StringRef> collectFailureReason;
+    FailureOr<AddressExpr> maybeExpr = collectAddressExpr(
+        adaptor.getPtr(), op.getLoc(), rewriter, &collectFailureReason);
+    if (failed(maybeExpr)) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  collectFailureReason
+                                      ? *collectFailureReason
+                                      : "failed to collect address chain");
+    }
+    AddressExpr expr = *maybeExpr;
+
+    if (expr.indirectIndex || expr.indirectMask || expr.indirectDim) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "indirect tta.atomic_cas is unsupported");
+    }
+    if (!expr.order.empty()) {
+      return emitTTAToMemrefError(
+          op.getOperation(), "block pointer tta.atomic_cas is unsupported");
+    }
+    if (expr.offsets.size() != 1 || expr.strides.size() != 1) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tta.atomic_cas pointer must have rank 1");
+    }
+
+    std::optional<int64_t> stride = getIntAttr(expr.strides[0]);
+    if (!stride || *stride != 1) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tta.atomic_cas requires unit stride");
+    }
+
+    auto maybeBaseMemref = getBaseMemref(expr.base, op.getValue().getType(),
+                                         op.getLoc(), rewriter);
     if (failed(maybeBaseMemref)) {
       return emitTTAToMemrefError(
           op.getOperation(), "failed to get base memref for tta.atomic_cas");
@@ -1530,8 +1560,17 @@ struct ConvertTTAAtomicCASPattern
                                                 rankedType, *maybeBaseMemref)
                              .getResult();
 
+    Value totalOffset = *maybeOffset;
+    if (!hasConstZero(expr.offsets[0])) {
+      Value baseOffset =
+          ofrToIndexValue(expr.offsets[0], op.getLoc(), rewriter);
+      totalOffset =
+          arith::AddIOp::create(rewriter, op.getLoc(), baseOffset, totalOffset)
+              .getResult();
+    }
+
     auto generic = memref::GenericAtomicRMWOp::create(
-        rewriter, op.getLoc(), rankedMemref, *maybeOffset);
+        rewriter, op.getLoc(), rankedMemref, totalOffset);
     Block &body = generic.getRegion().front();
     rewriter.setInsertionPointToStart(&body);
 
