@@ -86,7 +86,7 @@ module {
 // CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
 // CHECK: %[[A1:.*]] = tta.make_addr %arg1 to sizes: [8]
 // CHECK: %[[R1:.*]] = "tta.reindex"(%[[A1]], %{{.*}}, %{{.*}})
-// CHECK: "tta.store"(%[[R1]], %{{.*}})
+// CHECK: "tta.store"(%[[R1]], %[[L0]])
   tt.func public @masked_2d_fallback(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %row = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
     %col = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
@@ -108,6 +108,25 @@ module {
     %out_base = tt.splat %arg1 : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
     %out_ptrs = tt.addptr %out_base, %offsets : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
     tt.store %out_ptrs, %val, %mask : tensor<2x4x!tt.ptr<f32>>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func public @scalar_atomic_rmw_to_tta(
+// CHECK: %[[A0:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32, i1) -> i32
+// CHECK: %[[A1:.*]] = "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
+// CHECK: %[[A2:.*]] = "tta.atomic_cas"(%arg0, %{{.*}}, %{{.*}}, %{{.*}}) : (!tt.ptr<i32>, i32, i32, i32) -> i32
+  tt.func public @scalar_atomic_rmw_to_tta(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i32, %arg3: i1) {
+    %a0 = tt.atomic_rmw add, acq_rel, gpu, %arg0, %arg1, %arg3 : (!tt.ptr<i32>, i32, i1) -> i32
+    %a1 = tt.atomic_rmw exch, acq_rel, gpu, %arg0, %arg2 : (!tt.ptr<i32>, i32) -> i32
+    %a2 = tt.atomic_cas acq_rel, gpu, %arg0, %arg1, %arg2 : (!tt.ptr<i32>, i32, i32) -> i32
+    %sum0 = arith.addi %a0, %a1 : i32
+    %sum = arith.addi %sum0, %a2 : i32
+    %use = arith.addi %sum, %arg1 : i32
+    %sink = arith.addi %use, %arg2 : i32
     tt.return
   }
 }

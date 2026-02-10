@@ -353,3 +353,69 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+  tt.func @invalid_atomic_cmpxchg_deprecated(%arg0: !tt.ptr<i32>, %arg1: i32) {
+    %val = arith.constant 1 : i32
+    // expected-error@+1 {{unsupported atomic kind: cmpxchg}}
+    %r = "tta.atomic"(%arg0, %arg1, %val) <{kind = "cmpxchg"}> : (!tt.ptr<i32>, i32, i32) -> i32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @invalid_atomic_cas_compare_value_type_mismatch(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: i32, %arg3: i64) {
+    // expected-error@+1 {{compare type matches value type}}
+    %r = "tta.atomic_cas"(%arg0, %arg1, %arg2, %arg3) : (!tt.ptr<i32>, i32, i32, i64) -> i64
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @invalid_atomic_cas_offset_value_rank_mismatch(%arg0: !tt.ptr<i32>, %arg1: i32) {
+    %cmp = arith.constant dense<[1, 2]> : tensor<2xi32>
+    %val = arith.constant dense<[3, 4]> : tensor<2xi32>
+    // expected-error@+1 {{offset and value must both be scalars or both be tensors}}
+    %r = "tta.atomic_cas"(%arg0, %arg1, %cmp, %val) : (!tt.ptr<i32>, i32, tensor<2xi32>, tensor<2xi32>) -> tensor<2xi32>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @invalid_atomic_cas_tensor_shape_mismatch(%arg0: !tt.ptr<i32>) {
+    %off = arith.constant dense<[0, 1]> : tensor<2xi32>
+    %cmp = arith.constant dense<[1, 2, 3]> : tensor<3xi32>
+    %val = arith.constant dense<[4, 5, 6]> : tensor<3xi32>
+    // expected-error@+1 {{offset and value tensor shapes must match}}
+    %r = "tta.atomic_cas"(%arg0, %off, %cmp, %val) : (!tt.ptr<i32>, tensor<2xi32>, tensor<3xi32>, tensor<3xi32>) -> tensor<3xi32>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @invalid_atomic_cas_value_type_mismatch(%arg0: !tt.ptr<i32>, %arg1: i32, %arg2: f32, %arg3: f32) {
+    // expected-error@+1 {{value element type must match pointer pointee type}}
+    %r = "tta.atomic_cas"(%arg0, %arg1, %arg2, %arg3) : (!tt.ptr<i32>, i32, f32, f32) -> f32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @invalid_atomic_cas_non_numeric(%arg0: !tt.ptr<!tt.ptr<i32>>, %arg1: i32, %arg2: !tt.ptr<i32>, %arg3: !tt.ptr<i32>) {
+    // expected-error@+1 {{atomic_cas requires integer or floating-point value type}}
+    %r = "tta.atomic_cas"(%arg0, %arg1, %arg2, %arg3) : (!tt.ptr<!tt.ptr<i32>>, i32, !tt.ptr<i32>, !tt.ptr<i32>) -> !tt.ptr<i32>
+    tt.return
+  }
+}

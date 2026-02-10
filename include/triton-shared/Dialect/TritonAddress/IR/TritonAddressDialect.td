@@ -228,6 +228,35 @@ def TTA_AtomicOp : TTA_Op<"atomic", [
   let hasVerifier = 1;
 }
 
+def TTA_AtomicCASOp : TTA_Op<"atomic_cas", [
+  MemoryEffects<[MemRead, MemWrite]>,
+  TypesMatchWith<"result type matches value type", "value", "result",
+                 "$_self">,
+  TypesMatchWith<"compare type matches value type", "value", "compare",
+                 "$_self">
+]> {
+  let summary = "perform an atomic compare-and-swap memory operation";
+
+  let arguments = (
+    ins
+    TT_Ptr:$ptr,
+    TT_IntLike:$offset,
+    TT_Type:$compare,
+    TT_Type:$value
+  );
+
+  let results = (outs TT_Type:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$ptr,
+                   "Value":$offset,
+                   "Value":$compare,
+                   "Value":$value)>,
+  ];
+
+  let hasVerifier = 1;
+}
+
 def TTA_LoadOp : TTA_Op<"load", [
   MemoryEffects<[MemRead]>,
   AttrSizedOperandSegments

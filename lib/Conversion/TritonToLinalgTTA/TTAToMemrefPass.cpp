@@ -135,9 +135,98 @@ static bool isSupportedLoopStepExpr(Value value, Value iterArg);
 static Value stripAddressViewLikeChain(Value address);
 static bool hasUnsupportedLoopCarriedAddr(Value ptr);
 
+static LogicalResult emitTTAToMemrefError(Operation *op, StringRef reason) {
+  op->emitError("tta-to-memref: ") << reason;
+  return failure();
+}
+
+static FailureOr<Value>
+castIndirectIndexToIndex(Value indirectIndex, Location loc,
+                         ConversionPatternRewriter &rewriter);
+
+static FailureOr<RankedTensorType>
+getMerged1DTensorType(RankedTensorType lhsType, RankedTensorType rhsType,
+                      Type elementType) {
+  if (!lhsType || !rhsType || lhsType.getRank() != 1 ||
+      rhsType.getRank() != 1 || lhsType.getElementType() != elementType ||
+      rhsType.getElementType() != elementType) {
+    return failure();
+  }
+
+  int64_t lhsDim = lhsType.getShape()[0];
+  int64_t rhsDim = rhsType.getShape()[0];
+  int64_t mergedDim = lhsDim;
+  if (lhsDim != rhsDim) {
+    if (ShapedType::isDynamic(lhsDim) || ShapedType::isDynamic(rhsDim)) {
+      mergedDim = ShapedType::kDynamic;
+    } else {
+      return failure();
+    }
+  }
+
+  return RankedTensorType::get({mergedDim}, elementType);
+}
+
+static FailureOr<Value> castTensorToType(Value value,
+                                         RankedTensorType targetType,
+                                         Location loc,
+                                         ConversionPatternRewriter &rewriter) {
+  auto tensorType = dyn_cast<RankedTensorType>(value.getType());
+  if (!tensorType || tensorType.getRank() != targetType.getRank() ||
+      tensorType.getElementType() != targetType.getElementType()) {
+    return failure();
+  }
+
+  if (tensorType == targetType) {
+    return value;
+  }
+
+  if (failed(verifyCompatibleShape(tensorType, targetType))) {
+    return failure();
+  }
+
+  return tensor::CastOp::create(rewriter, loc, targetType, value).getResult();
+}
+
+static FailureOr<Value>
+mergeIndirectIndex(Value lhsIndirectIndex, Value rhsIndirectIndex, Location loc,
+                   ConversionPatternRewriter &rewriter) {
+  FailureOr<Value> lhsIndex =
+      castIndirectIndexToIndex(lhsIndirectIndex, loc, rewriter);
+  if (failed(lhsIndex)) {
+    return failure();
+  }
+
+  FailureOr<Value> rhsIndex =
+      castIndirectIndexToIndex(rhsIndirectIndex, loc, rewriter);
+  if (failed(rhsIndex)) {
+    return failure();
+  }
+
+  auto lhsType = dyn_cast<RankedTensorType>((*lhsIndex).getType());
+  auto rhsType = dyn_cast<RankedTensorType>((*rhsIndex).getType());
+  FailureOr<RankedTensorType> maybeMergedType =
+      getMerged1DTensorType(lhsType, rhsType, rewriter.getIndexType());
+  if (failed(maybeMergedType)) {
+    return failure();
+  }
+
+  FailureOr<Value> lhsMerged =
+      castTensorToType(*lhsIndex, *maybeMergedType, loc, rewriter);
+  FailureOr<Value> rhsMerged =
+      castTensorToType(*rhsIndex, *maybeMergedType, loc, rewriter);
+  if (failed(lhsMerged) || failed(rhsMerged)) {
+    return failure();
+  }
+
+  return arith::AddIOp::create(rewriter, loc, *lhsMerged, *rhsMerged)
+      .getResult();
+}
+
 static FailureOr<AddressExpr>
 collectAddressExpr(Value address, Location loc,
-                   ConversionPatternRewriter &rewriter) {
+                   ConversionPatternRewriter &rewriter,
+                   std::optional<StringRef> *failureReason = nullptr) {
   if (auto imported = address.getDefiningOp<tta::FromTTPtrOp>()) {
     address = imported.getSource();
   }
@@ -148,19 +237,26 @@ collectAddressExpr(Value address, Location loc,
     FailureOr<LoopProgression> maybeProgression =
         getConstantLoopProgression(iterArgInfo);
     if (failed(maybeProgression)) {
+      if (failureReason) {
+        *failureReason = StringRef("non-constant loop progression");
+      }
       return failure();
     }
     LoopProgression progression = *maybeProgression;
 
     FailureOr<AddressExpr> maybeInitExpr = collectAddressExpr(
         iterArgInfo.forOp.getInitArgs()[iterArgInfo.iterArgIndex], loc,
-        rewriter);
+        rewriter, failureReason);
     if (failed(maybeInitExpr)) {
       return failure();
     }
 
     AddressExpr expr = *maybeInitExpr;
     if (expr.indirectIndex || expr.indirectMask || expr.indirectDim) {
+      if (failureReason) {
+        *failureReason =
+            StringRef("unsupported loop-carried indirect recurrence");
+      }
       return failure();
     }
 
@@ -224,6 +320,10 @@ collectAddressExpr(Value address, Location loc,
     auto maybeStepOffsets =
         collectLoopStepOffsets(collectLoopStepOffsets, yielded);
     if (failed(maybeStepOffsets)) {
+      if (failureReason) {
+        *failureReason =
+            StringRef("unsupported loop-carried address step expression");
+      }
       return failure();
     }
 
@@ -240,6 +340,9 @@ collectAddressExpr(Value address, Location loc,
       workIntType = intType;
       inductionVarInt = inductionVar;
     } else {
+      if (failureReason) {
+        *failureReason = StringRef("unsupported induction variable type");
+      }
       return failure();
     }
 
@@ -288,7 +391,7 @@ collectAddressExpr(Value address, Location loc,
 
   if (auto reindex = address.getDefiningOp<tta::ReindexOp>()) {
     FailureOr<AddressExpr> maybeExpr =
-        collectAddressExpr(reindex.getAddress(), loc, rewriter);
+        collectAddressExpr(reindex.getAddress(), loc, rewriter, failureReason);
     if (failed(maybeExpr)) {
       return failure();
     }
@@ -296,6 +399,9 @@ collectAddressExpr(Value address, Location loc,
     AddressExpr expr = *maybeExpr;
     auto reindexOffsets = reindex.getMixedOffsets();
     if (expr.offsets.size() != reindexOffsets.size()) {
+      if (failureReason) {
+        *failureReason = StringRef("reindex offsets rank mismatch");
+      }
       return failure();
     }
 
@@ -304,16 +410,72 @@ collectAddressExpr(Value address, Location loc,
     }
 
     if (Value indirect = reindex.getIndirectIndex()) {
-      if (expr.indirectIndex) {
-        return failure();
-      }
       auto indirectDimAttr = reindex.getIndirectDimAttr();
       if (!indirectDimAttr) {
+        if (failureReason) {
+          *failureReason = StringRef("indirect_dim is missing");
+        }
         return failure();
       }
-      expr.indirectIndex = indirect;
-      expr.indirectDim = indirectDimAttr.getInt();
-      expr.indirectMask = reindex.getMask();
+      int32_t indirectDim = indirectDimAttr.getInt();
+
+      if (expr.indirectIndex) {
+        if (!expr.indirectDim.has_value() || *expr.indirectDim != indirectDim) {
+          if (failureReason) {
+            *failureReason = StringRef("mixed_indirect_dim in address chain");
+          }
+          return failure();
+        }
+
+        FailureOr<Value> maybeMergedIndirect =
+            mergeIndirectIndex(expr.indirectIndex, indirect, loc, rewriter);
+        if (failed(maybeMergedIndirect)) {
+          if (failureReason) {
+            *failureReason = StringRef("indirect_index is not mergeable");
+          }
+          return failure();
+        }
+        expr.indirectIndex = *maybeMergedIndirect;
+
+        if (Value mask = reindex.getMask()) {
+          if (expr.indirectMask) {
+            auto lhsMaskType =
+                dyn_cast<RankedTensorType>(expr.indirectMask.getType());
+            auto rhsMaskType = dyn_cast<RankedTensorType>(mask.getType());
+            FailureOr<RankedTensorType> maybeMergedMaskType =
+                getMerged1DTensorType(lhsMaskType, rhsMaskType,
+                                      rewriter.getI1Type());
+            if (failed(maybeMergedMaskType)) {
+              if (failureReason) {
+                *failureReason = StringRef("indirect_mask shape mismatch");
+              }
+              return failure();
+            }
+
+            FailureOr<Value> lhsMergedMask = castTensorToType(
+                expr.indirectMask, *maybeMergedMaskType, loc, rewriter);
+            FailureOr<Value> rhsMergedMask =
+                castTensorToType(mask, *maybeMergedMaskType, loc, rewriter);
+            if (failed(lhsMergedMask) || failed(rhsMergedMask)) {
+              if (failureReason) {
+                *failureReason = StringRef("indirect_mask shape mismatch");
+              }
+              return failure();
+            }
+
+            expr.indirectMask =
+                arith::AndIOp::create(rewriter, loc, *lhsMergedMask,
+                                      *rhsMergedMask)
+                    .getResult();
+          } else {
+            expr.indirectMask = mask;
+          }
+        }
+      } else {
+        expr.indirectIndex = indirect;
+        expr.indirectDim = indirectDim;
+        expr.indirectMask = reindex.getMask();
+      }
     }
 
     return expr;
@@ -321,7 +483,7 @@ collectAddressExpr(Value address, Location loc,
 
   if (auto advance = address.getDefiningOp<tta::AdvanceOp>()) {
     FailureOr<AddressExpr> maybeExpr =
-        collectAddressExpr(advance.getAddress(), loc, rewriter);
+        collectAddressExpr(advance.getAddress(), loc, rewriter, failureReason);
     if (failed(maybeExpr)) {
       return failure();
     }
@@ -329,6 +491,9 @@ collectAddressExpr(Value address, Location loc,
     AddressExpr expr = *maybeExpr;
     auto deltas = advance.getMixedDeltas();
     if (expr.offsets.size() != deltas.size()) {
+      if (failureReason) {
+        *failureReason = StringRef("advance deltas rank mismatch");
+      }
       return failure();
     }
 
@@ -339,6 +504,9 @@ collectAddressExpr(Value address, Location loc,
     return expr;
   }
 
+  if (failureReason) {
+    *failureReason = StringRef("unsupported address chain");
+  }
   return failure();
 }
 
@@ -680,6 +848,72 @@ castIndirectIndexToIndex(Value indirectIndex, Location loc,
       .getResult();
 }
 
+static FailureOr<Value>
+castAtomicOffsetToIndex(Value offset, Location loc,
+                        ConversionPatternRewriter &rewriter) {
+  if (offset.getType().isIndex()) {
+    return offset;
+  }
+
+  if (offset.getType().isIntOrIndex()) {
+    return arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      offset)
+        .getResult();
+  }
+
+  return failure();
+}
+
+static std::optional<Value>
+buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
+                          StringRef kind, Value current, Value value) {
+  Type elementType = current.getType();
+  if (isa<FloatType>(elementType)) {
+    if (kind == "add" || kind == "fadd") {
+      return arith::AddFOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "max") {
+      return arith::MaximumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    }
+    if (kind == "min") {
+      return arith::MinimumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    }
+    if (kind == "xchg") {
+      return value;
+    }
+    return std::nullopt;
+  }
+
+  if (isa<IntegerType>(elementType)) {
+    if (kind == "add") {
+      return arith::AddIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "and") {
+      return arith::AndIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "or") {
+      return arith::OrIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "xor") {
+      return arith::XOrIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "max") {
+      return arith::MaxSIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "min") {
+      return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "xchg") {
+      return value;
+    }
+    return std::nullopt;
+  }
+
+  return std::nullopt;
+}
+
 static Value computeIndirectUpperBound(Value offsetSize,
                                        ArrayRef<OpFoldResult> maskDims,
                                        int64_t gatherDim, bool hasIndirectMask,
@@ -699,8 +933,9 @@ static Value computeIndirectUpperBound(Value offsetSize,
     if (dim == 0 && hasIndirectMask) {
       return offsetSize;
     }
-    return makeIndexConstant(loc, std::min<int64_t>(dim, intAttr ? dim : dim),
-                             rewriter);
+    Value dimValue = makeIndexConstant(loc, dim, rewriter);
+    return arith::MinSIOp::create(rewriter, loc, dimValue, offsetSize)
+        .getResult();
   }
 
   Value dimValue = ofrToIndexValue(gatherMaskDim, loc, rewriter);
@@ -755,10 +990,14 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
       return rewriter.notifyMatchFailure(op, "unsupported pointer-like type");
     }
 
-    FailureOr<AddressExpr> maybeExpr =
-        collectAddressExpr(adaptor.getPtr(), op.getLoc(), rewriter);
+    std::optional<StringRef> collectFailureReason;
+    FailureOr<AddressExpr> maybeExpr = collectAddressExpr(
+        adaptor.getPtr(), op.getLoc(), rewriter, &collectFailureReason);
     if (failed(maybeExpr)) {
-      return rewriter.notifyMatchFailure(op, "failed to collect address chain");
+      return emitTTAToMemrefError(op.getOperation(),
+                                  collectFailureReason
+                                      ? *collectFailureReason
+                                      : "failed to collect address chain");
     }
     AddressExpr expr = *maybeExpr;
 
@@ -822,13 +1061,11 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
     if (!expr.order.empty()) {
-      return rewriter.notifyMatchFailure(
-          op, "indirect reindex on block pointer is unsupported");
+      return emitTTAToMemrefError(
+          op.getOperation(),
+          "indirect reindex on block pointer is unsupported");
     }
-    if (!hasConstZero(expr.offsets[gatherDim])) {
-      return rewriter.notifyMatchFailure(
-          op, "indirect reindex requires zero offset on gather dimension");
-    }
+    OpFoldResult gatherBaseOffset = expr.offsets[gatherDim];
 
     auto maybeIndirectIndex =
         castIndirectIndexToIndex(expr.indirectIndex, op.getLoc(), rewriter);
@@ -862,12 +1099,19 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
 
     Value lowerBound = makeIndexConstant(op.getLoc(), 0, rewriter);
 
-    int64_t staticOffsetSize =
-        cast<RankedTensorType>((*maybeIndirectIndex).getType()).getShape()[0];
-    Value upperBound =
-        computeIndirectUpperBound(*maybeOffsetSize, maskDims, gatherDim,
-                                  static_cast<bool>(expr.indirectMask),
-                                  staticOffsetSize, op.getLoc(), rewriter);
+    auto indirectIndexType =
+        cast<RankedTensorType>((*maybeIndirectIndex).getType());
+    Value upperBound;
+    if (indirectIndexType.isDynamicDim(0)) {
+      upperBound = computeIndirectUpperBound(
+          *maybeOffsetSize, maskDims, gatherDim,
+          static_cast<bool>(expr.indirectMask), op.getLoc(), rewriter);
+    } else {
+      upperBound = computeIndirectUpperBound(
+          *maybeOffsetSize, maskDims, gatherDim,
+          static_cast<bool>(expr.indirectMask), indirectIndexType.getShape()[0],
+          op.getLoc(), rewriter);
+    }
 
     Value step = makeIndexConstant(op.getLoc(), 1, rewriter);
     auto loop =
@@ -879,6 +1123,13 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
     auto copyBody = [&](ConversionPatternRewriter &rw) -> LogicalResult {
       Value gatherOffset = tensor::ExtractOp::create(
           rw, op.getLoc(), *maybeIndirectIndex, ValueRange{iv});
+      if (!hasConstZero(gatherBaseOffset)) {
+        Value gatherBaseOffsetValue =
+            ofrToIndexValue(gatherBaseOffset, op.getLoc(), rw);
+        gatherOffset = arith::AddIOp::create(rw, op.getLoc(), gatherOffset,
+                                             gatherBaseOffsetValue)
+                           .getResult();
+      }
 
       SmallVector<OpFoldResult> gatheredOffsets(expr.offsets.begin(),
                                                 expr.offsets.end());
@@ -949,10 +1200,14 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
       return rewriter.notifyMatchFailure(op, "unsupported pointer-like type");
     }
 
-    FailureOr<AddressExpr> maybeExpr =
-        collectAddressExpr(adaptor.getPtr(), op.getLoc(), rewriter);
+    std::optional<StringRef> collectFailureReason;
+    FailureOr<AddressExpr> maybeExpr = collectAddressExpr(
+        adaptor.getPtr(), op.getLoc(), rewriter, &collectFailureReason);
     if (failed(maybeExpr)) {
-      return rewriter.notifyMatchFailure(op, "failed to collect address chain");
+      return emitTTAToMemrefError(op.getOperation(),
+                                  collectFailureReason
+                                      ? *collectFailureReason
+                                      : "failed to collect address chain");
     }
     AddressExpr expr = *maybeExpr;
 
@@ -1009,13 +1264,11 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
     if (!expr.order.empty()) {
-      return rewriter.notifyMatchFailure(
-          op, "indirect reindex on block pointer is unsupported");
+      return emitTTAToMemrefError(
+          op.getOperation(),
+          "indirect reindex on block pointer is unsupported");
     }
-    if (!hasConstZero(expr.offsets[gatherDim])) {
-      return rewriter.notifyMatchFailure(
-          op, "indirect reindex requires zero offset on gather dimension");
-    }
+    OpFoldResult gatherBaseOffset = expr.offsets[gatherDim];
 
     auto maybeIndirectIndex =
         castIndirectIndexToIndex(expr.indirectIndex, op.getLoc(), rewriter);
@@ -1027,6 +1280,10 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
         getIndirectSize(*maybeIndirectIndex, op.getLoc(), rewriter);
     if (failed(maybeOffsetSize)) {
       return rewriter.notifyMatchFailure(op, "invalid indirect index size");
+    }
+
+    if (maskDims.empty() && expr.indirectMask) {
+      maskDims = getMixedStaticSizes(loadedShape, rewriter);
     }
 
     SmallVector<int64_t> sliceShape(loadedShape.begin(), loadedShape.end());
@@ -1043,12 +1300,19 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
 
     Value lowerBound = makeIndexConstant(op.getLoc(), 0, rewriter);
 
-    int64_t staticOffsetSize =
-        cast<RankedTensorType>((*maybeIndirectIndex).getType()).getShape()[0];
-    Value upperBound =
-        computeIndirectUpperBound(*maybeOffsetSize, maskDims, gatherDim,
-                                  static_cast<bool>(expr.indirectMask),
-                                  staticOffsetSize, op.getLoc(), rewriter);
+    auto indirectIndexType =
+        cast<RankedTensorType>((*maybeIndirectIndex).getType());
+    Value upperBound;
+    if (indirectIndexType.isDynamicDim(0)) {
+      upperBound = computeIndirectUpperBound(
+          *maybeOffsetSize, maskDims, gatherDim,
+          static_cast<bool>(expr.indirectMask), op.getLoc(), rewriter);
+    } else {
+      upperBound = computeIndirectUpperBound(
+          *maybeOffsetSize, maskDims, gatherDim,
+          static_cast<bool>(expr.indirectMask), indirectIndexType.getShape()[0],
+          op.getLoc(), rewriter);
+    }
 
     Value step = makeIndexConstant(op.getLoc(), 1, rewriter);
     auto loop =
@@ -1060,6 +1324,13 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
     auto storeBody = [&](ConversionPatternRewriter &rw) -> LogicalResult {
       Value gatherOffset = tensor::ExtractOp::create(
           rw, op.getLoc(), *maybeIndirectIndex, ValueRange{iv});
+      if (!hasConstZero(gatherBaseOffset)) {
+        Value gatherBaseOffsetValue =
+            ofrToIndexValue(gatherBaseOffset, op.getLoc(), rw);
+        gatherOffset = arith::AddIOp::create(rw, op.getLoc(), gatherOffset,
+                                             gatherBaseOffsetValue)
+                           .getResult();
+      }
 
       SmallVector<OpFoldResult> gatheredOffsets(expr.offsets.begin(),
                                                 expr.offsets.end());
@@ -1113,6 +1384,146 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
   }
 };
 
+struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
+  using OpConversionPattern<tta::AtomicOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tta::AtomicOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (isa<ShapedType>(op.getType())) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tensor tta.atomic is unsupported");
+    }
+
+    if (!isa<triton::PointerType>(op.getPtr().getType())) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tta.atomic pointer must be scalar ptr");
+    }
+
+    auto maybeBaseMemref = getBaseMemref(
+        adaptor.getPtr(), op.getValue().getType(), op.getLoc(), rewriter);
+    if (failed(maybeBaseMemref)) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "failed to get base memref for tta.atomic");
+    }
+
+    auto maybeOffset =
+        castAtomicOffsetToIndex(adaptor.getOffset(), op.getLoc(), rewriter);
+    if (failed(maybeOffset)) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tta.atomic offset must be int/index scalar");
+    }
+
+    auto rankedType =
+        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
+    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
+                                                rankedType, *maybeBaseMemref)
+                             .getResult();
+
+    auto generic = memref::GenericAtomicRMWOp::create(
+        rewriter, op.getLoc(), rankedMemref, *maybeOffset);
+    Block &body = generic.getRegion().front();
+    rewriter.setInsertionPointToStart(&body);
+
+    Value current = body.getArgument(0);
+    auto maybeUpdated = buildAtomicUpdateFromKind(
+        rewriter, op.getLoc(), adaptor.getKindAttr().getValue(), current,
+        adaptor.getValue());
+    if (!maybeUpdated.has_value()) {
+      rewriter.eraseOp(generic);
+      std::string message = "atomic kind is unsupported: ";
+      message += adaptor.getKindAttr().getValue().str();
+      return emitTTAToMemrefError(op.getOperation(), message);
+    }
+
+    Value finalValue = *maybeUpdated;
+    if (Value mask = adaptor.getMask()) {
+      if (!mask.getType().isInteger(1)) {
+        rewriter.eraseOp(generic);
+        return emitTTAToMemrefError(op.getOperation(),
+                                    "tta.atomic mask must be scalar i1");
+      }
+      finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
+                                           finalValue, current)
+                       .getResult();
+    }
+
+    memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+    rewriter.replaceOp(op, generic.getResult());
+    return success();
+  }
+};
+
+struct ConvertTTAAtomicCASPattern
+    : public OpConversionPattern<tta::AtomicCASOp> {
+  using OpConversionPattern<tta::AtomicCASOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tta::AtomicCASOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (isa<ShapedType>(op.getType())) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tensor tta.atomic_cas is unsupported");
+    }
+
+    if (!isa<triton::PointerType>(op.getPtr().getType())) {
+      return emitTTAToMemrefError(op.getOperation(),
+                                  "tta.atomic_cas pointer must be scalar ptr");
+    }
+
+    auto maybeBaseMemref = getBaseMemref(
+        adaptor.getPtr(), op.getValue().getType(), op.getLoc(), rewriter);
+    if (failed(maybeBaseMemref)) {
+      return emitTTAToMemrefError(
+          op.getOperation(), "failed to get base memref for tta.atomic_cas");
+    }
+
+    auto maybeOffset =
+        castAtomicOffsetToIndex(adaptor.getOffset(), op.getLoc(), rewriter);
+    if (failed(maybeOffset)) {
+      return emitTTAToMemrefError(
+          op.getOperation(), "tta.atomic_cas offset must be int/index scalar");
+    }
+
+    auto rankedType =
+        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
+    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
+                                                rankedType, *maybeBaseMemref)
+                             .getResult();
+
+    auto generic = memref::GenericAtomicRMWOp::create(
+        rewriter, op.getLoc(), rankedMemref, *maybeOffset);
+    Block &body = generic.getRegion().front();
+    rewriter.setInsertionPointToStart(&body);
+
+    Value current = body.getArgument(0);
+    Value equal;
+    if (isa<FloatType>(current.getType())) {
+      equal = arith::CmpFOp::create(rewriter, op.getLoc(),
+                                    arith::CmpFPredicate::OEQ, current,
+                                    adaptor.getCompare())
+                  .getResult();
+    } else if (isa<IntegerType>(current.getType())) {
+      equal =
+          arith::CmpIOp::create(rewriter, op.getLoc(), arith::CmpIPredicate::eq,
+                                current, adaptor.getCompare())
+              .getResult();
+    } else {
+      rewriter.eraseOp(generic);
+      return emitTTAToMemrefError(
+          op.getOperation(),
+          "tta.atomic_cas only supports integer or floating-point values");
+    }
+
+    Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(), equal,
+                                               adaptor.getValue(), current)
+                           .getResult();
+    memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+    rewriter.replaceOp(op, generic.getResult());
+    return success();
+  }
+};
+
 class TTAToMemrefPass : public triton::impl::TTAToMemrefBase<TTAToMemrefPass> {
   using Base = triton::impl::TTAToMemrefBase<TTAToMemrefPass>;
   using Base::Base;
@@ -1153,13 +1564,15 @@ public:
         bufferization::BufferizationDialect, ttx::TritonTilingExtDialect,
         memref::MemRefDialect, tta::TritonAddressDialect>();
 
-    target.addIllegalOp<tta::LoadOp, tta::StoreOp>();
+    target.addIllegalOp<tta::LoadOp, tta::StoreOp, tta::AtomicOp,
+                        tta::AtomicCASOp>();
 
     target.addLegalOp<UnrealizedConversionCastOp>();
 
     PtrToUnrankedMemrefConverter typeConverter;
 
-    patterns.add<ConvertTTALoadPattern, ConvertTTAStorePattern>(
+    patterns.add<ConvertTTALoadPattern, ConvertTTAStorePattern,
+                 ConvertTTAAtomicPattern, ConvertTTAAtomicCASPattern>(
         typeConverter, patterns.getContext());
 
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {

@@ -151,8 +151,8 @@ module {
     %r5 = "tta.atomic"(%ibase_i, %off, %r4) <{kind = "min"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
     // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "xchg"}>
     %r6 = "tta.atomic"(%ibase_i, %off, %r5) <{kind = "xchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
-    // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "cmpxchg"}>
-    %r7 = "tta.atomic"(%ibase_i, %off, %r6) <{kind = "cmpxchg"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
+    // CHECK: "tta.atomic_cas"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+    %r7 = "tta.atomic_cas"(%ibase, %off, %r6, %i) : (!tt.ptr<i32>, i32, i32, i32) -> i32
     // CHECK: "tta.atomic"(%{{.*}}, %{{.*}}, %{{.*}}) <{kind = "fadd"}>
     %rf = "tta.atomic"(%fbase_i, %off, %f) <{kind = "fadd"}> : (!tta.addr<f32, 1, 1>, i32, f32) -> f32
     tt.return
