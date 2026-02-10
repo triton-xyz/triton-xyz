@@ -1,4 +1,4 @@
-// RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured --remove-dead-values --canonicalize %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured %s | FileCheck %s
 // CHECK-NOT: tts.
 
 module {

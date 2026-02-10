@@ -7,11 +7,14 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include <optional>
+#include <utility>
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOTTASTRUCTURED
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 } // namespace mlir::triton
+
+#define DEBUG_TYPE "triton-to-tta-structured"
 
 using namespace mlir;
 
@@ -29,11 +32,6 @@ static void markFallback(Operation *op, StringRef reason,
     op->setAttr(kFallbackAttrName, rewriter.getUnitAttr());
     op->setAttr(kFallbackReasonAttrName, rewriter.getStringAttr(reason));
   });
-}
-
-template <typename T>
-static bool hasNonEmptyBoundaryCheck(ArrayRef<T> boundaryCheck) {
-  return !boundaryCheck.empty();
 }
 
 static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
@@ -60,8 +58,9 @@ static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
   return *maybeMakeAddr;
 }
 
-static std::optional<StringRef> getEarlyFallbackReason(triton::LoadOp op) {
-  if (hasNonEmptyBoundaryCheck(op.getBoundaryCheck())) {
+template <typename OpTy>
+static std::optional<StringRef> getEarlyFallbackReason(OpTy op) {
+  if (!op.getBoundaryCheck().empty()) {
     return "boundary_check_not_supported";
   }
 
@@ -75,19 +74,29 @@ static std::optional<StringRef> getEarlyFallbackReason(triton::LoadOp op) {
   return std::nullopt;
 }
 
-static std::optional<StringRef> getEarlyFallbackReason(triton::StoreOp op) {
-  if (hasNonEmptyBoundaryCheck(op.getBoundaryCheck())) {
-    return "boundary_check_not_supported";
+struct AddressAndMaskDims {
+  Value addr;
+  SmallVector<OpFoldResult> maskDims;
+};
+
+template <typename OpTy>
+static FailureOr<AddressAndMaskDims>
+getAddressAndMaskDims(OpTy op, PatternRewriter &rewriter,
+                      StringRef &failureReason) {
+  auto maybeAddr = getOrCreateAddress(op.getPtr(), op.getLoc(), rewriter);
+  if (failed(maybeAddr)) {
+    failureReason = "address_analysis_failed";
+    return failure();
   }
 
-  if (Value mask = op.getMask()) {
-    auto maskType = dyn_cast<RankedTensorType>(mask.getType());
-    if (!maskType || maskType.getRank() != 1) {
-      return "mask_rank_not_1d";
-    }
+  auto maybeMaskDims =
+      TTAEmitter::analyzeMaskDims(op.getMask(), op.getLoc(), rewriter);
+  if (failed(maybeMaskDims)) {
+    failureReason = "mask_analysis_failed";
+    return failure();
   }
 
-  return std::nullopt;
+  return AddressAndMaskDims{*maybeAddr, std::move(*maybeMaskDims)};
 }
 
 struct ConvertTTLoadPattern : OpRewritePattern<triton::LoadOp> {
@@ -104,16 +113,11 @@ struct ConvertTTLoadPattern : OpRewritePattern<triton::LoadOp> {
       return success();
     }
 
-    auto maybeAddr = getOrCreateAddress(op.getPtr(), op.getLoc(), rewriter);
-    if (failed(maybeAddr)) {
-      markFallback(op, "address_analysis_failed", rewriter);
-      return success();
-    }
-
-    auto maybeMaskDims =
-        TTAEmitter::analyzeMaskDims(op.getMask(), op.getLoc(), rewriter);
-    if (failed(maybeMaskDims)) {
-      markFallback(op, "mask_analysis_failed", rewriter);
+    StringRef failureReason;
+    auto maybeAddressAndMask =
+        getAddressAndMaskDims(op, rewriter, failureReason);
+    if (failed(maybeAddressAndMask)) {
+      markFallback(op, failureReason, rewriter);
       return success();
     }
 
@@ -126,11 +130,13 @@ struct ConvertTTLoadPattern : OpRewritePattern<triton::LoadOp> {
 
     SmallVector<Value> dynamicMaskDims;
     SmallVector<int64_t> staticMaskDims;
-    dispatchIndexOpFoldResults(*maybeMaskDims, dynamicMaskDims, staticMaskDims);
+    dispatchIndexOpFoldResults(maybeAddressAndMask->maskDims, dynamicMaskDims,
+                               staticMaskDims);
 
     auto load = tta::LoadOp::create(
-        rewriter, op.getLoc(), op.getType(), *maybeAddr, dynamicMaskDims,
-        rewriter.getDenseI64ArrayAttr(staticMaskDims), *maybeOther);
+        rewriter, op.getLoc(), op.getType(), maybeAddressAndMask->addr,
+        dynamicMaskDims, rewriter.getDenseI64ArrayAttr(staticMaskDims),
+        *maybeOther);
     rewriter.replaceOp(op, load.getResult());
     return success();
   }
@@ -150,21 +156,17 @@ struct ConvertTTStorePattern : OpRewritePattern<triton::StoreOp> {
       return success();
     }
 
-    auto maybeAddr = getOrCreateAddress(op.getPtr(), op.getLoc(), rewriter);
-    if (failed(maybeAddr)) {
-      markFallback(op, "address_analysis_failed", rewriter);
+    StringRef failureReason;
+    auto maybeAddressAndMask =
+        getAddressAndMaskDims(op, rewriter, failureReason);
+    if (failed(maybeAddressAndMask)) {
+      markFallback(op, failureReason, rewriter);
       return success();
     }
 
-    auto maybeMaskDims =
-        TTAEmitter::analyzeMaskDims(op.getMask(), op.getLoc(), rewriter);
-    if (failed(maybeMaskDims)) {
-      markFallback(op, "mask_analysis_failed", rewriter);
-      return success();
-    }
-
-    rewriter.replaceOpWithNewOp<tta::StoreOp>(op, *maybeAddr, op.getValue(),
-                                              *maybeMaskDims);
+    rewriter.replaceOpWithNewOp<tta::StoreOp>(op, maybeAddressAndMask->addr,
+                                              op.getValue(),
+                                              maybeAddressAndMask->maskDims);
     return success();
   }
 };
@@ -209,10 +211,8 @@ struct MarkUnhandledTensorPtrPattern
     }
     rewriter.modifyOpInPlace(op, [&]() {
       op->setAttr(kFallbackAttrName, rewriter.getUnitAttr());
-      if (!op->hasAttr(kFallbackReasonAttrName)) {
-        op->setAttr(kFallbackReasonAttrName,
-                    rewriter.getStringAttr("tensor_ptr_unhandled"));
-      }
+      op->setAttr(kFallbackReasonAttrName,
+                  rewriter.getStringAttr("tensor_ptr_unhandled"));
     });
     return success();
   }
