@@ -19,10 +19,13 @@
 - For MLIR passes, dialects, or conversions, look for upstream patterns in `llvm-triton/llvm-project/mlir/` to match naming, structure, and pass/test layout.
 - For new `.mlir` tests, mirror `llvm-triton/llvm-project/mlir/test/` conventions for `// RUN:` lines and `FileCheck` patterns where applicable.
 - For Triton-facing changes, check `third_party/triton/` for expected behavior, API usage, and existing tests to keep parity.
+- For new Triton Python kernels, use examples in `third_party/triton/python/` (especially `tutorials/`, `test/`, and `triton_kernels/`) as the primary reference.
 
 ## Build, Test, and Development Commands
 
-- Use CMake only; skip Python setup.
+- Use `utils/agent/run_kernel_demo.sh` as a reference test harness for Triton Python kernels.
+- During testing, create task-specific scripts when needed (for example under `debug_agent/`), and inspect intermediate IR dumps/logs in the corresponding output directory.
+
 - Configure and build all cmake targets.
 
 ```bash
@@ -45,6 +48,15 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
 - When adding a lit test, refer to `utils/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand.
 - Skip `pre-commit`; handled manually.
+
+## Triton Python Kernel Development
+
+- Keep local kernels and runtime checks in `python/tests/` (or `python/examples/` for demos) with deterministic tensor sizes and dtypes.
+- Prefer starting from a minimal kernel shape (single purpose, explicit `tl.constexpr` meta-parameters, masked memory ops for bounds safety).
+- Reuse or adapt `utils/agent/run_kernel_demo.sh` for iteration; treat it as a template that sets useful defaults (for example `TRITON_ALWAYS_COMPILE=1` and MLIR dump flags).
+- Read `debug_agent/run_kernel_demo/compile.log` first for compiler/runtime failures, then inspect dumps in `debug_agent/run_kernel_demo/triton_xyz_mlir_dump/`.
+- Use upstream references in `third_party/triton/python/tutorials/`, `third_party/triton/python/test/`, and `third_party/triton/python/triton_kernels/` for API patterns and expected semantics.
+- When a kernel change relies on compiler transformations, add/update a focused `lit` test in `test/Conversion/` in addition to Python runtime coverage.
 
 ## Pipeline Modes (`triton-to-linalg` vs `triton-to-linalg-tta`)
 
