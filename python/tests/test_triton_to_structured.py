@@ -132,4 +132,7 @@ def test_row_major_2d():
 
 
 if __name__ == "__main__":
-    test_row_major_2d()
+    # test_gather_scatter_2d()
+    # test_row_major_2d()
+    # test_block_ptr_basic()
+    test_masked_1d(8)

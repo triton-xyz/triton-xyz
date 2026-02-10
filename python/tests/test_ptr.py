@@ -50,3 +50,7 @@ def test_pointer_select():
     offsets = torch.arange(0, n_elements, device=DEVICE)
     expected = torch.where((offsets % 2) == 0, src[:-1], src[1:])
     torch.testing.assert_close(dst, expected)
+
+
+if __name__ == "__main__":
+    test_pointer_select()
