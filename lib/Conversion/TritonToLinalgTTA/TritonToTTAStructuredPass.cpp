@@ -1,3 +1,4 @@
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-shared/AnalysisAddress/AnalysisAddress.h"
@@ -37,7 +38,11 @@ static bool hasNonEmptyBoundaryCheck(ArrayRef<T> boundaryCheck) {
 
 static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
                                            PatternRewriter &rewriter) {
-  if (ptrLike.getDefiningOp<tta::MakeAddrOp>()) {
+  if (isa<tta::AddrType>(ptrLike.getType())) {
+    return ptrLike;
+  }
+
+  if (ptrLike.getDefiningOp<tta::FromTTPtrOp>()) {
     return ptrLike;
   }
 
@@ -47,7 +52,12 @@ static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
     return failure();
   }
 
-  return TTAEmitter::emitMakeAddr(*maybeAddr, loc, rewriter);
+  auto maybeMakeAddr = TTAEmitter::emitMakeAddr(*maybeAddr, loc, rewriter);
+  if (failed(maybeMakeAddr)) {
+    return failure();
+  }
+
+  return *maybeMakeAddr;
 }
 
 static std::optional<StringRef> getEarlyFallbackReason(triton::LoadOp op) {
@@ -114,8 +124,13 @@ struct ConvertTTLoadPattern : OpRewritePattern<triton::LoadOp> {
       return success();
     }
 
-    auto load = tta::LoadOp::create(rewriter, op.getLoc(), *maybeAddr,
-                                    *maybeMaskDims, *maybeOther);
+    SmallVector<Value> dynamicMaskDims;
+    SmallVector<int64_t> staticMaskDims;
+    dispatchIndexOpFoldResults(*maybeMaskDims, dynamicMaskDims, staticMaskDims);
+
+    auto load = tta::LoadOp::create(
+        rewriter, op.getLoc(), op.getType(), *maybeAddr, dynamicMaskDims,
+        rewriter.getDenseI64ArrayAttr(staticMaskDims), *maybeOther);
     rewriter.replaceOp(op, load.getResult());
     return success();
   }

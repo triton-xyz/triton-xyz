@@ -5,6 +5,9 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "triton/Dialect/Triton/IR/TritonTypes.td"
 
+def TTA_AddrTypePred : Type<CPred<"::mlir::isa<::mlir::tta::AddrType>($_self)">,
+                            "tta.addr type">;
+
 def Triton_Address_Dialect : Dialect {
   let name = "tta";
 
@@ -23,6 +26,7 @@ def Triton_Address_Dialect : Dialect {
     "triton::TritonDialect"
   ];
 
+  let useDefaultTypePrinterParser = 1;
   let usePropertiesForAttributes = 1;
 }
 
@@ -30,7 +34,28 @@ class TTA_Op<string mnemonic, list<Trait> traits = []> :
     Op<Triton_Address_Dialect, mnemonic, traits> {
 }
 
+include "triton-shared/Dialect/TritonAddress/IR/TritonAddressTypes.td"
+
 def TTA_IndexTensorLike : AnyTypeOf<[I32Tensor, I64Tensor]>;
+
+def TTA_FromTTPtrOp : TTA_Op<"from_tt_ptr", [Pure]> {
+  let summary = "import tt.ptr-like value into tta.addr domain";
+
+  let arguments = (ins TT_PtrLike:$source);
+
+  let results = (outs TTA_AddrTypePred:$result);
+
+  let assemblyFormat = [{
+    $source attr-dict `:` type($source) `to` type($result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Value":$source)>,
+  ];
+
+  let hasVerifier = 1;
+  let hasCanonicalizer = 1;
+}
 
 def TTA_MakeAddrOp
   : TTA_Op<"make_addr", [AttrSizedOperandSegments, Pure]> {
@@ -46,7 +71,7 @@ def TTA_MakeAddrOp
                        DenseI64ArrayAttr:$static_shape,
                        DenseI32ArrayAttr:$order);
 
-  let results = (outs TT_PtrLike:$result);
+  let results = (outs TTA_AddrTypePred:$result);
 
   let assemblyFormat = [{
     $base `to` `sizes` `` `:` $sizes
@@ -107,14 +132,14 @@ def TTA_MakeAddrOp
 def TTA_ReindexOp : TTA_Op<"reindex", [AttrSizedOperandSegments, Pure]> {
   let summary = "reindex an address descriptor with affine or indirect indexing";
 
-  let arguments = (ins TT_PtrLike:$address,
+  let arguments = (ins TTA_AddrTypePred:$address,
                        Optional<TTA_IndexTensorLike>:$indirect_index,
                        OptionalAttr<I32Attr>:$indirect_dim,
                        Variadic<Index>:$offsets,
                        DenseI64ArrayAttr:$static_offsets,
                        Optional<TT_BoolLike>:$mask);
 
-  let results = (outs TT_PtrLike:$result);
+  let results = (outs TTA_AddrTypePred:$result);
 
   let builders = [
     OpBuilder<(ins "Value":$address,
@@ -138,16 +163,18 @@ def TTA_ReindexOp : TTA_Op<"reindex", [AttrSizedOperandSegments, Pure]> {
   }];
 
   let hasVerifier = 1;
+  let hasFolder = 1;
+  let hasCanonicalizer = 1;
 }
 
 def TTA_AdvanceOp : TTA_Op<"advance", [Pure]> {
   let summary = "advance an address descriptor by per-dimension deltas";
 
-  let arguments = (ins TT_PtrLike:$address,
+  let arguments = (ins TTA_AddrTypePred:$address,
                        Variadic<Index>:$deltas,
                        DenseI64ArrayAttr:$static_deltas);
 
-  let results = (outs TT_PtrLike:$result);
+  let results = (outs TTA_AddrTypePred:$result);
 
   let builders = [
     OpBuilder<(ins "Value":$address,
@@ -162,6 +189,8 @@ def TTA_AdvanceOp : TTA_Op<"advance", [Pure]> {
   }];
 
   let hasVerifier = 1;
+  let hasFolder = 1;
+  let hasCanonicalizer = 1;
 }
 
 def TTA_AtomicOp : TTA_Op<"atomic", [
@@ -176,7 +205,7 @@ def TTA_AtomicOp : TTA_Op<"atomic", [
   let arguments = (
     ins
     StrAttr:$kind,
-    TT_Ptr:$ptr,
+    TTA_AddrTypePred:$ptr,
     TT_IntLike:$offset,
     TT_Type:$value,
     Optional<TT_BoolLike>:$mask
@@ -210,7 +239,7 @@ def TTA_AtomicCASOp : TTA_Op<"atomic_cas", [
 
   let arguments = (
     ins
-    TT_Ptr:$ptr,
+    TTA_AddrTypePred:$ptr,
     TT_IntLike:$offset,
     TT_Type:$compare,
     TT_Type:$value
@@ -234,7 +263,7 @@ def TTA_LoadOp : TTA_Op<"load", [
 ]> {
   let summary = "optionally load data from memory to fill a tensor";
 
-  let arguments = (ins TT_PtrLike:$ptr,
+  let arguments = (ins TTA_AddrTypePred:$ptr,
                        Variadic<Index>:$mask_dims,
                        DenseI64ArrayAttr:$static_mask_dims,
                        Optional<AnyTypeOf<[TT_Float, TT_Int, TT_Ptr]>>:$other);
@@ -266,7 +295,7 @@ def TTA_StoreOp : TTA_Op<"store", [
 ]> {
   let summary = "optionally store data from tensor to memory";
 
-  let arguments = (ins TT_PtrLike:$ptr,
+  let arguments = (ins TTA_AddrTypePred:$ptr,
                        TT_Tensor:$value,
                        Variadic<Index>:$mask_dims,
                        DenseI64ArrayAttr:$static_mask_dims);
