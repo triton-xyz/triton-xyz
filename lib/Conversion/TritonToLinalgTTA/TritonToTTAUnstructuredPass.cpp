@@ -461,6 +461,17 @@ buildLinearMakeAddr(OpBuilder &builder, Location loc, Value ptr, Value offset) {
   return tta::MakeAddrOp::create(builder, loc, ptr, sizes, strides, offsets,
                                  shape, ArrayRef<int32_t>{});
 }
+
+static FailureOr<Value> buildLinearImportedAddr(OpBuilder &builder,
+                                                Location loc, Value ptr,
+                                                Value offset) {
+  auto maybeMakeAddr = buildLinearMakeAddr(builder, loc, ptr, offset);
+  if (failed(maybeMakeAddr)) {
+    return failure();
+  }
+  return maybeMakeAddr->getResult();
+}
+
 class TritonToTTAUnstructuredPass
     : public mlir::triton::impl::TritonToTTAUnstructuredBase<
           TritonToTTAUnstructuredPass> {
@@ -969,9 +980,9 @@ public:
                   return success();
                 }
 
-                auto maybeMakeAddr = buildLinearMakeAddr(b, loc, offsetInfo.ptr,
+                auto maybeAddr = buildLinearImportedAddr(b, loc, offsetInfo.ptr,
                                                          *maybeFlatOffset);
-                if (failed(maybeMakeAddr)) {
+                if (failed(maybeAddr)) {
                   markFallbackAndPreserve(load, "make_addr_build_failed");
                   return success();
                 }
@@ -986,11 +997,11 @@ public:
                   }
 
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
-                      *maybeFlatMask, /*indirectDim=*/0, zeroOffsets);
+                      b, loc, *maybeAddr, *maybeFlatOffset, *maybeFlatMask,
+                      /*indirectDim=*/0, zeroOffsets);
                 } else {
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
+                      b, loc, *maybeAddr, *maybeFlatOffset,
                       /*indirectDim=*/0, zeroOffsets);
                 }
 
@@ -1000,9 +1011,21 @@ public:
                   return success();
                 }
 
-                auto ttaLoad =
-                    tta::LoadOp::create(b, loc, reindex.getResult(),
-                                        ArrayRef<OpFoldResult>{}, *scalarOther);
+                auto flatOffsetType =
+                    dyn_cast<RankedTensorType>((*maybeFlatOffset).getType());
+                if (!flatOffsetType) {
+                  load->emitRemark("flat offset must be ranked tensor");
+                  return failure();
+                }
+
+                auto flatLoadType =
+                    RankedTensorType::get(flatOffsetType.getShape(),
+                                          getElementTypeOrSelf(load.getType()));
+
+                auto ttaLoad = tta::LoadOp::create(
+                    b, loc, flatLoadType, reindex.getResult(),
+                    ArrayRef<Value>{}, b.getDenseI64ArrayAttr({}),
+                    *scalarOther);
 
                 auto maybeResult = rebuildLoadResultFrom1DTensor(
                     ttaLoad.getResult(), load.getType(), loc, b);
@@ -1039,9 +1062,9 @@ public:
                   return success();
                 }
 
-                auto maybeMakeAddr = buildLinearMakeAddr(b, loc, offsetInfo.ptr,
+                auto maybeAddr = buildLinearImportedAddr(b, loc, offsetInfo.ptr,
                                                          *maybeFlatOffset);
-                if (failed(maybeMakeAddr)) {
+                if (failed(maybeAddr)) {
                   markFallbackAndPreserve(store, "make_addr_build_failed");
                   return success();
                 }
@@ -1056,11 +1079,11 @@ public:
                   }
 
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
-                      *maybeFlatMask, /*indirectDim=*/0, zeroOffsets);
+                      b, loc, *maybeAddr, *maybeFlatOffset, *maybeFlatMask,
+                      /*indirectDim=*/0, zeroOffsets);
                 } else {
                   reindex = tta::ReindexOp::create(
-                      b, loc, maybeMakeAddr->getResult(), *maybeFlatOffset,
+                      b, loc, *maybeAddr, *maybeFlatOffset,
                       /*indirectDim=*/0, zeroOffsets);
                 }
 
@@ -1195,15 +1218,25 @@ public:
                   return success();
                 }
 
+                SmallVector<int64_t> atomicSizes{1};
+                SmallVector<OpFoldResult> atomicStrides{b.getIndexAttr(1)};
+                SmallVector<OpFoldResult> atomicOffsets{b.getIndexAttr(0)};
+                SmallVector<OpFoldResult> atomicShape{b.getIndexAttr(0)};
+                Value importedPtr =
+                    tta::MakeAddrOp::create(b, loc, offsetInfo.ptr, atomicSizes,
+                                            atomicStrides, atomicOffsets,
+                                            atomicShape, ArrayRef<int32_t>{})
+                        .getResult();
+
                 tta::AtomicOp ttaAtomic;
                 if (Value mask = atomic.getMask()) {
                   ttaAtomic = tta::AtomicOp::create(
-                      b, loc, *maybeAtomicKind, offsetInfo.ptr,
-                      *maybeAtomicOffset, atomic.getVal(), mask);
+                      b, loc, *maybeAtomicKind, importedPtr, *maybeAtomicOffset,
+                      atomic.getVal(), mask);
                 } else {
                   ttaAtomic = tta::AtomicOp::create(
-                      b, loc, *maybeAtomicKind, offsetInfo.ptr,
-                      *maybeAtomicOffset, atomic.getVal());
+                      b, loc, *maybeAtomicKind, importedPtr, *maybeAtomicOffset,
+                      atomic.getVal());
                 }
                 atomic.replaceAllUsesWith(ttaAtomic.getResult());
                 atomic->erase();
@@ -1257,8 +1290,18 @@ public:
                   return success();
                 }
 
+                SmallVector<int64_t> atomicSizes{1};
+                SmallVector<OpFoldResult> atomicStrides{b.getIndexAttr(1)};
+                SmallVector<OpFoldResult> atomicOffsets{b.getIndexAttr(0)};
+                SmallVector<OpFoldResult> atomicShape{b.getIndexAttr(0)};
+                Value importedPtr =
+                    tta::MakeAddrOp::create(b, loc, offsetInfo.ptr, atomicSizes,
+                                            atomicStrides, atomicOffsets,
+                                            atomicShape, ArrayRef<int32_t>{})
+                        .getResult();
+
                 auto ttaAtomic = tta::AtomicCASOp::create(
-                    b, loc, offsetInfo.ptr, *maybeAtomicOffset, atomic.getCmp(),
+                    b, loc, importedPtr, *maybeAtomicOffset, atomic.getCmp(),
                     atomic.getVal());
                 atomic.replaceAllUsesWith(ttaAtomic.getResult());
                 atomic->erase();

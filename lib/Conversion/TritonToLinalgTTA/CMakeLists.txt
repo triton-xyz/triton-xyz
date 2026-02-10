@@ -1,6 +1,8 @@
 add_triton_library(TritonToLinalgTTA
   TTAToMemrefPass.cpp
   TritonToTTAStructuredPass.cpp
+  VerifyTTABridgeEliminatedPass.cpp
+  VerifyTTALoweredPass.cpp
   TritonToTTAUnstructuredPass.cpp
 
   DEPENDS
