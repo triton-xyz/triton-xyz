@@ -895,6 +895,64 @@ public:
                   toDelete.push_back(bitcast);
                   return success();
                 })
+                .Case<arith::SelectOp>([&](arith::SelectOp select) {
+                  auto res = select.getResult();
+                  auto resType = res.getType();
+
+                  if (!triton::isPtrTypeLike(resType)) {
+                    return success();
+                  }
+
+                  PtrOffset trueInfo;
+                  bool hasTrue = tryGetOffsetInfo(select.getTrueValue(),
+                                                  offsetMap, trueInfo);
+
+                  PtrOffset falseInfo;
+                  bool hasFalse = tryGetOffsetInfo(select.getFalseValue(),
+                                                   offsetMap, falseInfo);
+
+                  if (!hasTrue || !hasFalse) {
+                    return success();
+                  }
+
+                  if (trueInfo.ptr != falseInfo.ptr) {
+                    markFallbackAndPreserve(select,
+                                            "select_multi_base_unsupported");
+                    return success();
+                  }
+
+                  OpBuilder b{select};
+                  auto loc = select.getLoc();
+                  auto resWidth =
+                      std::max(trueInfo.bitWidth, falseInfo.bitWidth);
+                  auto resOffsetType = getPtrOffsetType(resType, resWidth);
+
+                  Value trueOffset = trueInfo.offset;
+                  if (trueInfo.bitWidth < resWidth) {
+                    trueOffset = arith::ExtSIOp::create(b, loc, resOffsetType,
+                                                        trueOffset)
+                                     .getResult();
+                  }
+
+                  Value falseOffset = falseInfo.offset;
+                  if (falseInfo.bitWidth < resWidth) {
+                    falseOffset = arith::ExtSIOp::create(b, loc, resOffsetType,
+                                                         falseOffset)
+                                      .getResult();
+                  }
+
+                  auto selectedOffset =
+                      arith::SelectOp::create(b, loc, select.getCondition(),
+                                              trueOffset, falseOffset)
+                          .getResult();
+
+                  PtrOffset newOffsetInfo{trueInfo.ptr, resType, resWidth,
+                                          selectedOffset};
+                  offsetMap.insert({res, newOffsetInfo});
+                  workList.push(res);
+                  toDelete.push_back(select);
+                  return success();
+                })
                 .Case<triton::LoadOp, triton::StoreOp, triton::MakeTensorPtrOp,
                       triton::AtomicRMWOp, triton::AtomicCASOp>(
                     [&](Operation *op) {

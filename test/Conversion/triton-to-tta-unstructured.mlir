@@ -242,3 +242,30 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @select_same_base_ptr_offsets_to_tta(
+// CHECK: %[[OFF0:.*]] = arith.addi
+// CHECK: %[[OFF1:.*]] = arith.addi
+// CHECK: %[[SEL:.*]] = arith.select %{{.*}}, %[[OFF0]], %[[OFF1]] : tensor<4xi1>, tensor<4xi32>
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [4]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %[[SEL]])
+// CHECK: %[[L0:.*]] = "tta.load"(%[[R0]], %{{.*}})
+// CHECK: tt.return %[[L0]] : tensor<4xi32>
+  tt.func @select_same_base_ptr_offsets_to_tta(%arg0: !tt.ptr<i32>) -> tensor<4xi32> {
+    %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %base = tt.splat %arg0 : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
+    %ptr0 = tt.addptr %base, %range : tensor<4x!tt.ptr<i32>>, tensor<4xi32>
+    %c1 = arith.constant dense<1> : tensor<4xi32>
+    %ptr1 = tt.addptr %ptr0, %c1 : tensor<4x!tt.ptr<i32>>, tensor<4xi32>
+    %c2 = arith.constant dense<2> : tensor<4xi32>
+    %rem = arith.remsi %range, %c2 : tensor<4xi32>
+    %c0 = arith.constant dense<0> : tensor<4xi32>
+    %mask = arith.cmpi eq, %rem, %c0 : tensor<4xi32>
+    %ptrs = arith.select %mask, %ptr0, %ptr1 : tensor<4xi1>, tensor<4x!tt.ptr<i32>>
+    %vals = tt.load %ptrs : tensor<4x!tt.ptr<i32>>
+    tt.return %vals : tensor<4xi32>
+  }
+}
