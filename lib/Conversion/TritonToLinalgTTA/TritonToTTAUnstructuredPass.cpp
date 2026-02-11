@@ -108,6 +108,23 @@ static bool isTensorOfPointers(Type type) {
   return isa<triton::PointerType>(tensorType.getElementType());
 }
 
+static bool isValueDefinedInsideOp(Operation *scope, Value value) {
+  if (!scope || !value) {
+    return false;
+  }
+
+  if (auto blockArg = dyn_cast<BlockArgument>(value)) {
+    Operation *owner = blockArg.getOwner()->getParentOp();
+    return owner && scope->isAncestor(owner);
+  }
+
+  if (Operation *def = value.getDefiningOp()) {
+    return scope->isAncestor(def);
+  }
+
+  return false;
+}
+
 template <typename LoadStoreLikeOp>
 static bool shouldHandleForFallback(LoadStoreLikeOp op) {
   if (!isTensorOfPointers(op.getPtr().getType())) {
@@ -658,14 +675,35 @@ public:
         if (fallbackPtrs.contains(current) || atomicPtrs.contains(current)) {
           return true;
         }
-        for (Operation *user : current.getUsers()) {
+        for (OpOperand &use : current.getUses()) {
+          Operation *user = use.getOwner();
+
           if (auto forOp = dyn_cast<scf::ForOp>(user)) {
-            for (auto [index, initArg] : llvm::enumerate(forOp.getInitArgs())) {
-              if (initArg != current) {
-                continue;
-              }
-              queue.push_back(forOp.getRegionIterArg(index));
-              queue.push_back(forOp.getResult(index));
+            unsigned operandNumber = use.getOperandNumber();
+            if (operandNumber < 3) {
+              continue;
+            }
+            unsigned index = operandNumber - 3;
+            if (index >= forOp.getInitArgs().size()) {
+              continue;
+            }
+            queue.push_back(forOp.getRegionIterArg(index));
+            queue.push_back(forOp.getResult(index));
+            continue;
+          }
+
+          if (auto yieldOp = dyn_cast<scf::YieldOp>(user)) {
+            auto ifOp = dyn_cast_or_null<scf::IfOp>(yieldOp->getParentOp());
+            if (!ifOp) {
+              continue;
+            }
+            unsigned resultIndex = use.getOperandNumber();
+            if (resultIndex >= ifOp.getNumResults()) {
+              continue;
+            }
+            Value ifResult = ifOp.getResult(resultIndex);
+            if (triton::isPtrTypeLike(ifResult.getType())) {
+              queue.push_back(ifResult);
             }
             continue;
           }
@@ -1010,7 +1048,123 @@ public:
 
                   return success();
                 })
-                .Case<scf::YieldOp>([](auto) { return success(); })
+                .Case<scf::YieldOp>([&](scf::YieldOp yieldOp) {
+                  auto ifOp =
+                      dyn_cast_or_null<scf::IfOp>(yieldOp->getParentOp());
+                  if (!ifOp) {
+                    return success();
+                  }
+
+                  unsigned resultIndex = use.getOperandNumber();
+                  if (resultIndex >= ifOp.getNumResults()) {
+                    return success();
+                  }
+
+                  Value ifResult = ifOp.getResult(resultIndex);
+                  Type ifResultType = ifResult.getType();
+                  if (!triton::isPtrTypeLike(ifResultType)) {
+                    return success();
+                  }
+
+                  PtrOffset existing;
+                  if (tryGetOffsetInfo(ifResult, offsetMap, existing)) {
+                    return success();
+                  }
+
+                  auto thenYield = dyn_cast<scf::YieldOp>(
+                      ifOp.getThenRegion().front().getTerminator());
+                  auto elseYield = dyn_cast_or_null<scf::YieldOp>(
+                      ifOp.elseBlock() ? ifOp.elseBlock()->getTerminator()
+                                       : nullptr);
+                  if (!thenYield || !elseYield ||
+                      resultIndex >= thenYield.getNumOperands() ||
+                      resultIndex >= elseYield.getNumOperands()) {
+                    markFallback(ifOp, "if_yield_mismatch");
+                    preservePtrChain(ifResult);
+                    return success();
+                  }
+
+                  Value thenPtr = thenYield.getOperand(resultIndex);
+                  Value elsePtr = elseYield.getOperand(resultIndex);
+
+                  PtrOffset thenInfo;
+                  bool hasThen = tryGetOffsetInfo(thenPtr, offsetMap, thenInfo);
+                  PtrOffset elseInfo;
+                  bool hasElse = tryGetOffsetInfo(elsePtr, offsetMap, elseInfo);
+                  if (!hasThen || !hasElse) {
+                    return success();
+                  }
+
+                  OpBuilder b{ifOp};
+                  auto loc = ifOp.getLoc();
+
+                  Value selectedBasePtr = thenInfo.ptr;
+                  if (thenInfo.ptr != elseInfo.ptr) {
+                    if (thenInfo.ptr.getType() != elseInfo.ptr.getType()) {
+                      markFallback(ifOp, "if_multi_base_type_mismatch");
+                      preservePtrChain(thenPtr);
+                      preservePtrChain(elsePtr);
+                      preservePtrChain(ifResult);
+                      return success();
+                    }
+                    if (!isa<triton::PointerType>(thenInfo.ptr.getType())) {
+                      markFallback(ifOp, "if_multi_base_non_scalar_ptr");
+                      preservePtrChain(thenPtr);
+                      preservePtrChain(elsePtr);
+                      preservePtrChain(ifResult);
+                      return success();
+                    }
+
+                    selectedBasePtr =
+                        arith::SelectOp::create(b, loc, ifOp.getCondition(),
+                                                thenInfo.ptr, elseInfo.ptr)
+                            .getResult();
+                  }
+
+                  if (isValueDefinedInsideOp(ifOp, thenInfo.offset) ||
+                      isValueDefinedInsideOp(ifOp, elseInfo.offset)) {
+                    markFallback(ifOp, "if_internal_offset_scope_unsupported");
+                    preservePtrChain(thenPtr);
+                    preservePtrChain(elsePtr);
+                    preservePtrChain(ifResult);
+                    return success();
+                  }
+
+                  auto resWidth =
+                      std::max(thenInfo.bitWidth, elseInfo.bitWidth);
+                  auto resOffsetType = getPtrOffsetType(ifResultType, resWidth);
+
+                  Value thenOffset = thenInfo.offset;
+                  if (thenInfo.bitWidth < resWidth) {
+                    thenOffset = arith::ExtSIOp::create(b, loc, resOffsetType,
+                                                        thenOffset)
+                                     .getResult();
+                  }
+
+                  Value elseOffset = elseInfo.offset;
+                  if (elseInfo.bitWidth < resWidth) {
+                    elseOffset = arith::ExtSIOp::create(b, loc, resOffsetType,
+                                                        elseOffset)
+                                     .getResult();
+                  }
+
+                  auto selectedOffset =
+                      arith::SelectOp::create(b, loc, ifOp.getCondition(),
+                                              thenOffset, elseOffset)
+                          .getResult();
+
+                  PtrOffset newOffsetInfo{selectedBasePtr, ifResultType,
+                                          resWidth, selectedOffset};
+                  offsetMap.insert({ifResult, newOffsetInfo});
+                  workList.push(ifResult);
+
+                  // Keep the original ptr-producing chains until users of the
+                  // scf.if result are fully rewritten.
+                  preservePtrChain(thenPtr);
+                  preservePtrChain(elsePtr);
+
+                  return success();
+                })
                 .Case<triton::CatOp>([&](triton::CatOp op) {
                   markFallbackAndPreserve(op, "multi_base_cat_unsupported");
                   return success();
