@@ -4,7 +4,7 @@ MLIR=test/Conversion/triton-to-ptr.mlir
 ARGS=(--split-input-file --triton-tensor-ptr-to-linalg --triton-to-ptr)
 # defalut `CHECK`
 PREFIX="CHECK"
-SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func)\b'
+SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'
 if triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR >/dev/null; then
   triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
 else
@@ -17,7 +17,7 @@ MLIR=test/Conversion/triton-to-structured-prepass.mlir
 ARGS=(--split-input-file --triton-to-structured --remove-dead-values --canonicalize)
 # defalut `CHECK`
 PREFIX="CHECK"
-SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func)\b'
+SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'
 if triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR >/dev/null; then
   triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
 else
@@ -26,7 +26,7 @@ fi
 ARGS=(--split-input-file --triton-to-structured="run-prepass-only=true")
 # another check `PREPASS`
 PREFIX="PREPASS"
-SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func)\b'
+SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'
 if triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR >/dev/null; then
   triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
 else

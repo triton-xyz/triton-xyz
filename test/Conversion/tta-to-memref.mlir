@@ -1,11 +1,19 @@
 // RUN: triton-xyz-opt --split-input-file --tta-to-memref --canonicalize --cse %s | FileCheck %s
 
-// CHECK-NOT: tta.
-
 module {
-// CHECK-LABEL: tt.func @structured_basic(
-// CHECK: memref.reinterpret_cast
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @structured_basic(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [0], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1]>>
+// CHECK:           memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1]>> to memref<4xf32>
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: [0], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1]>>
+// CHECK:           bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1]>>) -> ()
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @structured_basic(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
     %src_addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
     %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
@@ -18,10 +26,17 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @block_ptr_with_advance(
-// CHECK: memref.reinterpret_cast
-// CHECK: memref<4x4xf16
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @block_ptr_with_advance(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f16> to memref<*xf16>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4x4xf16>
+// CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [1], sizes: [4, 4], strides: [4, 1] : memref<*xf16> to memref<4x4xf16, strided<[4, 1], offset: 1>>
+// CHECK:           memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4x4xf16, strided<[4, 1], offset: 1>> to memref<4x4xf16>
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4x4xf16> to tensor<4x4xf16>
+// CHECK:           %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [0], sizes: [4, 4], strides: [4, 1] : memref<*xf16> to memref<4x4xf16, strided<[4, 1]>>
+// CHECK:           bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4x4xf16>, memref<4x4xf16, strided<[4, 1]>>) -> ()
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @block_ptr_with_advance(%base: !tt.ptr<f16>) {
     %addr = tta.make_addr %base to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], shape: [4, 4], order: [1, 0] : <f16> to !tta.addr<f16, 2, 1>
     %next = "tta.advance"(%addr) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f16, 2, 1>) -> !tta.addr<f16, 2, 1>
@@ -34,10 +49,40 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @indirect_masked_load_store(
-// CHECK: scf.for
-// CHECK: tensor.extract
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @indirect_masked_load_store(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant dense<[true, false, true, false]> : tensor<4xi1>
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 1.250000e+00 : f32
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           linalg.fill ins(%[[CONSTANT_5]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_4]]{{\[}}%[[VAL_0]]] : tensor<4xi1>
+// CHECK:             scf.if %[[EXTRACT_0]] {
+// CHECK:               %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:               %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]]{{\[}}%[[VAL_0]]] [1] [1] : memref<4xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1xf32, strided<[1], offset: ?>> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[CONSTANT_4]]{{\[}}%[[VAL_1]]] : tensor<4xi1>
+// CHECK:             scf.if %[[EXTRACT_2]] {
+// CHECK:               %[[EXTRACT_3:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:               %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[EXTRACT_3]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]]] [1] [1] : tensor<4xf32> to tensor<1xf32>
+// CHECK:               bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<1xf32>, memref<1xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @indirect_masked_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
     %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %mask = arith.constant dense<[true, false, true, false]> : tensor<4xi1>
@@ -58,9 +103,19 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @imported_addr_basic(
-// CHECK: memref.reinterpret_cast
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @imported_addr_basic(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [0], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1]>>
+// CHECK:           memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1]>> to memref<4xf32>
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: [0], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1]>>
+// CHECK:           bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1]>>) -> ()
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @imported_addr_basic(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
     %src_addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
     %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
@@ -75,12 +130,30 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @loop_carried_addr_supported(
-// CHECK: scf.for
-// CHECK: memref.reinterpret_cast
-// CHECK: memref.copy
-// CHECK: memref.reinterpret_cast
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : i32
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_0:.*]] = %[[CONSTANT_0]] to %[[ARG2]] step %[[CONSTANT_1]] iter_args(%[[VAL_1:.*]] = %[[MAKE_ADDR_0]], %[[VAL_2:.*]] = %[[MAKE_ADDR_1]]) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[VAL_0]] : i32 to index
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[INDEX_CAST_0]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1], offset: ?>> to memref<4xf32>
+// CHECK:             %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[INDEX_CAST_0]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             %[[VAL_3:.*]] = "tta.advance"(%[[VAL_1]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             %[[VAL_4:.*]] = "tta.advance"(%[[VAL_2]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             scf.yield %[[VAL_3]], %[[VAL_4]] : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @loop_carried_addr_supported(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
@@ -101,12 +174,32 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @loop_carried_addr_supported_non_unit(
-// CHECK: scf.for
-// CHECK: arith.subi
-// CHECK: arith.divsi
-// CHECK: memref.reinterpret_cast
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_non_unit(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 3 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 2 : i32
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_0:.*]] = %[[CONSTANT_0]] to %[[ARG2]] step %[[CONSTANT_1]] iter_args(%[[VAL_1:.*]] = %[[MAKE_ADDR_0]], %[[VAL_2:.*]] = %[[MAKE_ADDR_1]]) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[SUBI_0:.*]] = arith.subi %[[VAL_0]], %[[CONSTANT_0]] : i32
+// CHECK:             %[[DIVSI_0:.*]] = arith.divsi %[[SUBI_0]], %[[CONSTANT_1]] : i32
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[DIVSI_0]] : i32 to index
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[INDEX_CAST_0]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1], offset: ?>> to memref<4xf32>
+// CHECK:             %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[INDEX_CAST_0]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             %[[VAL_3:.*]] = "tta.advance"(%[[VAL_1]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             %[[VAL_4:.*]] = "tta.advance"(%[[VAL_2]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             scf.yield %[[VAL_3]], %[[VAL_4]] : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @loop_carried_addr_supported_non_unit(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
     %c3 = arith.constant 3 : i32
     %c2 = arith.constant 2 : i32
@@ -127,12 +220,35 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @loop_carried_addr_supported_index_iv(
-// CHECK: scf.for
-// CHECK: arith.subi
-// CHECK: arith.divsi
-// CHECK: memref.reinterpret_cast
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_index_iv(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 2 : i64
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 3 : i64
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 3 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 2 : index
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[ARG2]] step %[[CONSTANT_3]] iter_args(%[[VAL_1:.*]] = %[[MAKE_ADDR_0]], %[[VAL_2:.*]] = %[[MAKE_ADDR_1]]) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) {
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[VAL_0]] : index to i64
+// CHECK:             %[[SUBI_0:.*]] = arith.subi %[[INDEX_CAST_0]], %[[CONSTANT_1]] : i64
+// CHECK:             %[[DIVSI_0:.*]] = arith.divsi %[[SUBI_0]], %[[CONSTANT_0]] : i64
+// CHECK:             %[[INDEX_CAST_1:.*]] = arith.index_cast %[[DIVSI_0]] : i64 to index
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[INDEX_CAST_1]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1], offset: ?>> to memref<4xf32>
+// CHECK:             %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[INDEX_CAST_1]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             %[[VAL_3:.*]] = "tta.advance"(%[[VAL_1]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             %[[VAL_4:.*]] = "tta.advance"(%[[VAL_2]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             scf.yield %[[VAL_3]], %[[VAL_4]] : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @loop_carried_addr_supported_index_iv(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: index) {
     %c3 = arith.constant 3 : index
     %c2 = arith.constant 2 : index
@@ -153,11 +269,30 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @loop_carried_addr_supported_reindex(
-// CHECK: scf.for
-// CHECK: arith.index_cast
-// CHECK: memref.reinterpret_cast
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_reindex(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : i32
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_0:.*]] = %[[CONSTANT_0]] to %[[ARG2]] step %[[CONSTANT_1]] iter_args(%[[VAL_1:.*]] = %[[MAKE_ADDR_0]], %[[VAL_2:.*]] = %[[MAKE_ADDR_1]]) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[VAL_0]] : i32 to index
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[INDEX_CAST_0]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1], offset: ?>> to memref<4xf32>
+// CHECK:             %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:             %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[INDEX_CAST_0]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             %[[VAL_3:.*]] = "tta.reindex"(%[[VAL_1]]) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             %[[VAL_4:.*]] = "tta.reindex"(%[[VAL_2]]) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             scf.yield %[[VAL_3]], %[[VAL_4]] : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @loop_carried_addr_supported_reindex(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
@@ -177,10 +312,33 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @indirect_non_zero_offset(
-// CHECK: scf.for
-// CHECK: arith.addi
-// CHECK: bufferization.materialize_in_destination
+// CHECK-LABEL:   tt.func @indirect_non_zero_offset(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[EXTRACT_0]], %[[CONSTANT_1]] : index
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[ADDI_0]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]]{{\[}}%[[VAL_0]]] [1] [1] : memref<4xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1xf32, strided<[1], offset: ?>> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:             %[[ADDI_1:.*]] = arith.addi %[[EXTRACT_1]], %[[CONSTANT_1]] : index
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[ADDI_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]]] [1] [1] : tensor<4xf32> to tensor<1xf32>
+// CHECK:             bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<1xf32>, memref<1xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @indirect_non_zero_offset(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
     %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
 
@@ -198,11 +356,42 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @chained_indirect_same_dim(
-// CHECK: arith.index_cast
-// CHECK: arith.addi
-// CHECK: arith.andi
-// CHECK: scf.for
+// CHECK-LABEL:   tt.func @chained_indirect_same_dim(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi1>,
+// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi1>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 4 : index
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : tensor<4xi32> to tensor<4xindex>
+// CHECK:           %[[INDEX_CAST_1:.*]] = arith.index_cast %[[ARG2]] : tensor<4xi32> to tensor<4xindex>
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[INDEX_CAST_1]] : tensor<4xindex>
+// CHECK:           %[[ANDI_0:.*]] = arith.andi %[[ARG3]], %[[ARG4]] : tensor<4xi1>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_1]] to %[[CONSTANT_2]] step %[[CONSTANT_0]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[ANDI_0]]{{\[}}%[[VAL_0]]] : tensor<4xi1>
+// CHECK:             scf.if %[[EXTRACT_0]] {
+// CHECK:               %[[EXTRACT_1:.*]] = tensor.extract %[[ADDI_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:               %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]]{{\[}}%[[VAL_0]]] [1] [1] : memref<4xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1xf32, strided<[1], offset: ?>> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_1]] to %[[CONSTANT_2]] step %[[CONSTANT_0]] {
+// CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[ANDI_0]]{{\[}}%[[VAL_1]]] : tensor<4xi1>
+// CHECK:             scf.if %[[EXTRACT_2]] {
+// CHECK:               %[[EXTRACT_3:.*]] = tensor.extract %[[ADDI_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:               %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_3]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]]] [1] [1] : tensor<4xf32> to tensor<1xf32>
+// CHECK:               bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<1xf32>, memref<1xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @chained_indirect_same_dim(%src: !tt.ptr<f32>, %idx0: tensor<4xi32>, %idx1: tensor<4xi32>, %mask0: tensor<4xi1>, %mask1: tensor<4xi1>) {
     %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
     %r0 = "tta.reindex"(%addr, %idx0, %mask0) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>, tensor<4xi1>) -> !tta.addr<f32, 1, 1>
@@ -220,11 +409,46 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @chained_indirect_dynamic_static_dim(
-// CHECK: tensor.cast
-// CHECK: arith.addi
-// CHECK: arith.andi
-// CHECK: scf.for
+// CHECK-LABEL:   tt.func @chained_indirect_dynamic_static_dim(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?xi32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?xi1>,
+// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi1>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : tensor<?xi32> to tensor<?xindex>
+// CHECK:           %[[INDEX_CAST_1:.*]] = arith.index_cast %[[ARG2]] : tensor<4xi32> to tensor<4xindex>
+// CHECK:           %[[CAST_0:.*]] = tensor.cast %[[INDEX_CAST_1]] : tensor<4xindex> to tensor<?xindex>
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CAST_0]] : tensor<?xindex>
+// CHECK:           %[[CAST_1:.*]] = tensor.cast %[[ARG4]] : tensor<4xi1> to tensor<?xi1>
+// CHECK:           %[[ANDI_0:.*]] = arith.andi %[[ARG3]], %[[CAST_1]] : tensor<?xi1>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           %[[DIM_0:.*]] = tensor.dim %[[ADDI_0]], %[[CONSTANT_2]] : tensor<?xindex>
+// CHECK:           %[[MINSI_0:.*]] = arith.minsi %[[DIM_0]], %[[CONSTANT_1]] : index
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[MINSI_0]] step %[[CONSTANT_0]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[ANDI_0]]{{\[}}%[[VAL_0]]] : tensor<?xi1>
+// CHECK:             scf.if %[[EXTRACT_0]] {
+// CHECK:               %[[EXTRACT_1:.*]] = tensor.extract %[[ADDI_0]]{{\[}}%[[VAL_0]]] : tensor<?xindex>
+// CHECK:               %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]]{{\[}}%[[VAL_0]]] [1] [1] : memref<4xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1xf32, strided<[1], offset: ?>> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[MINSI_0]] step %[[CONSTANT_0]] {
+// CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[ANDI_0]]{{\[}}%[[VAL_1]]] : tensor<?xi1>
+// CHECK:             scf.if %[[EXTRACT_2]] {
+// CHECK:               %[[EXTRACT_3:.*]] = tensor.extract %[[ADDI_0]]{{\[}}%[[VAL_1]]] : tensor<?xindex>
+// CHECK:               %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_3]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]]] [1] [1] : tensor<4xf32> to tensor<1xf32>
+// CHECK:               bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<1xf32>, memref<1xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @chained_indirect_dynamic_static_dim(%src: !tt.ptr<f32>, %idx_dyn: tensor<?xi32>, %idx_static: tensor<4xi32>, %mask_dyn: tensor<?xi1>, %mask_static: tensor<4xi1>) {
     %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
     %r0 = "tta.reindex"(%addr, %idx_dyn, %mask_dyn) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0>}> : (!tta.addr<f32, 1, 1>, tensor<?xi32>, tensor<?xi1>) -> !tta.addr<f32, 1, 1>
@@ -242,11 +466,26 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @atomic_scalar_basic(
-// CHECK: memref.generic_atomic_rmw
-// CHECK: arith.select
-// CHECK: memref.atomic_yield
-// CHECK: memref.generic_atomic_rmw
+// CHECK-LABEL:   tt.func @atomic_scalar_basic(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             %[[SELECT_0:.*]] = arith.select %[[ARG3]], %[[ADDI_0]], %[[VAL_0]] : i32
+// CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
+// CHECK:           }
+// CHECK:           %[[GENERIC_ATOMIC_RMW_1:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_1:.*]]: i32):
+// CHECK:             memref.atomic_yield %[[GENERIC_ATOMIC_RMW_0]] : i32
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @atomic_scalar_basic(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %mask: i1) {
     %ptr_i = tta.make_addr %ptr to sizes: [1], strides: [1], offsets: [0], shape: [0], order: [] : <i32> to !tta.addr<i32, 1, 1>
     %r0 = "tta.atomic"(%ptr_i, %off, %val, %mask) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32, i1) -> i32
@@ -260,10 +499,20 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @atomic_float_add(
-// CHECK: memref.generic_atomic_rmw
-// CHECK: arith.addf
-// CHECK: memref.atomic_yield
+// CHECK-LABEL:   tt.func @atomic_float_add(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: f32):
+// CHECK:             %[[ADDF_0:.*]] = arith.addf %[[VAL_0]], %[[ARG2]] : f32
+// CHECK:             memref.atomic_yield %[[ADDF_0]] : f32
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @atomic_float_add(%ptr: !tt.ptr<f32>, %off: i32, %val: f32) {
     %ptr_i = tta.make_addr %ptr to sizes: [1], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
     %r = "tta.atomic"(%ptr_i, %off, %val) <{kind = "fadd"}> : (!tta.addr<f32, 1, 1>, i32, f32) -> f32
@@ -275,11 +524,22 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @atomic_cas_scalar(
-// CHECK: memref.generic_atomic_rmw
-// CHECK: arith.cmpi eq
-// CHECK: arith.select
-// CHECK: memref.atomic_yield
+// CHECK-LABEL:   tt.func @atomic_cas_scalar(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[CMPI_0:.*]] = arith.cmpi eq, %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ARG3]], %[[VAL_0]] : i32
+// CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @atomic_cas_scalar(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32) {
     %ptr_i = tta.make_addr %ptr to sizes: [1], strides: [1], offsets: [0], shape: [0], order: [] : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
@@ -291,11 +551,22 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @atomic_cas_float(
-// CHECK: memref.generic_atomic_rmw
-// CHECK: arith.cmpf oeq
-// CHECK: arith.select
-// CHECK: memref.atomic_yield
+// CHECK-LABEL:   tt.func @atomic_cas_float(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: f32):
+// CHECK:             %[[CMPF_0:.*]] = arith.cmpf oeq, %[[VAL_0]], %[[ARG2]] : f32
+// CHECK:             %[[SELECT_0:.*]] = arith.select %[[CMPF_0]], %[[ARG3]], %[[VAL_0]] : f32
+// CHECK:             memref.atomic_yield %[[SELECT_0]] : f32
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @atomic_cas_float(%ptr: !tt.ptr<f32>, %off: i32, %cmp: f32, %val: f32) {
     %ptr_i = tta.make_addr %ptr to sizes: [1], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
     %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<f32, 1, 1>, i32, f32, f32) -> f32

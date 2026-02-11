@@ -18,11 +18,13 @@ module {
 // CHECK-LABEL:   tt.func @ptr_select_to_memref_select(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[PRED:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
-// CHECK:           %[[SEL:.*]] = arith.select %[[PRED]], %[[ARG0]], %[[ARG1]] : memref<*xf32>
-// CHECK-NOT:       !tt.ptr
-// CHECK:           memref.reinterpret_cast %[[SEL]]
-// CHECK:           return
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
+// CHECK:           %[[SELECT_0:.*]] = arith.select %[[ARG2]], %[[ARG0]], %[[ARG1]] : memref<*xf32>
+// CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[SELECT_0]] to offset: [0], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:           memref.store %[[CONSTANT_0]], %[[REINTERPRET_CAST_0]]{{\[}}%[[CONSTANT_1]]] : memref<1xf32, strided<[1], offset: ?>>
+// CHECK:           tt.return
 // CHECK:         }
   tt.func @ptr_select_to_memref_select(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %pred: i1) {
     %c0_idx = arith.constant 0 : index

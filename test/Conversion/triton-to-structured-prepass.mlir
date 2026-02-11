@@ -74,8 +74,39 @@ module {
 // -----
 
 module {
+// CHECK-LABEL:   tt.func @loop_i64_iterargs(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
+// CHECK:           %[[FOR_0:.*]] = scf.for %[[VAL_0:.*]] = %[[CONSTANT_0]] to %[[CONSTANT_1]] step %[[CONSTANT_2]] iter_args(%[[VAL_1:.*]] = %[[CONSTANT_2]]) -> (index) {
+// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_1]], %[[CONSTANT_2]] : index
+// CHECK:             scf.yield %[[ADDI_0]] : index
+// CHECK:           }
+// CHECK:           %[[MAKE_TPTR_0:.*]] = tts.make_tptr %[[ARG0]] to sizes: [4], strides: {{\[}}%[[FOR_0]]], offsets: {{\[}}%[[CONSTANT_0]]], shape: [0], order: [] : <i32> to tensor<4x!tt.ptr<i32>>
+// CHECK:           %[[VAL_2:.*]] = "tts.load"(%[[MAKE_TPTR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<i32>>) -> tensor<4xi32>
+// CHECK:           "tts.store"(%[[MAKE_TPTR_0]], %[[VAL_2]]) <{static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<i32>>, tensor<4xi32>) -> ()
+// CHECK:           tt.return
+// CHECK:         }
 // PREPASS-LABEL:   tt.func @loop_i64_iterargs(
-// PREPASS:           "tts.get_structured_state"(%{{.*}}) <{resultSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<4xi64>) -> (tensor<4xi64>, index, index)
+// PREPASS-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
+// PREPASS:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// PREPASS:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// PREPASS:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
+// PREPASS:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// PREPASS:           %[[EXTSI_0:.*]] = arith.extsi %[[MAKE_RANGE_0]] : tensor<4xi32> to tensor<4xi64>
+// PREPASS:           %[[VAL_0:.*]], %[[VAL_1:.*]], %[[VAL_2:.*]] = "tts.get_structured_state"(%[[EXTSI_0]]) <{resultSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<4xi64>) -> (tensor<4xi64>, index, index)
+// PREPASS:           %[[FOR_0:.*]] = scf.for %[[VAL_3:.*]] = %[[CONSTANT_0]] to %[[CONSTANT_1]] step %[[CONSTANT_2]] iter_args(%[[VAL_4:.*]] = %[[VAL_0]]) -> (tensor<4xi64>) {
+// PREPASS:             %[[ADDI_0:.*]] = arith.addi %[[VAL_4]], %[[EXTSI_0]] : tensor<4xi64>
+// PREPASS:             %[[VAL_5:.*]], %[[VAL_6:.*]], %[[VAL_7:.*]] = "tts.get_structured_state"(%[[ADDI_0]]) <{resultSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<4xi64>) -> (tensor<4xi64>, index, index)
+// PREPASS:             scf.yield %[[VAL_5]] : tensor<4xi64>
+// PREPASS:           }
+// PREPASS:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<i32> -> tensor<4x!tt.ptr<i32>>
+// PREPASS:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[FOR_0]] : tensor<4x!tt.ptr<i32>>, tensor<4xi64>
+// PREPASS:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]] : tensor<4x!tt.ptr<i32>>
+// PREPASS:           tt.store %[[ADDPTR_0]], %[[LOAD_0]] : tensor<4x!tt.ptr<i32>>
+// PREPASS:           tt.return
+// PREPASS:         }
   tt.func @loop_i64_iterargs(%arg0: !tt.ptr<i32>) {
     %c0 = arith.constant 0 : index
     %c4 = arith.constant 4 : index

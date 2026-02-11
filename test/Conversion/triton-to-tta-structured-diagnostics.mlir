@@ -1,9 +1,30 @@
 // RUN: triton-xyz-opt --split-input-file --triton-to-tta-structured %s | FileCheck %s
 
 module {
-// CHECK-LABEL: tt.func @fallback_mask_rank_not_1d(
-// CHECK: tt.load %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "mask_rank_not_1d"}
-// CHECK: tt.store %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "mask_rank_not_1d"}
+// CHECK-LABEL:   tt.func @fallback_mask_rank_not_1d(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<2x4xf32>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant dense<4> : tensor<2x4xi32>
+// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
+// CHECK:           %[[MAKE_RANGE_1:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// CHECK:           %[[EXPAND_DIMS_0:.*]] = tt.expand_dims %[[MAKE_RANGE_0]] {axis = 1 : i32} : tensor<2xi32> -> tensor<2x1xi32>
+// CHECK:           %[[EXPAND_DIMS_1:.*]] = tt.expand_dims %[[MAKE_RANGE_1]] {axis = 0 : i32} : tensor<4xi32> -> tensor<1x4xi32>
+// CHECK:           %[[BROADCAST_0:.*]] = tt.broadcast %[[EXPAND_DIMS_0]] : tensor<2x1xi32> -> tensor<2x4xi32>
+// CHECK:           %[[BROADCAST_1:.*]] = tt.broadcast %[[EXPAND_DIMS_1]] : tensor<1x4xi32> -> tensor<2x4xi32>
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[BROADCAST_0]], %[[CONSTANT_1]] : tensor<2x4xi32>
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[MULI_0]], %[[BROADCAST_1]] : tensor<2x4xi32>
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[ADDI_0]] : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
+// CHECK:           %[[SPLAT_1:.*]] = tt.splat %[[ARG2]] : i32 -> tensor<2x4xi32>
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[ADDI_0]], %[[SPLAT_1]] : tensor<2x4xi32>
+// CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]], %[[CMPI_0]], %[[CONSTANT_0]] {tta.fallback, tta.fallback_reason = "mask_rank_not_1d"} : tensor<2x4x!tt.ptr<f32>>
+// CHECK:           %[[SPLAT_2:.*]] = tt.splat %[[ARG1]] : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_1:.*]] = tt.addptr %[[SPLAT_2]], %[[ADDI_0]] : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
+// CHECK:           tt.store %[[ADDPTR_1]], %[[LOAD_0]], %[[CMPI_0]] {tta.fallback, tta.fallback_reason = "mask_rank_not_1d"} : tensor<2x4x!tt.ptr<f32>>
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @fallback_mask_rank_not_1d(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %row = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
     %col = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
@@ -32,9 +53,22 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @fallback_mask_analysis_failed(
-// CHECK: tt.load %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "mask_analysis_failed"}
-// CHECK: tt.store %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "mask_analysis_failed"}
+// CHECK-LABEL:   tt.func @fallback_mask_analysis_failed(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<4xf32>
+// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[SPLAT_1:.*]] = tt.splat %[[ARG1]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[ADDPTR_1:.*]] = tt.addptr %[[SPLAT_1]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[SPLAT_2:.*]] = tt.splat %[[ARG2]] : i32 -> tensor<4xi32>
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi eq, %[[MAKE_RANGE_0]], %[[SPLAT_2]] : tensor<4xi32>
+// CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]], %[[CMPI_0]], %[[CONSTANT_0]] {tta.fallback, tta.fallback_reason = "mask_analysis_failed"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.store %[[ADDPTR_1]], %[[LOAD_0]], %[[CMPI_0]] {tta.fallback, tta.fallback_reason = "mask_analysis_failed"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @fallback_mask_analysis_failed(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -54,8 +88,18 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @fallback_other_not_scalar_splat(
-// CHECK: tt.load %{{.*}}, %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "other_not_scalar_splat"}
+// CHECK-LABEL:   tt.func @fallback_other_not_scalar_splat(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> tensor<4xf32> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0.000000e+00, 1.000000e+00, 2.000000e+00, 3.000000e+00]> : tensor<4xf32>
+// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[SPLAT_1:.*]] = tt.splat %[[ARG1]] : i32 -> tensor<4xi32>
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[MAKE_RANGE_0]], %[[SPLAT_1]] : tensor<4xi32>
+// CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]], %[[CMPI_0]], %[[CONSTANT_0]] {tta.fallback, tta.fallback_reason = "other_not_scalar_splat"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.return %[[LOAD_0]] : tensor<4xf32>
+// CHECK:         }
   tt.func @fallback_other_not_scalar_splat(%arg0: !tt.ptr<f32>, %arg1: i32) -> tensor<4xf32> {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -71,9 +115,15 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @fallback_boundary_check_not_supported(
-// CHECK: tt.load %{{.*}} {boundaryCheck = array<i32: 0>, padding = 2 : i32, tta.fallback, tta.fallback_reason = "boundary_check_not_supported"}
-// CHECK: tt.store %{{.*}}, %{{.*}} {boundaryCheck = array<i32: 0>, tta.fallback, tta.fallback_reason = "boundary_check_not_supported"}
+// CHECK-LABEL:   tt.func @fallback_boundary_check_not_supported(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]] {boundaryCheck = array<i32: 0>, padding = 2 : i32, tta.fallback, tta.fallback_reason = "boundary_check_not_supported"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.store %[[ADDPTR_0]], %[[LOAD_0]] {boundaryCheck = array<i32: 0>, tta.fallback, tta.fallback_reason = "boundary_check_not_supported"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @fallback_boundary_check_not_supported(%arg0: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -87,9 +137,18 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @preserve_premarked_load_store(
-// CHECK: tt.load %{{.*}} {tta.fallback, tta.fallback_reason = "pre_marked_load"}
-// CHECK: tt.store %{{.*}}, %{{.*}} {tta.fallback, tta.fallback_reason = "pre_marked_store"}
+// CHECK-LABEL:   tt.func @preserve_premarked_load_store(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[SPLAT_1:.*]] = tt.splat %[[ARG1]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[ADDPTR_1:.*]] = tt.addptr %[[SPLAT_1]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]] {tta.fallback, tta.fallback_reason = "pre_marked_load"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.store %[[ADDPTR_1]], %[[LOAD_0]] {tta.fallback, tta.fallback_reason = "pre_marked_store"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.return
+// CHECK:         }
   tt.func @preserve_premarked_load_store(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
     %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
     %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -105,8 +164,14 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @fallback_tensor_ptr_unhandled(
-// CHECK: tt.make_tensor_ptr %arg0{{.*}} {order = array<i32: 1, 0>, tta.fallback, tta.fallback_reason = "tensor_ptr_unhandled"}
+// CHECK-LABEL:   tt.func @fallback_tensor_ptr_unhandled(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) -> !tt.ptr<tensor<4x4xf16>> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : i64
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : i64
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i32
+// CHECK:           %[[MAKE_TENSOR_PTR_0:.*]] = tt.make_tensor_ptr %[[ARG0]], {{\[}}%[[CONSTANT_0]], %[[CONSTANT_0]]], {{\[}}%[[CONSTANT_0]], %[[CONSTANT_1]]], {{\[}}%[[CONSTANT_2]], %[[CONSTANT_2]]] {order = array<i32: 1, 0>, tta.fallback, tta.fallback_reason = "tensor_ptr_unhandled"} : <tensor<4x4xf16>>
+// CHECK:           tt.return %[[MAKE_TENSOR_PTR_0]] : !tt.ptr<tensor<4x4xf16>>
+// CHECK:         }
   tt.func @fallback_tensor_ptr_unhandled(%arg0: !tt.ptr<f16>) -> !tt.ptr<tensor<4x4xf16>> {
     %c4_i64 = arith.constant 4 : i64
     %c1_i64 = arith.constant 1 : i64
@@ -119,8 +184,14 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @preserve_premarked_tensor_ptr_reason(
-// CHECK: tt.make_tensor_ptr %arg0{{.*}} {order = array<i32: 1, 0>, tta.fallback, tta.fallback_reason = "pre_marked_reason"}
+// CHECK-LABEL:   tt.func @preserve_premarked_tensor_ptr_reason(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) -> !tt.ptr<tensor<4x4xf16>> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : i64
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : i64
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i32
+// CHECK:           %[[MAKE_TENSOR_PTR_0:.*]] = tt.make_tensor_ptr %[[ARG0]], {{\[}}%[[CONSTANT_0]], %[[CONSTANT_0]]], {{\[}}%[[CONSTANT_0]], %[[CONSTANT_1]]], {{\[}}%[[CONSTANT_2]], %[[CONSTANT_2]]] {order = array<i32: 1, 0>, tta.fallback, tta.fallback_reason = "pre_marked_reason"} : <tensor<4x4xf16>>
+// CHECK:           tt.return %[[MAKE_TENSOR_PTR_0]] : !tt.ptr<tensor<4x4xf16>>
+// CHECK:         }
   tt.func @preserve_premarked_tensor_ptr_reason(%arg0: !tt.ptr<f16>) -> !tt.ptr<tensor<4x4xf16>> {
     %c4_i64 = arith.constant 4 : i64
     %c1_i64 = arith.constant 1 : i64
@@ -133,8 +204,14 @@ module {
 // -----
 
 module {
-// CHECK-LABEL: tt.func @override_premarked_tensor_ptr_reason(
-// CHECK: tt.make_tensor_ptr %arg0{{.*}} {order = array<i32: 1, 0>, tta.fallback, tta.fallback_reason = "tensor_ptr_unhandled"}
+// CHECK-LABEL:   tt.func @override_premarked_tensor_ptr_reason(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) -> !tt.ptr<tensor<4x4xf16>> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : i64
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : i64
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i32
+// CHECK:           %[[MAKE_TENSOR_PTR_0:.*]] = tt.make_tensor_ptr %[[ARG0]], {{\[}}%[[CONSTANT_0]], %[[CONSTANT_0]]], {{\[}}%[[CONSTANT_0]], %[[CONSTANT_1]]], {{\[}}%[[CONSTANT_2]], %[[CONSTANT_2]]] {order = array<i32: 1, 0>, tta.fallback, tta.fallback_reason = "tensor_ptr_unhandled"} : <tensor<4x4xf16>>
+// CHECK:           tt.return %[[MAKE_TENSOR_PTR_0]] : !tt.ptr<tensor<4x4xf16>>
+// CHECK:         }
   tt.func @override_premarked_tensor_ptr_reason(%arg0: !tt.ptr<f16>) -> !tt.ptr<tensor<4x4xf16>> {
     %c4_i64 = arith.constant 4 : i64
     %c1_i64 = arith.constant 1 : i64
