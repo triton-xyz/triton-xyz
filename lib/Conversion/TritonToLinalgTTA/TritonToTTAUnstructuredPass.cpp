@@ -108,6 +108,15 @@ static bool isTensorOfPointers(Type type) {
   return isa<triton::PointerType>(tensorType.getElementType());
 }
 
+static bool isScalarPointer(Type type) {
+  auto ptrType = dyn_cast<triton::PointerType>(type);
+  if (!ptrType) {
+    return false;
+  }
+
+  return !isa<RankedTensorType>(ptrType.getPointeeType());
+}
+
 static bool isValueDefinedInsideOp(Operation *scope, Value value) {
   if (!scope || !value) {
     return false;
@@ -127,7 +136,8 @@ static bool isValueDefinedInsideOp(Operation *scope, Value value) {
 
 template <typename LoadStoreLikeOp>
 static bool shouldHandleForFallback(LoadStoreLikeOp op) {
-  if (!isTensorOfPointers(op.getPtr().getType())) {
+  Type ptrType = op.getPtr().getType();
+  if (!isTensorOfPointers(ptrType) && !isScalarPointer(ptrType)) {
     return false;
   }
 

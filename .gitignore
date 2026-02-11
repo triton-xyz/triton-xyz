@@ -13,3 +13,5 @@ third_party/.gitignore
 !.pixi/config.toml
 # skip for now
 pixi.lock
+
+*.log

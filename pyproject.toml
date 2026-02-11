@@ -10,4 +10,5 @@ docstring-code-format = true
 
 # https://github.com/astral-sh/ty/blob/main/docs/reference/configuration.md
 [tool.ty.environment]
-extra-paths = ["./third_party/triton/python"]
+# TODO: add submodules
+extra-paths = ["./third_party/triton/python", "third_party/tritonbench"]

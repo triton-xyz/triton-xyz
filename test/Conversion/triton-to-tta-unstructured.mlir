@@ -269,3 +269,19 @@ module {
     tt.return %vals : tensor<4xi32>
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL: tt.func @scalar_ptr_store_fallback_to_tta(
+// CHECK: %[[OFF:.*]] = arith.addi %{{.*}}, %arg1 : i32
+// CHECK: %[[A0:.*]] = tta.make_addr %arg0 to sizes: [1]
+// CHECK: %[[R0:.*]] = "tta.reindex"(%[[A0]], %{{.*}})
+// CHECK: %[[V0:.*]] = tensor.from_elements %arg2 : tensor<1xf32>
+// CHECK: "tta.store"(%[[R0]], %[[V0]])
+  tt.func @scalar_ptr_store_fallback_to_tta(%arg0: !tt.ptr<f32>, %arg1: i32, %arg2: f32) {
+    %ptr = tt.addptr %arg0, %arg1 : !tt.ptr<f32>, i32
+    tt.store %ptr, %arg2 : !tt.ptr<f32>
+    tt.return
+  }
+}
