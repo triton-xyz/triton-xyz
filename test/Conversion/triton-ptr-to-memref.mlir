@@ -15,6 +15,29 @@ module {
 // -----
 
 module {
+// CHECK-LABEL:   tt.func @ptr_select_to_memref_select(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[PRED:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK:           %[[SEL:.*]] = arith.select %[[PRED]], %[[ARG0]], %[[ARG1]] : memref<*xf32>
+// CHECK-NOT:       !tt.ptr
+// CHECK:           memref.reinterpret_cast %[[SEL]]
+// CHECK:           return
+// CHECK:         }
+  tt.func @ptr_select_to_memref_select(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %pred: i1) {
+    %c0_idx = arith.constant 0 : index
+    %sel = arith.select %pred, %arg0, %arg1 : !tt.ptr<f32>
+    %u = builtin.unrealized_conversion_cast %sel : !tt.ptr<f32> to memref<*xf32>
+    %v = memref.reinterpret_cast %u to offset: [0], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+    %c0 = arith.constant 0.0 : f32
+    memref.store %c0, %v[%c0_idx] : memref<1xf32, strided<[1], offset: ?>>
+    tt.return
+  }
+}
+
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @tt_ptr_arg(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf16>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f16

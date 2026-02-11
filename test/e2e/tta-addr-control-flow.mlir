@@ -39,9 +39,10 @@ module {
 module {
   // CHECK-LABEL: func.func @if_ptr_merge_lowering(
   // CHECK-SAME: memref<*xf32>, %[[ARG1:.*]]: memref<*xf32>, %[[PRED:.*]]: i1
-  // CHECK: %[[SEL:.*]] = arith.select %[[PRED]], %{{.*}}, %{{.*}} : tensor<4x!ptr.ptr<#ptr.generic_space>>
-  // CHECK: %[[LOOP:.*]] = scf.for
-  // CHECK: ptr.load
+  // CHECK: %[[SEL_MEM:.*]] = arith.select %[[PRED]], %{{.*}}, %{{.*}} : memref<*xf32>
+  // CHECK: scf.for
+  // CHECK: memref.reinterpret_cast %[[SEL_MEM]]
+  // CHECK: memref.copy
   // CHECK: memref.reinterpret_cast %[[ARG1]]
   // CHECK: bufferization.materialize_in_destination
   tt.func public @if_ptr_merge_lowering(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %pred: i1) {

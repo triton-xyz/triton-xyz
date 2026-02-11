@@ -46,6 +46,38 @@ struct ScalarMemrefAccess {
   Value index;
 };
 
+static bool isOneToOneUnrealizedCast(UnrealizedConversionCastOp op) {
+  return op && op.getInputs().size() == 1 && op->getNumResults() == 1;
+}
+
+static FailureOr<Value> materializeValueAsType(Value value, Type targetType,
+                                               PatternRewriter &rewriter,
+                                               Location loc) {
+  if (!value || !targetType) {
+    return failure();
+  }
+
+  if (value.getType() == targetType) {
+    return value;
+  }
+
+  if (auto castOp = value.getDefiningOp<UnrealizedConversionCastOp>()) {
+    if (isOneToOneUnrealizedCast(castOp) &&
+        castOp.getInputs().front().getType() == targetType) {
+      return castOp.getInputs().front();
+    }
+  }
+
+  if (!isa<triton::PointerType>(value.getType()) ||
+      !isa<BaseMemRefType>(targetType)) {
+    return failure();
+  }
+
+  return UnrealizedConversionCastOp::create(rewriter, loc, targetType,
+                                            ValueRange{value})
+      .getResult(0);
+}
+
 static std::optional<MemrefAccessFromTensorPtr>
 getMemrefAccessFromTensorPtr(Value ptr) {
   auto extractOp = ptr.getDefiningOp<tensor::ExtractOp>();
@@ -292,6 +324,75 @@ public:
   }
 };
 
+struct FoldPtrSelectToMemrefSelect : public OpRewritePattern<arith::SelectOp> {
+  using OpRewritePattern<arith::SelectOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::SelectOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!isa<triton::PointerType>(op.getType())) {
+      return failure();
+    }
+
+    if (!op.getCondition().getType().isInteger(1)) {
+      return failure();
+    }
+
+    SmallVector<UnrealizedConversionCastOp> castUsers;
+    Type targetType;
+    for (OpOperand &use : op.getResult().getUses()) {
+      auto castOp = dyn_cast<UnrealizedConversionCastOp>(use.getOwner());
+      if (!castOp || !isOneToOneUnrealizedCast(castOp) ||
+          castOp.getInputs().front() != op.getResult()) {
+        return failure();
+      }
+
+      Type castResultType = castOp.getResult(0).getType();
+      if (!isa<BaseMemRefType>(castResultType)) {
+        return failure();
+      }
+
+      if (!targetType) {
+        targetType = castResultType;
+      } else if (targetType != castResultType) {
+        return failure();
+      }
+
+      castUsers.push_back(castOp);
+    }
+
+    if (castUsers.empty() || !targetType) {
+      return failure();
+    }
+
+    auto maybeTrueValue = materializeValueAsType(op.getTrueValue(), targetType,
+                                                 rewriter, op.getLoc());
+    if (failed(maybeTrueValue)) {
+      return failure();
+    }
+
+    auto maybeFalseValue = materializeValueAsType(
+        op.getFalseValue(), targetType, rewriter, op.getLoc());
+    if (failed(maybeFalseValue)) {
+      return failure();
+    }
+
+    Value memrefSelect =
+        arith::SelectOp::create(rewriter, op.getLoc(), op.getCondition(),
+                                *maybeTrueValue, *maybeFalseValue);
+
+    for (UnrealizedConversionCastOp castUser : castUsers) {
+      castUser.getResult(0).replaceAllUsesWith(memrefSelect);
+      rewriter.eraseOp(castUser);
+    }
+
+    if (op->use_empty()) {
+      rewriter.eraseOp(op);
+    }
+
+    return success();
+  }
+};
+
 struct TensorPtrLoadToMemref : public OpRewritePattern<triton::LoadOp> {
   using OpRewritePattern<triton::LoadOp>::OpRewritePattern;
 
@@ -508,9 +609,9 @@ public:
     }
 
     RewritePatternSet postPatterns(&getContext());
-    postPatterns.add<TensorPtrLoadToMemref, TensorPtrStoreToMemref,
-                     TensorPtrAtomicRMWToMemref, TensorPtrAtomicCASToMemref>(
-        &getContext());
+    postPatterns.add<FoldPtrSelectToMemrefSelect, TensorPtrLoadToMemref,
+                     TensorPtrStoreToMemref, TensorPtrAtomicRMWToMemref,
+                     TensorPtrAtomicCASToMemref>(&getContext());
     if (failed(applyPatternsGreedily(moduleOp, std::move(postPatterns)))) {
       signalPassFailure();
     }

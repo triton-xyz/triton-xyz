@@ -17,8 +17,6 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
 
   pm.addPass(createTritonToTTAStructured());
   pm.addPass(createTritonToTTAUnstructured());
-  pm.addPass(createCSEPass());
-  pm.addPass(createCanonicalizerPass());
   pm.addPass(createTritonUnstructuredFallback());
   pm.addPass(createVerifyTTABridgeEliminated());
 
@@ -29,26 +27,12 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
   tritonArithToLinalgOptions.ttToFuncFunc = options.ttToFuncFunc;
   tritonArithToLinalgOptions.assertToCf = options.assertToCf;
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
-  pm.addPass(createTritonTensorPtrToLinalg());
 
   pm.addPass(createTTAToMemref());
   pm.addPass(createTritonPtrToMemref());
-
-  pm.addPass(createTritonToPtr());
-  pm.addPass(createTritonTtPtrToPtr());
   pm.addPass(createReconcileUnrealizedCastsPass());
-  pm.addPass(createReconcilePtrCasts());
-
-  pm.addPass(createRemoveDeadValuesPass());
-  pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createVerifyTTALowered());
-  if (options.enableCollapseShape) {
-    // Canonicalizer pass will rewrite tensor.expand_shape(linalg.fill) to
-    // linalg.fill(tensor.expand_shape) so we need to run it before
-    // collapseShape pass.
-    pm.addPass(createCollapseShape());
-  }
 }
 
 void mlir::triton::registerTritonToLinalgTTAPipelines() {
