@@ -28,21 +28,11 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
   tritonArithToLinalgOptions.assertToCf = options.assertToCf;
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
 
-  // disable for TTA pipeline
-  // pm.addPass(createTritonTensorPtrToLinalg());
-
   pm.addPass(createTTAToMemref());
   pm.addPass(createTritonPtrToMemref());
   pm.addPass(createReconcileUnrealizedCastsPass());
-
-  // disable for TTA pipeline
-  // pm.addPass(createTritonToPtr());
-  // pm.addPass(createTritonTtPtrToPtr());
-  // pm.addPass(createReconcileUnrealizedCastsPass());
-  // pm.addPass(createReconcilePtrCasts());
-
-  pm.addPass(createVerifyTTALowered());
   pm.addPass(createCanonicalizerPass());
+  pm.addPass(createVerifyTTALowered());
 }
 
 void mlir::triton::registerTritonToLinalgTTAPipelines() {
