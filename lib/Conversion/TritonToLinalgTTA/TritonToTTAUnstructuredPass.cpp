@@ -470,16 +470,18 @@ static Value createZeroOffset(OpBuilder &builder, Location loc,
       .getResult();
 }
 
-static tta::ReindexOp buildLinearReindex(OpBuilder &builder, Location loc,
-                                         Value importedAddr, Value flatOffset,
-                                         Value flatMask = Value()) {
-  SmallVector<OpFoldResult> zeroOffsets{builder.getIndexAttr(0)};
+static Value buildLinearIndirectReindex(OpBuilder &builder, Location loc,
+                                        Value importedAddr, Value flatOffset,
+                                        Value flatMask = Value()) {
   if (flatMask) {
-    return tta::ReindexOp::create(builder, loc, importedAddr, flatOffset,
-                                  flatMask, /*indirectDim=*/0, zeroOffsets);
+    return tta::IndirectReindexOp::create(builder, loc, importedAddr,
+                                          flatOffset, flatMask,
+                                          /*indirectDim=*/0)
+        .getResult();
   }
-  return tta::ReindexOp::create(builder, loc, importedAddr, flatOffset,
-                                /*indirectDim=*/0, zeroOffsets);
+  return tta::IndirectReindexOp::create(builder, loc, importedAddr, flatOffset,
+                                        /*indirectDim=*/0)
+      .getResult();
 }
 
 static Value materializeAddPtrFromOffset(OpBuilder &builder, Location loc,
@@ -1216,8 +1218,8 @@ public:
                   flatMask = *maybeFlatMask;
                 }
 
-                auto reindex = buildLinearReindex(b, loc, *maybeAddr,
-                                                  *maybeFlatOffset, flatMask);
+                Value reindex = buildLinearIndirectReindex(
+                    b, loc, *maybeAddr, *maybeFlatOffset, flatMask);
 
                 auto scalarOther = getScalarOther(load, loc, b);
                 if (failed(scalarOther)) {
@@ -1237,9 +1239,8 @@ public:
                                           getElementTypeOrSelf(load.getType()));
 
                 auto ttaLoad = tta::LoadOp::create(
-                    b, loc, flatLoadType, reindex.getResult(),
-                    ArrayRef<Value>{}, b.getDenseI64ArrayAttr({}),
-                    *scalarOther);
+                    b, loc, flatLoadType, reindex, ArrayRef<Value>{},
+                    b.getDenseI64ArrayAttr({}), *scalarOther);
 
                 auto maybeResult = rebuildLoadResultFrom1DTensor(
                     ttaLoad.getResult(), load.getType(), loc, b);
@@ -1293,8 +1294,8 @@ public:
                   flatMask = *maybeFlatMask;
                 }
 
-                auto reindex = buildLinearReindex(b, loc, *maybeAddr,
-                                                  *maybeFlatOffset, flatMask);
+                Value reindex = buildLinearIndirectReindex(
+                    b, loc, *maybeAddr, *maybeFlatOffset, flatMask);
 
                 auto maybeFlatValue =
                     normalizeStoreValueTo1DTensor(store.getValue(), loc, b);
@@ -1304,8 +1305,8 @@ public:
                   return success();
                 }
 
-                tta::StoreOp::create(b, loc, reindex.getResult(),
-                                     *maybeFlatValue, ArrayRef<OpFoldResult>{});
+                tta::StoreOp::create(b, loc, reindex, *maybeFlatValue,
+                                     ArrayRef<OpFoldResult>{});
                 store->erase();
                 return success();
               })

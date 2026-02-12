@@ -294,10 +294,6 @@ collectAddressExpr(Value address, Location loc,
       }
 
       if (auto reindex = value.getDefiningOp<tta::ReindexOp>()) {
-        if (reindex.getIndirectIndex() || reindex.getMask()) {
-          return failure();
-        }
-
         auto maybeOffsets = self(self, reindex.getAddress());
         if (failed(maybeOffsets)) {
           return failure();
@@ -312,6 +308,10 @@ collectAddressExpr(Value address, Location loc,
           composed[i] = addOFRs(composed[i], offset, loc, rewriter);
         }
         return composed;
+      }
+
+      if (value.getDefiningOp<tta::IndirectReindexOp>()) {
+        return failure();
       }
 
       return failure();
@@ -409,73 +409,75 @@ collectAddressExpr(Value address, Location loc,
       expr.offsets[i] = addOFRs(expr.offsets[i], off, loc, rewriter);
     }
 
-    if (Value indirect = reindex.getIndirectIndex()) {
-      auto indirectDimAttr = reindex.getIndirectDimAttr();
-      if (!indirectDimAttr) {
+    return expr;
+  }
+
+  if (auto reindex = address.getDefiningOp<tta::IndirectReindexOp>()) {
+    FailureOr<AddressExpr> maybeExpr =
+        collectAddressExpr(reindex.getAddress(), loc, rewriter, failureReason);
+    if (failed(maybeExpr)) {
+      return failure();
+    }
+
+    AddressExpr expr = *maybeExpr;
+    Value indirect = reindex.getIndirectIndex();
+    int32_t indirectDim = reindex.getIndirectDimAttr().getInt();
+
+    if (expr.indirectIndex) {
+      if (!expr.indirectDim.has_value() || *expr.indirectDim != indirectDim) {
         if (failureReason) {
-          *failureReason = StringRef("indirect_dim is missing");
+          *failureReason = StringRef("mixed_indirect_dim in address chain");
         }
         return failure();
       }
-      int32_t indirectDim = indirectDimAttr.getInt();
 
-      if (expr.indirectIndex) {
-        if (!expr.indirectDim.has_value() || *expr.indirectDim != indirectDim) {
-          if (failureReason) {
-            *failureReason = StringRef("mixed_indirect_dim in address chain");
-          }
-          return failure();
+      FailureOr<Value> maybeMergedIndirect =
+          mergeIndirectIndex(expr.indirectIndex, indirect, loc, rewriter);
+      if (failed(maybeMergedIndirect)) {
+        if (failureReason) {
+          *failureReason = StringRef("indirect_index is not mergeable");
         }
-
-        FailureOr<Value> maybeMergedIndirect =
-            mergeIndirectIndex(expr.indirectIndex, indirect, loc, rewriter);
-        if (failed(maybeMergedIndirect)) {
-          if (failureReason) {
-            *failureReason = StringRef("indirect_index is not mergeable");
-          }
-          return failure();
-        }
-        expr.indirectIndex = *maybeMergedIndirect;
-
-        if (Value mask = reindex.getMask()) {
-          if (expr.indirectMask) {
-            auto lhsMaskType =
-                dyn_cast<RankedTensorType>(expr.indirectMask.getType());
-            auto rhsMaskType = dyn_cast<RankedTensorType>(mask.getType());
-            FailureOr<RankedTensorType> maybeMergedMaskType =
-                getMerged1DTensorType(lhsMaskType, rhsMaskType,
-                                      rewriter.getI1Type());
-            if (failed(maybeMergedMaskType)) {
-              if (failureReason) {
-                *failureReason = StringRef("indirect_mask shape mismatch");
-              }
-              return failure();
-            }
-
-            FailureOr<Value> lhsMergedMask = castTensorToType(
-                expr.indirectMask, *maybeMergedMaskType, loc, rewriter);
-            FailureOr<Value> rhsMergedMask =
-                castTensorToType(mask, *maybeMergedMaskType, loc, rewriter);
-            if (failed(lhsMergedMask) || failed(rhsMergedMask)) {
-              if (failureReason) {
-                *failureReason = StringRef("indirect_mask shape mismatch");
-              }
-              return failure();
-            }
-
-            expr.indirectMask =
-                arith::AndIOp::create(rewriter, loc, *lhsMergedMask,
-                                      *rhsMergedMask)
-                    .getResult();
-          } else {
-            expr.indirectMask = mask;
-          }
-        }
-      } else {
-        expr.indirectIndex = indirect;
-        expr.indirectDim = indirectDim;
-        expr.indirectMask = reindex.getMask();
+        return failure();
       }
+      expr.indirectIndex = *maybeMergedIndirect;
+
+      if (Value mask = reindex.getMask()) {
+        if (expr.indirectMask) {
+          auto lhsMaskType =
+              dyn_cast<RankedTensorType>(expr.indirectMask.getType());
+          auto rhsMaskType = dyn_cast<RankedTensorType>(mask.getType());
+          FailureOr<RankedTensorType> maybeMergedMaskType =
+              getMerged1DTensorType(lhsMaskType, rhsMaskType,
+                                    rewriter.getI1Type());
+          if (failed(maybeMergedMaskType)) {
+            if (failureReason) {
+              *failureReason = StringRef("indirect_mask shape mismatch");
+            }
+            return failure();
+          }
+
+          FailureOr<Value> lhsMergedMask = castTensorToType(
+              expr.indirectMask, *maybeMergedMaskType, loc, rewriter);
+          FailureOr<Value> rhsMergedMask =
+              castTensorToType(mask, *maybeMergedMaskType, loc, rewriter);
+          if (failed(lhsMergedMask) || failed(rhsMergedMask)) {
+            if (failureReason) {
+              *failureReason = StringRef("indirect_mask shape mismatch");
+            }
+            return failure();
+          }
+
+          expr.indirectMask = arith::AndIOp::create(
+                                  rewriter, loc, *lhsMergedMask, *rhsMergedMask)
+                                  .getResult();
+        } else {
+          expr.indirectMask = mask;
+        }
+      }
+    } else {
+      expr.indirectIndex = indirect;
+      expr.indirectDim = indirectDim;
+      expr.indirectMask = reindex.getMask();
     }
 
     return expr;
@@ -555,6 +557,10 @@ static Value stripAddressViewLikeChain(Value address) {
       address = reindex.getAddress();
       continue;
     }
+    if (auto reindex = address.getDefiningOp<tta::IndirectReindexOp>()) {
+      address = reindex.getAddress();
+      continue;
+    }
     if (auto advance = address.getDefiningOp<tta::AdvanceOp>()) {
       address = advance.getAddress();
       continue;
@@ -571,11 +577,12 @@ static bool isAddressSeedResolvable(Value value) {
     }
 
     if (auto reindex = value.getDefiningOp<tta::ReindexOp>()) {
-      if (reindex.getIndirectIndex() || reindex.getMask()) {
-        return false;
-      }
       value = reindex.getAddress();
       continue;
+    }
+
+    if (value.getDefiningOp<tta::IndirectReindexOp>()) {
+      return false;
     }
 
     if (auto advance = value.getDefiningOp<tta::AdvanceOp>()) {
@@ -597,10 +604,11 @@ static bool isSupportedLoopStepExpr(Value value, Value iterArg) {
   }
 
   if (auto reindex = value.getDefiningOp<tta::ReindexOp>()) {
-    if (reindex.getIndirectIndex() || reindex.getMask()) {
-      return false;
-    }
     return isSupportedLoopStepExpr(reindex.getAddress(), iterArg);
+  }
+
+  if (value.getDefiningOp<tta::IndirectReindexOp>()) {
+    return false;
   }
 
   return false;
@@ -1666,8 +1674,8 @@ public:
         if (!op->use_empty()) {
           return;
         }
-        if (isa<tta::AdvanceOp, tta::ReindexOp, tta::MakeAddrOp,
-                tta::FromTTPtrOp>(op)) {
+        if (isa<tta::AdvanceOp, tta::ReindexOp, tta::IndirectReindexOp,
+                tta::MakeAddrOp, tta::FromTTPtrOp>(op)) {
           deadOps.push_back(op);
         }
       });

@@ -20,6 +20,7 @@ inline bool hasLoweredTTAAddressRoot(Value value) {
 
   return value.getDefiningOp<tta::MakeAddrOp>() ||
          value.getDefiningOp<tta::ReindexOp>() ||
+         value.getDefiningOp<tta::IndirectReindexOp>() ||
          value.getDefiningOp<tta::AdvanceOp>();
 }
 

@@ -5,14 +5,14 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<f32, 2, 1>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2xi32>,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2xi1>) {
-// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[ARG0]]) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
-// CHECK:           %[[VAL_1:.*]] = "tta.reindex"(%[[VAL_0]], %[[ARG1]], %[[ARG2]]) <{indirect_dim = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[ARG0]]) <{static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+// CHECK:           %[[VAL_1:.*]] = "tta.indirect_reindex"(%[[VAL_0]], %[[ARG1]], %[[ARG2]]) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.advance"(%[[VAL_1]]) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @address_reindex_advance_addr_type(%a: !tta.addr<f32, 2, 1>, %idx: tensor<2xi32>, %mask: tensor<2xi1>) {
-    %r0 = "tta.reindex"(%a) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
-    %r1 = "tta.reindex"(%r0, %idx, %mask) <{indirect_dim = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+    %r0 = "tta.reindex"(%a) <{static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+    %r1 = "tta.indirect_reindex"(%r0, %idx, %mask) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
     %r2 = "tta.advance"(%r1) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
     tt.return
   }
@@ -58,8 +58,8 @@ module {
 // CHECK:           %[[CONSTANT_4:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_5:.*]] = arith.constant 1 : i32
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [2, 2], strides: [2, 1], offsets: [0, 0], shape: [0, 0], order: [] : <f32> to !tta.addr<f32, 2, 1>
-// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
-// CHECK:           %[[VAL_1:.*]] = "tta.reindex"(%[[VAL_0]], %[[CONSTANT_0]], %[[CONSTANT_1]]) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[MAKE_ADDR_0]]) <{static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+// CHECK:           %[[VAL_1:.*]] = "tta.indirect_reindex"(%[[VAL_0]], %[[CONSTANT_0]], %[[CONSTANT_1]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.advance"(%[[VAL_1]]) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_3:.*]] = "tta.load"(%[[VAL_2]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x2xf32>
 // CHECK:           %[[VAL_4:.*]] = "tta.load"(%[[VAL_2]], %[[CONSTANT_4]]) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, f32) -> tensor<2x2xf32>
@@ -81,9 +81,9 @@ module {
 
     %addr = tta.make_addr %base to sizes: [2, 2], strides: [2, 1], offsets: [0, 0], shape: [0, 0], order: [] : <f32> to !tta.addr<f32, 2, 1>
 
-    %r0 = "tta.reindex"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+    %r0 = "tta.reindex"(%addr) <{static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 
-    %r1 = "tta.reindex"(%r0, %idx, %mask) <{indirect_dim = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 0, 1>, static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+    %r1 = "tta.indirect_reindex"(%r0, %idx, %mask) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
 
     %r2 = "tta.advance"(%r1) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 
@@ -109,7 +109,7 @@ module {
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [2, 2], strides: {{\[}}%[[ARG1]], 1], offsets: {{\[}}%[[ARG2]], 0], shape: [2, %[[ARG1]]], order: [1, 0] : <f32> to !tta.addr<f32, 2, 1>
-// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[MAKE_ADDR_0]]) <{static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_1:.*]] = "tta.advance"(%[[VAL_0]]) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.load"(%[[VAL_1]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x2xf32>
 // CHECK:           "tta.store"(%[[VAL_1]], %[[VAL_2]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x2xf32>) -> ()
@@ -117,7 +117,7 @@ module {
 // CHECK:         }
   tt.func @address_mixed_dynamic_make_addr(%base: !tt.ptr<f32>, %s0: index, %o0: index) {
     %addr = tta.make_addr %base to sizes: [2, 2], strides: [%s0, 1], offsets: [%o0, 0], shape: [2, %s0], order: [1, 0] : <f32> to !tta.addr<f32, 2, 1>
-    %r = "tta.reindex"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+    %r = "tta.reindex"(%addr) <{static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
     %a = "tta.advance"(%r) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
     %v = "tta.load"(%a) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x2xf32>
     "tta.store"(%a, %v) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x2xf32>) -> ()
@@ -133,7 +133,7 @@ module {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 2.000000e+00 : f32
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : !tt.ptr<f32> to !tta.addr<f32, 1, 1>
-// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[FROM_TT_PTR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[FROM_TT_PTR_0]]) <{static_offsets = array<i64: 0>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_1:.*]] = "tta.advance"(%[[VAL_0]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.atomic"(%[[VAL_1]], %[[CONSTANT_0]], %[[CONSTANT_1]]) <{kind = "xchg"}> : (!tta.addr<f32, 1, 1>, i32, f32) -> f32
 // CHECK:           tt.return
@@ -142,7 +142,7 @@ module {
     %off = arith.constant 0 : i32
     %val = arith.constant 2.000000e+00 : f32
     %base_i = tta.from_tt_ptr %base : !tt.ptr<f32> to !tta.addr<f32, 1, 1>
-    %r0 = "tta.reindex"(%base_i) <{operandSegmentSizes = array<i32: 1, 0, 0, 0>, static_offsets = array<i64: 0>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+    %r0 = "tta.reindex"(%base_i) <{static_offsets = array<i64: 0>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
     %r1 = "tta.advance"(%r0) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
     %a = "tta.atomic"(%r1, %off, %val) <{kind = "xchg"}> : (!tta.addr<f32, 1, 1>, i32, f32) -> f32
     tt.return

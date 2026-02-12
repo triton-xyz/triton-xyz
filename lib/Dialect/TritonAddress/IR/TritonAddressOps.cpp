@@ -99,6 +99,37 @@ bool areAllZero(ArrayRef<OpFoldResult> values) {
       values, [](OpFoldResult value) { return isConstantIntValue(value, 0); });
 }
 
+LogicalResult verifyIndirectReindexLike(Operation *op, Value indirectIndex,
+                                        IntegerAttr indirectDimAttr, Value mask,
+                                        int64_t rank) {
+  auto indexType = dyn_cast<RankedTensorType>(indirectIndex.getType());
+  if (!indexType || indexType.getRank() != 1 ||
+      !indexType.getElementType().isIntOrIndex()) {
+    return op->emitOpError("indirect_index must be a 1D tensor of int or "
+                           "index type");
+  }
+
+  int64_t dim = indirectDimAttr.getInt();
+  if (dim < 0 || dim >= rank) {
+    return op->emitOpError("indirect_dim is out of bounds");
+  }
+
+  if (!mask) {
+    return success();
+  }
+
+  auto maskType = dyn_cast<RankedTensorType>(mask.getType());
+  if (!maskType || maskType.getRank() != 1 ||
+      !maskType.getElementType().isInteger(1)) {
+    return op->emitOpError("mask must be a 1D tensor of i1");
+  }
+  if (maskType.getShape()[0] != indexType.getShape()[0]) {
+    return op->emitOpError("mask size must match indirect_index size");
+  }
+
+  return success();
+}
+
 Value materializeIndexValue(OpFoldResult ofr, Location loc,
                             PatternRewriter &rewriter) {
   if (auto value = dyn_cast<Value>(ofr)) {
@@ -150,23 +181,10 @@ SmallVector<OpFoldResult> composePairwiseAdd(ArrayRef<OpFoldResult> lhs,
   return composed;
 }
 
-ReindexOp createReindexWithSameIndirection(PatternRewriter &rewriter,
-                                           Location loc, Value address,
-                                           Value indirectIndex, Value mask,
-                                           IntegerAttr indirectDimAttr,
-                                           ArrayRef<OpFoldResult> offsets) {
-  if (!indirectIndex) {
-    return ReindexOp::create(rewriter, loc, address, offsets);
-  }
-
-  int64_t indirectDim = indirectDimAttr.getInt();
-  if (mask) {
-    return ReindexOp::create(rewriter, loc, address, indirectIndex, mask,
-                             indirectDim, offsets);
-  }
-
-  return ReindexOp::create(rewriter, loc, address, indirectIndex, indirectDim,
-                           offsets);
+Value createReindexWithSameOffsets(PatternRewriter &rewriter, Location loc,
+                                   Value address,
+                                   ArrayRef<OpFoldResult> offsets) {
+  return ReindexOp::create(rewriter, loc, address, offsets).getResult();
 }
 
 struct ComposeReindexOfReindexPattern : public OpRewritePattern<ReindexOp> {
@@ -175,8 +193,7 @@ struct ComposeReindexOfReindexPattern : public OpRewritePattern<ReindexOp> {
   LogicalResult matchAndRewrite(ReindexOp op,
                                 PatternRewriter &rewriter) const override {
     auto producer = op.getAddress().getDefiningOp<ReindexOp>();
-    if (!producer || op.getIndirectIndex() || op.getMask() ||
-        producer.getIndirectIndex() || producer.getMask()) {
+    if (!producer) {
       return failure();
     }
 
@@ -240,11 +257,9 @@ struct ComposeAdvanceOfReindexPattern : public OpRewritePattern<AdvanceOp> {
 
     auto mergedOffsets =
         composePairwiseAdd(innerOffsets, outerDeltas, op.getLoc(), rewriter);
-    auto replacement = createReindexWithSameIndirection(
-        rewriter, op.getLoc(), producer.getAddress(),
-        producer.getIndirectIndex(), producer.getMask(),
-        producer.getIndirectDimAttr(), mergedOffsets);
-    rewriter.replaceOp(op, replacement.getResult());
+    Value replacement = createReindexWithSameOffsets(
+        rewriter, op.getLoc(), producer.getAddress(), mergedOffsets);
+    rewriter.replaceOp(op, replacement);
     return success();
   }
 };
@@ -267,10 +282,9 @@ struct ComposeReindexOfAdvancePattern : public OpRewritePattern<ReindexOp> {
 
     auto mergedOffsets =
         composePairwiseAdd(innerDeltas, outerOffsets, op.getLoc(), rewriter);
-    auto replacement = createReindexWithSameIndirection(
-        rewriter, op.getLoc(), producer.getAddress(), op.getIndirectIndex(),
-        op.getMask(), op.getIndirectDimAttr(), mergedOffsets);
-    rewriter.replaceOp(op, replacement.getResult());
+    Value replacement = createReindexWithSameOffsets(
+        rewriter, op.getLoc(), producer.getAddress(), mergedOffsets);
+    rewriter.replaceOp(op, replacement);
     return success();
   }
 };
@@ -289,11 +303,9 @@ struct HoistFromTTPtrThroughReindexPattern
     auto importedAddress =
         FromTTPtrOp::create(rewriter, op.getLoc(), reindex.getAddress())
             .getResult();
-    auto replacement = createReindexWithSameIndirection(
-        rewriter, op.getLoc(), importedAddress, reindex.getIndirectIndex(),
-        reindex.getMask(), reindex.getIndirectDimAttr(),
-        reindex.getMixedOffsets());
-    rewriter.replaceOp(op, replacement.getResult());
+    Value replacement = createReindexWithSameOffsets(
+        rewriter, op.getLoc(), importedAddress, reindex.getMixedOffsets());
+    rewriter.replaceOp(op, replacement);
     return success();
   }
 };
@@ -314,6 +326,34 @@ struct HoistFromTTPtrThroughAdvancePattern
             .getResult();
     auto replacement = AdvanceOp::create(rewriter, op.getLoc(), importedAddress,
                                          advance.getMixedDeltas());
+    rewriter.replaceOp(op, replacement.getResult());
+    return success();
+  }
+};
+
+struct HoistFromTTPtrThroughIndirectReindexPattern
+    : public OpRewritePattern<FromTTPtrOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FromTTPtrOp op,
+                                PatternRewriter &rewriter) const override {
+    auto indirectReindex = op.getSource().getDefiningOp<IndirectReindexOp>();
+    if (!indirectReindex) {
+      return failure();
+    }
+
+    auto importedAddress =
+        FromTTPtrOp::create(rewriter, op.getLoc(), indirectReindex.getAddress())
+            .getResult();
+    int64_t indirectDim = indirectReindex.getIndirectDimAttr().getInt();
+    IndirectReindexOp replacement =
+        indirectReindex.getMask()
+            ? IndirectReindexOp::create(rewriter, op.getLoc(), importedAddress,
+                                        indirectReindex.getIndirectIndex(),
+                                        indirectReindex.getMask(), indirectDim)
+            : IndirectReindexOp::create(rewriter, op.getLoc(), importedAddress,
+                                        indirectReindex.getIndirectIndex(),
+                                        indirectDim);
     rewriter.replaceOp(op, replacement.getResult());
     return success();
   }
@@ -447,32 +487,8 @@ void ReindexOp::build(OpBuilder &b, OperationState &state, Value address,
   SmallVector<Value> dynamicOffsets;
   dispatchIndexOpFoldResults(offsets, dynamicOffsets, staticOffsets);
 
-  build(b, state, address.getType(), address, Value(), IntegerAttr(),
-        dynamicOffsets, b.getDenseI64ArrayAttr(staticOffsets), Value());
-}
-
-void ReindexOp::build(OpBuilder &b, OperationState &state, Value address,
-                      Value indirectIndex, int indirectDim,
-                      ArrayRef<OpFoldResult> offsets) {
-  SmallVector<int64_t> staticOffsets;
-  SmallVector<Value> dynamicOffsets;
-  dispatchIndexOpFoldResults(offsets, dynamicOffsets, staticOffsets);
-
-  build(b, state, address.getType(), address, indirectIndex,
-        b.getI32IntegerAttr(indirectDim), dynamicOffsets,
-        b.getDenseI64ArrayAttr(staticOffsets), Value());
-}
-
-void ReindexOp::build(OpBuilder &b, OperationState &state, Value address,
-                      Value indirectIndex, Value mask, int indirectDim,
-                      ArrayRef<OpFoldResult> offsets) {
-  SmallVector<int64_t> staticOffsets;
-  SmallVector<Value> dynamicOffsets;
-  dispatchIndexOpFoldResults(offsets, dynamicOffsets, staticOffsets);
-
-  build(b, state, address.getType(), address, indirectIndex,
-        b.getI32IntegerAttr(indirectDim), dynamicOffsets,
-        b.getDenseI64ArrayAttr(staticOffsets), mask);
+  build(b, state, address.getType(), address, dynamicOffsets,
+        b.getDenseI64ArrayAttr(staticOffsets));
 }
 
 LogicalResult ReindexOp::verify() {
@@ -489,49 +505,39 @@ LogicalResult ReindexOp::verify() {
     return emitOpError("result type must match address type");
   }
 
-  auto indirectDimAttr = getIndirectDimAttr();
-  if (getIndirectIndex()) {
-    auto indexType = dyn_cast<RankedTensorType>(getIndirectIndex().getType());
-    if (!indexType || indexType.getRank() != 1 ||
-        !indexType.getElementType().isIntOrIndex()) {
-      return emitOpError("indirect_index must be a 1D tensor of int or index "
-                         "type");
-    }
-
-    if (!indirectDimAttr) {
-      return emitOpError("indirect_dim is required when indirect_index is "
-                         "present");
-    }
-
-    int64_t dim = indirectDimAttr.getInt();
-    if (dim < 0 || dim >= *rank) {
-      return emitOpError("indirect_dim is out of bounds");
-    }
-
-    if (getMask()) {
-      auto maskType = dyn_cast<RankedTensorType>(getMask().getType());
-      if (!maskType || maskType.getRank() != 1 ||
-          !maskType.getElementType().isInteger(1)) {
-        return emitOpError("mask must be a 1D tensor of i1");
-      }
-      if (maskType.getShape()[0] != indexType.getShape()[0]) {
-        return emitOpError("mask size must match indirect_index size");
-      }
-    }
-  } else {
-    if (indirectDimAttr) {
-      return emitOpError("indirect_dim requires indirect_index");
-    }
-    if (getMask()) {
-      return emitOpError("mask requires indirect_index");
-    }
-  }
-
   return success();
 }
 
+void IndirectReindexOp::build(OpBuilder &b, OperationState &state,
+                              Value address, Value indirectIndex,
+                              int indirectDim) {
+  build(b, state, address.getType(), address, indirectIndex,
+        b.getI32IntegerAttr(indirectDim), Value());
+}
+
+void IndirectReindexOp::build(OpBuilder &b, OperationState &state,
+                              Value address, Value indirectIndex, Value mask,
+                              int indirectDim) {
+  build(b, state, address.getType(), address, indirectIndex,
+        b.getI32IntegerAttr(indirectDim), mask);
+}
+
+LogicalResult IndirectReindexOp::verify() {
+  auto rank = getAddressRank(getAddress().getType());
+  if (!rank.has_value()) {
+    return emitOpError("address must be !tta.addr<...>");
+  }
+
+  if (getResult().getType() != getAddress().getType()) {
+    return emitOpError("result type must match address type");
+  }
+
+  return verifyIndirectReindexLike(getOperation(), getIndirectIndex(),
+                                   getIndirectDimAttr(), getMask(), *rank);
+}
+
 OpFoldResult ReindexOp::fold(FoldAdaptor adaptor) {
-  if (!getIndirectIndex() && !getMask() && areAllZero(getMixedOffsets())) {
+  if (areAllZero(getMixedOffsets())) {
     return getAddress();
   }
   return {};

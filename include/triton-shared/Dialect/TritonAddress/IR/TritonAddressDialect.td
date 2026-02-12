@@ -130,29 +130,17 @@ def TTA_MakeAddrOp
   let hasVerifier = 1;
 }
 
-def TTA_ReindexOp : TTA_Op<"reindex", [AttrSizedOperandSegments, Pure]> {
-  let summary = "reindex an address descriptor with affine or indirect indexing";
+def TTA_ReindexOp : TTA_Op<"reindex", [Pure]> {
+  let summary = "reindex an address descriptor with per-dimension direct offsets";
 
   let arguments = (ins TTA_AddrTypePred:$address,
-                       Optional<TTA_IndexTensorLike>:$indirect_index,
-                       OptionalAttr<I32Attr>:$indirect_dim,
                        Variadic<Index>:$offsets,
-                       DenseI64ArrayAttr:$static_offsets,
-                       Optional<TT_BoolLike>:$mask);
+                       DenseI64ArrayAttr:$static_offsets);
 
   let results = (outs TTA_AddrTypePred:$result);
 
   let builders = [
     OpBuilder<(ins "Value":$address,
-                   "ArrayRef<OpFoldResult>":$offsets)>,
-    OpBuilder<(ins "Value":$address,
-                   "Value":$indirectIndex,
-                   "int":$indirectDim,
-                   "ArrayRef<OpFoldResult>":$offsets)>,
-    OpBuilder<(ins "Value":$address,
-                   "Value":$indirectIndex,
-                   "Value":$mask,
-                   "int":$indirectDim,
                    "ArrayRef<OpFoldResult>":$offsets)>,
   ];
 
@@ -166,6 +154,29 @@ def TTA_ReindexOp : TTA_Op<"reindex", [AttrSizedOperandSegments, Pure]> {
   let hasVerifier = 1;
   let hasFolder = 1;
   let hasCanonicalizer = 1;
+}
+
+def TTA_IndirectReindexOp : TTA_Op<"indirect_reindex", [Pure]> {
+  let summary = "apply indirect index/mask to one address dimension";
+
+  let arguments = (ins TTA_AddrTypePred:$address,
+                       TTA_IndexTensorLike:$indirect_index,
+                       I32Attr:$indirect_dim,
+                       Optional<TT_BoolLike>:$mask);
+
+  let results = (outs TTA_AddrTypePred:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$address,
+                   "Value":$indirectIndex,
+                   "int":$indirectDim)>,
+    OpBuilder<(ins "Value":$address,
+                   "Value":$indirectIndex,
+                   "Value":$mask,
+                   "int":$indirectDim)>,
+  ];
+
+  let hasVerifier = 1;
 }
 
 def TTA_AdvanceOp : TTA_Op<"advance", [Pure]> {
