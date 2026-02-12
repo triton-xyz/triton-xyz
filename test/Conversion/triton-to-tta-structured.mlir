@@ -246,3 +246,52 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @from_tts_make_tptr(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[VAL_0:.*]] = "tta.load"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           "tta.store"(%[[MAKE_ADDR_1]], %[[VAL_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+// CHECK-NOT:       tt.load
+// CHECK-NOT:       tt.store
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @from_tts_make_tptr(%base: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
+    %src = tts.make_tptr %base to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %dst_tptr = tts.make_tptr %dst to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
+    %val = tt.load %src : tensor<4x!tt.ptr<f32>>
+    tt.store %dst_tptr, %val : tensor<4x!tt.ptr<f32>>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @advance_from_tts_make_tptr_block(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-DAG:       %[[CONSTANT_0:.*]] = arith.constant 1 : index
+// CHECK-DAG:       %[[CONSTANT_1:.*]] = arith.constant 8 : index
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [8, 4], strides: [4, 1], offsets: {{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]], shape: [8, 4], order: [1, 0] : <f32> to !tta.addr<f32, 2, 1>
+// CHECK:           %[[VAL_0:.*]] = "tta.load"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<8x4xf32>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG0]] to sizes: [8, 4], strides: [4, 1], offsets: {{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]], shape: [8, 4], order: [1, 0] : <f32> to !tta.addr<f32, 2, 1>
+// CHECK:           "tta.store"(%[[MAKE_ADDR_1]], %[[VAL_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<8x4xf32>) -> ()
+// CHECK-NOT:       tt.advance
+// CHECK-NOT:       tta.fallback
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @advance_from_tts_make_tptr_block(%base: !tt.ptr<f32>) {
+    %c2 = arith.constant 2 : i32
+    %c1 = arith.constant 1 : i32
+    %src = tts.make_tptr %base to sizes: [8, 4], strides: [4, 1], offsets: [0, 0], shape: [8, 4], order: [1, 0] : <f32> to !tt.ptr<tensor<8x4xf32>>
+    %adv = tt.advance %src, [%c2, %c1] : <tensor<8x4xf32>>
+    %val = tt.load %adv : !tt.ptr<tensor<8x4xf32>>
+    tt.store %adv, %val : !tt.ptr<tensor<8x4xf32>>
+    tt.return
+  }
+}

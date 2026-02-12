@@ -9,5 +9,4 @@ add_triton_library(TritonSharedAnalysisAddress
   TritonAddressIR
   TritonStructuredIR
   TritonSharedAnalysis
-  TritonSharedAnalysisStructured
 )

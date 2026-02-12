@@ -15,7 +15,7 @@ namespace address {
 namespace {
 
 static FailureOr<AnalyzedAddress>
-toAnalyzedAddress(const tts::PtrState &state) {
+toAnalyzedAddress(const ptrexpr::PtrState &state) {
   if (state.isEmpty() || !state.source || state.getRank() <= 0) {
     return failure();
   }
@@ -99,17 +99,19 @@ FailureOr<AnalyzedAddress> AnalysisAddress::analyze(Value ptrLike, Location loc,
     return maybeAddress;
   }
 
-  tts::PtrState state;
+  ptrexpr::PtrState state;
   if (auto makeTensorPtr = ptrLike.getDefiningOp<triton::MakeTensorPtrOp>()) {
     if (failed(ptrAnalysis.visitOperandMakeTensorPtr(makeTensorPtr, state, loc,
                                                      builder))) {
       return failure();
     }
   } else if (auto makeTPtr = ptrLike.getDefiningOp<tts::MakeTensorPtrOp>()) {
-    if (failed(
-            ptrAnalysis.visitOperandMakeTPtr(makeTPtr, state, loc, builder))) {
-      return failure();
-    }
+    state.source = makeTPtr.getBase();
+    state.offsets = makeTPtr.getMixedOffsets();
+    state.sizes = makeTPtr.getMixedSizes();
+    state.strides = makeTPtr.getMixedStrides();
+    state.shape = makeTPtr.getMixedShape();
+    state.order = SmallVector<int32_t>(makeTPtr.getOrder());
   } else if (failed(ptrAnalysis.visitOperand(ptrLike, state, loc, builder))) {
     return failure();
   }

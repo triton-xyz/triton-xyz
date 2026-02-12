@@ -3,7 +3,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
-#include "triton-shared/AnalysisStructured/PtrAnalysis.h"
+#include "triton-shared/Analysis/PtrExprAnalysis.h"
 
 namespace mlir {
 namespace triton {
@@ -27,7 +27,7 @@ public:
                                      OpBuilder &builder);
 
 private:
-  tts::PtrAnalysis ptrAnalysis;
+  ptrexpr::PtrExprAnalysis ptrAnalysis;
 };
 
 class TTAEmitter {

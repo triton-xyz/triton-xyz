@@ -57,6 +57,7 @@ def TTA_FromTTPtrOp : TTA_Op<"from_tt_ptr", [Pure]> {
   let hasCanonicalizer = 1;
 }
 
+// TODO: can we better abstract `BlockPtr`/`StructuredPtr`/`SplitPtr` ?
 def TTA_MakeAddrOp
   : TTA_Op<"make_addr", [AttrSizedOperandSegments, Pure]> {
   let summary = "create a unified address descriptor";

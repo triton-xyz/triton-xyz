@@ -84,6 +84,7 @@ static FailureOr<AddressAndMaskDims>
 getAddressAndMaskDims(OpTy op, PatternRewriter &rewriter,
                       StringRef &failureReason) {
   auto maybeAddr = getOrCreateAddress(op.getPtr(), op.getLoc(), rewriter);
+  // TODO: more detailed info
   if (failed(maybeAddr)) {
     failureReason = "address_analysis_failed";
     return failure();
