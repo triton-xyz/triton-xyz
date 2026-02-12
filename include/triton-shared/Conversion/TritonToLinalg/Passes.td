@@ -97,6 +97,14 @@ def TTAToMemref : Pass<"tta-to-memref", "mlir::ModuleOp"> {
   ];
 }
 
+def TTAAddressNormalize : Pass<"tta-address-normalize", "mlir::ModuleOp"> {
+  let summary = "Canonicalize and compose tta address chains";
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "tta::TritonAddressDialect"
+  ];
+}
+
 def VerifyTTABridgeEliminated : Pass<"verify-tta-bridge-eliminated", "mlir::ModuleOp"> {
   let summary = "Verify that tta bridge ops are removed after import stage";
   let dependentDialects = [

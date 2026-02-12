@@ -19,6 +19,7 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
   pm.addPass(createTritonToTTAUnstructured());
   pm.addPass(createTritonUnstructuredFallback());
   pm.addPass(createVerifyTTABridgeEliminated());
+  pm.addPass(createTTAAddressNormalize());
 
   if (options.pidsToFuncArgs) {
     pm.addPass(createTritonPidsToFuncArgs());

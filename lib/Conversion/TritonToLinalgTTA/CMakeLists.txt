@@ -1,4 +1,5 @@
 add_triton_library(TritonToLinalgTTA
+  TTAAddressNormalizePass.cpp
   TTAToMemrefPass.cpp
   TritonToTTAStructuredPass.cpp
   VerifyTTABridgeEliminatedPass.cpp
