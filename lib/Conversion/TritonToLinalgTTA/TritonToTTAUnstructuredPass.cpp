@@ -1,3 +1,4 @@
+#include "TTAFallbackUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -44,28 +45,8 @@ namespace mlir::triton {
 
 namespace {
 
-static constexpr StringLiteral kFallbackAttrName = "tta.fallback";
-static constexpr StringLiteral kFallbackReasonAttrName = "tta.fallback_reason";
-
-static bool hasLoweredTTAAddressRoot(Value value) {
-  if (!value) {
-    return false;
-  }
-
-  return value.getDefiningOp<tta::MakeAddrOp>() ||
-         value.getDefiningOp<tta::ReindexOp>() ||
-         value.getDefiningOp<tta::AdvanceOp>();
-}
-
-static void markFallback(Operation *op, StringRef reason) {
-  if (!op) {
-    return;
-  }
-
-  MLIRContext *ctx = op->getContext();
-  op->setAttr(kFallbackAttrName, UnitAttr::get(ctx));
-  op->setAttr(kFallbackReasonAttrName, StringAttr::get(ctx, reason));
-}
+using mlir::triton::tta_conversion::hasLoweredTTAAddressRoot;
+using mlir::triton::tta_conversion::markFallback;
 
 // Given a type, return the offset type corresponding to that type with the
 // specified width.

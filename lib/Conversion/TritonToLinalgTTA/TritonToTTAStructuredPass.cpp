@@ -1,3 +1,4 @@
+#include "TTAFallbackUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -20,19 +21,12 @@ using namespace mlir;
 
 namespace {
 
+using mlir::triton::tta_conversion::kFallbackAttrName;
+using mlir::triton::tta_conversion::kFallbackReasonAttrName;
+using mlir::triton::tta_conversion::markFallback;
+
 using AnalysisAddress = mlir::triton::address::AnalysisAddress;
 using TTAEmitter = mlir::triton::address::TTAEmitter;
-
-static constexpr StringLiteral kFallbackAttrName = "tta.fallback";
-static constexpr StringLiteral kFallbackReasonAttrName = "tta.fallback_reason";
-
-static void markFallback(Operation *op, StringRef reason,
-                         PatternRewriter &rewriter) {
-  rewriter.modifyOpInPlace(op, [&]() {
-    op->setAttr(kFallbackAttrName, rewriter.getUnitAttr());
-    op->setAttr(kFallbackReasonAttrName, rewriter.getStringAttr(reason));
-  });
-}
 
 static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
                                            PatternRewriter &rewriter) {
@@ -210,11 +204,7 @@ struct MarkUnhandledTensorPtrPattern
         op->hasAttr(kFallbackReasonAttrName)) {
       return failure();
     }
-    rewriter.modifyOpInPlace(op, [&]() {
-      op->setAttr(kFallbackAttrName, rewriter.getUnitAttr());
-      op->setAttr(kFallbackReasonAttrName,
-                  rewriter.getStringAttr("tensor_ptr_unhandled"));
-    });
+    markFallback(op, "tensor_ptr_unhandled", rewriter);
     return success();
   }
 };
