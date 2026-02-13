@@ -83,6 +83,8 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 - Keep baseline and TTA expectations in separate test files or split-input sections; avoid mixing unrelated routes in one check flow.
 - Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features.
 - Keep each case minimal and use focused `CHECK:` patterns to avoid over-specifying behavior.
+- When adding or modifying tests with `FileCheck`, regenerate check lines by following `utils/agent/lit_gen_demo.sh` (use it as the single source of truth, and avoid hand-editing large `CHECK` blocks).
+- After regeneration, run targeted validation first (for touched files) and then broader `lit`/`lit -v` as needed.
 
 ## Commit & Pull Request Guidelines
 

@@ -228,7 +228,7 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 2, 1, 3]> : tensor<4xi32>
-// CHECK:           %[[MAKE_GATHER_SCATTER_TPTR_0:.*]] = tts.make_gather_scatter_tptr %[[ARG0]] to sizes: [4, 4] gather_scatter_dim: 0 gather_scatter_offset: %[[CONSTANT_0]], strides: [4, 1], offsets: [0, 0] : tensor<4xi32>{{ *}}<f32> to !tt.ptr<tensor<4x4xf32>>
+// CHECK:           %[[MAKE_GATHER_SCATTER_TPTR_0:.*]] = tts.make_gather_scatter_tptr %[[ARG0]] to sizes: [4, 4] gather_scatter_dim: 0 gather_scatter_offset: %[[CONSTANT_0]], strides: [4, 1], offsets: [0, 0] : tensor<4xi32>  <f32> to !tt.ptr<tensor<4x4xf32>>
 // CHECK:           %[[LOAD_0:.*]] = tt.load %[[MAKE_GATHER_SCATTER_TPTR_0]] {tta.fallback, tta.fallback_reason = "ptr_expr_analysis_failed"} : !tt.ptr<tensor<4x4xf32>>
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG1]] to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
 // CHECK:           "tta.store"(%[[MAKE_ADDR_0]], %[[LOAD_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<4x4xf32>) -> ()

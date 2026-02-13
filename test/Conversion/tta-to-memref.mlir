@@ -103,13 +103,37 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @indirect_reindex_load_store(
-// CHECK:           scf.for
-// CHECK:             scf.if
-// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor
-// CHECK:           scf.for
-// CHECK:             scf.if
-// CHECK:           bufferization.materialize_in_destination
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant dense<[true, false, true, false]> : tensor<4xi1>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_4]]{{\[}}%[[VAL_0]]] : tensor<4xi1>
+// CHECK:             scf.if %[[EXTRACT_0]] {
+// CHECK:               %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:               %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]]{{\[}}%[[VAL_0]]] [1] [1] : memref<4xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1xf32, strided<[1], offset: ?>> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[CONSTANT_4]]{{\[}}%[[VAL_1]]] : tensor<4xi1>
+// CHECK:             scf.if %[[EXTRACT_2]] {
+// CHECK:               %[[EXTRACT_3:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:               %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[EXTRACT_3]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:               %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]]] [1] [1] : tensor<4xf32> to tensor<1xf32>
+// CHECK:               bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<1xf32>, memref<1xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             }
+// CHECK:           }
 // CHECK:           tt.return
+// CHECK:         }
   tt.func @indirect_reindex_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
     %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %mask = arith.constant dense<[true, false, true, false]> : tensor<4xi1>
@@ -497,18 +521,26 @@ module {
 // CHECK-LABEL:   tt.func @indirect_reindex_dim1_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK:           %[[CST_0:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
-// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_0:.*]] to %[[CONSTANT_1:.*]] step %[[CONSTANT_2:.*]] {
-// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CST_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
-// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast {{.*}} to offset: {{\[}}%[[EXTRACT_0]]], sizes: [2, 1], strides: [4, 1] : memref<*xf32> to memref<2x1xf32, strided<[4, 1], offset: ?>>
-// CHECK:             %[[SUBVIEW_0:.*]] = memref.subview {{.*}}{{\[}}0, %[[VAL_0]]] [2, 1] [1, 1] : memref<2x4xf32> to memref<2x1xf32, strided<[4, 1], offset: ?>>
-// CHECK:             memref.copy {{.*}}, %[[SUBVIEW_0]] : memref<2x1xf32, strided<[4, 1], offset: ?>> to memref<2x1xf32, strided<[4, 1], offset: ?>>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<2x4xf32>
+// CHECK:           linalg.fill ins(%[[CONSTANT_4]] : f32) outs(%[[ALLOC_0]] : memref<2x4xf32>)
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_0]]], sizes: [2, 1], strides: [4, 1] : memref<*xf32> to memref<2x1xf32, strided<[4, 1], offset: ?>>
+// CHECK:             %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]][0, %[[VAL_0]]] [2, 1] [1, 1] : memref<2x4xf32> to memref<2x1xf32, strided<[4, 1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<2x1xf32, strided<[4, 1], offset: ?>> to memref<2x1xf32, strided<[4, 1], offset: ?>>
 // CHECK:           }
-// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor {{.*}} : memref<2x4xf32> to tensor<2x4xf32>
-// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_3:.*]] to %[[CONSTANT_4:.*]] step %[[CONSTANT_5:.*]] {
-// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CST_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
-// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast {{.*}} to offset: {{\[}}%[[EXTRACT_1]]], sizes: [2, 1], strides: [4, 1] : memref<*xf32> to memref<2x1xf32, strided<[4, 1], offset: ?>>
-// CHECK:             %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}0, %[[VAL_1]]] [2, 1] [1, 1] : tensor<2x4xf32> to tensor<2x1xf32>
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<2x4xf32> to tensor<2x4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[EXTRACT_1]]], sizes: [2, 1], strides: [4, 1] : memref<*xf32> to memref<2x1xf32, strided<[4, 1], offset: ?>>
+// CHECK:             %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]][0, %[[VAL_1]]] [2, 1] [1, 1] : tensor<2x4xf32> to tensor<2x1xf32>
 // CHECK:             bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<2x1xf32>, memref<2x1xf32, strided<[4, 1], offset: ?>>) -> ()
 // CHECK:           }
 // CHECK:           tt.return
@@ -533,12 +565,16 @@ module {
 // CHECK-LABEL:   tt.func @wrap_boundary_no_wrap_fastpath(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK-NOT:       scf.for
-// CHECK:           memref.reinterpret_cast {{.*}} to offset: {{\[}}1{{\]}}, sizes: {{\[}}4{{\]}}, strides: {{\[}}1{{\]}}
-// CHECK:           memref.copy
-// CHECK:           bufferization.to_tensor
-// CHECK:           memref.reinterpret_cast {{.*}} to offset: {{\[}}2{{\]}}, sizes: {{\[}}4{{\]}}, strides: {{\[}}1{{\]}}
-// CHECK:           bufferization.materialize_in_destination
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [1], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: 1>>
+// CHECK:           linalg.fill ins(%[[CONSTANT_0]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
+// CHECK:           memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1], offset: 1>> to memref<4xf32>
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: [2], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: 2>>
+// CHECK:           bufferization.materialize_in_destination %[[TO_TENSOR_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4xf32>, memref<4xf32, strided<[1], offset: 2>>) -> ()
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @wrap_boundary_no_wrap_fastpath(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
@@ -557,20 +593,22 @@ module {
 // CHECK-LABEL:   tt.func @wrap_boundary_rank1_segmented_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK-NOT:       scf.for
-// CHECK:           memref.reinterpret_cast {{.*}} to offset: {{\[}}6{{\]}}, sizes: {{\[}}2{{\]}}, strides: {{\[}}1{{\]}}
-// CHECK:           memref.subview {{.*}}{{\[}}0{{\]}} {{\[}}2{{\]}} {{\[}}1{{\]}}
-// CHECK:           memref.copy
-// CHECK:           memref.reinterpret_cast {{.*}} to offset: {{\[}}0{{\]}}, sizes: {{\[}}2{{\]}}, strides: {{\[}}1{{\]}}
-// CHECK:           memref.subview {{.*}}{{\[}}2{{\]}} {{\[}}2{{\]}} {{\[}}1{{\]}}
-// CHECK:           memref.copy
-// CHECK:           bufferization.to_tensor
-// CHECK:           memref.reinterpret_cast {{.*}} to offset: {{\[}}6{{\]}}, sizes: {{\[}}2{{\]}}, strides: {{\[}}1{{\]}}
-// CHECK:           tensor.extract_slice {{.*}}{{\[}}0{{\]}} {{\[}}2{{\]}} {{\[}}1{{\]}}
-// CHECK:           bufferization.materialize_in_destination
-// CHECK:           memref.reinterpret_cast {{.*}} to offset: {{\[}}0{{\]}}, sizes: {{\[}}2{{\]}}, strides: {{\[}}1{{\]}}
-// CHECK:           tensor.extract_slice {{.*}}{{\[}}2{{\]}} {{\[}}2{{\]}} {{\[}}1{{\]}}
-// CHECK:           bufferization.materialize_in_destination
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [6], sizes: [2], strides: [1] : memref<*xf32> to memref<2xf32, strided<[1], offset: 6>>
+// CHECK:           %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]][0] [2] [1] : memref<4xf32> to memref<2xf32, strided<[1]>>
+// CHECK:           memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<2xf32, strided<[1], offset: 6>> to memref<2xf32, strided<[1]>>
+// CHECK:           %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: [0], sizes: [2], strides: [1] : memref<*xf32> to memref<2xf32, strided<[1]>>
+// CHECK:           %[[SUBVIEW_1:.*]] = memref.subview %[[ALLOC_0]][2] [2] [1] : memref<4xf32> to memref<2xf32, strided<[1], offset: 2>>
+// CHECK:           memref.copy %[[REINTERPRET_CAST_1]], %[[SUBVIEW_1]] : memref<2xf32, strided<[1]>> to memref<2xf32, strided<[1], offset: 2>>
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[REINTERPRET_CAST_2:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: [6], sizes: [2], strides: [1] : memref<*xf32> to memref<2xf32, strided<[1], offset: 6>>
+// CHECK:           %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]][0] [2] [1] : tensor<4xf32> to tensor<2xf32>
+// CHECK:           bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_2]] : (tensor<2xf32>, memref<2xf32, strided<[1], offset: 6>>) -> ()
+// CHECK:           %[[REINTERPRET_CAST_3:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: [0], sizes: [2], strides: [1] : memref<*xf32> to memref<2xf32, strided<[1]>>
+// CHECK:           %[[EXTRACT_SLICE_1:.*]] = tensor.extract_slice %[[TO_TENSOR_0]][2] [2] [1] : tensor<4xf32> to tensor<2xf32>
+// CHECK:           bufferization.materialize_in_destination %[[EXTRACT_SLICE_1]] in writable %[[REINTERPRET_CAST_3]] : (tensor<2xf32>, memref<2xf32, strided<[1]>>) -> ()
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @wrap_boundary_rank1_segmented_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
@@ -589,14 +627,45 @@ module {
 // CHECK-LABEL:   tt.func @wrap_boundary_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK:           scf.for
-// CHECK:           arith.remsi
-// CHECK:           memref.load
-// CHECK:           memref.store
-// CHECK:           bufferization.to_tensor
-// CHECK:           scf.for
-// CHECK:           arith.remsi
-// CHECK:           memref.store
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 3 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 2 : index
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<2x4xf32>
+// CHECK:           linalg.fill ins(%[[CONSTANT_5]] : f32) outs(%[[ALLOC_0]] : memref<2x4xf32>)
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_4]] step %[[CONSTANT_1]] {
+// CHECK:             scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:               %[[MULI_0:.*]] = arith.muli %[[VAL_0]], %[[CONSTANT_3]] : index
+// CHECK:               %[[ADDI_0:.*]] = arith.addi %[[VAL_1]], %[[CONSTANT_0]] : index
+// CHECK:               %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_3]] : index
+// CHECK:               %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_2]] : index
+// CHECK:               %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_3]] : index
+// CHECK:               %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:               %[[ADDI_2:.*]] = arith.addi %[[MULI_0]], %[[SELECT_0]] : index
+// CHECK:               %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[ADDI_2]]] : memref<?xf32>
+// CHECK:               memref.store %[[LOAD_0]], %[[ALLOC_0]]{{\[}}%[[VAL_0]], %[[VAL_1]]] : memref<2x4xf32>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<2x4xf32> to tensor<2x4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[CAST_1:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_1]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_2:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_4]] step %[[CONSTANT_1]] {
+// CHECK:             scf.for %[[VAL_3:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:               %[[MULI_1:.*]] = arith.muli %[[VAL_2]], %[[CONSTANT_3]] : index
+// CHECK:               %[[ADDI_3:.*]] = arith.addi %[[VAL_3]], %[[CONSTANT_1]] : index
+// CHECK:               %[[REMSI_1:.*]] = arith.remsi %[[ADDI_3]], %[[CONSTANT_3]] : index
+// CHECK:               %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_1]], %[[CONSTANT_2]] : index
+// CHECK:               %[[ADDI_4:.*]] = arith.addi %[[REMSI_1]], %[[CONSTANT_3]] : index
+// CHECK:               %[[SELECT_1:.*]] = arith.select %[[CMPI_1]], %[[ADDI_4]], %[[REMSI_1]] : index
+// CHECK:               %[[ADDI_5:.*]] = arith.addi %[[MULI_1]], %[[SELECT_1]] : index
+// CHECK:               %[[EXTRACT_0:.*]] = tensor.extract %[[TO_TENSOR_0]]{{\[}}%[[VAL_2]], %[[VAL_3]]] : tensor<2x4xf32>
+// CHECK:               memref.store %[[EXTRACT_0]], %[[CAST_1]]{{\[}}%[[ADDI_5]]] : memref<?xf32>
+// CHECK:             }
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @wrap_boundary_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
@@ -616,19 +685,55 @@ module {
 // CHECK-LABEL:   tt.func @wrap_boundary_mixed_indirect_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK:           scf.for
-// CHECK:           scf.for
-// CHECK:           scf.if
-// CHECK:           tensor.extract
-// CHECK:           arith.remsi
-// CHECK:           memref.load
-// CHECK:           memref.store
-// CHECK:           scf.for
-// CHECK:           scf.for
-// CHECK:           scf.if
-// CHECK:           tensor.extract
-// CHECK:           arith.remsi
-// CHECK:           memref.store
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1]> : tensor<2xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 3 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 2 : index
+// CHECK:           %[[CONSTANT_6:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_7:.*]] = arith.constant dense<[true, false]> : tensor<2xi1>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<2x4xf32>
+// CHECK:           linalg.fill ins(%[[CONSTANT_6]] : f32) outs(%[[ALLOC_0]] : memref<2x4xf32>)
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_5]] step %[[CONSTANT_2]] {
+// CHECK:             scf.for %[[VAL_1:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_4]] step %[[CONSTANT_2]] {
+// CHECK:               %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_7]]{{\[}}%[[VAL_0]]] : tensor<2xi1>
+// CHECK:               scf.if %[[EXTRACT_0]] {
+// CHECK:                 %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<2xindex>
+// CHECK:                 %[[MULI_0:.*]] = arith.muli %[[EXTRACT_1]], %[[CONSTANT_4]] : index
+// CHECK:                 %[[ADDI_0:.*]] = arith.addi %[[VAL_1]], %[[CONSTANT_1]] : index
+// CHECK:                 %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_4]] : index
+// CHECK:                 %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_3]] : index
+// CHECK:                 %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_4]] : index
+// CHECK:                 %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:                 %[[ADDI_2:.*]] = arith.addi %[[MULI_0]], %[[SELECT_0]] : index
+// CHECK:                 %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[ADDI_2]]] : memref<?xf32>
+// CHECK:                 memref.store %[[LOAD_0]], %[[ALLOC_0]]{{\[}}%[[VAL_0]], %[[VAL_1]]] : memref<2x4xf32>
+// CHECK:               }
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<2x4xf32> to tensor<2x4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[CAST_1:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_1]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_2:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_5]] step %[[CONSTANT_2]] {
+// CHECK:             scf.for %[[VAL_3:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_4]] step %[[CONSTANT_2]] {
+// CHECK:               %[[EXTRACT_2:.*]] = tensor.extract %[[CONSTANT_7]]{{\[}}%[[VAL_2]]] : tensor<2xi1>
+// CHECK:               scf.if %[[EXTRACT_2]] {
+// CHECK:                 %[[EXTRACT_3:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_2]]] : tensor<2xindex>
+// CHECK:                 %[[MULI_1:.*]] = arith.muli %[[EXTRACT_3]], %[[CONSTANT_4]] : index
+// CHECK:                 %[[ADDI_3:.*]] = arith.addi %[[VAL_3]], %[[CONSTANT_2]] : index
+// CHECK:                 %[[REMSI_1:.*]] = arith.remsi %[[ADDI_3]], %[[CONSTANT_4]] : index
+// CHECK:                 %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_1]], %[[CONSTANT_3]] : index
+// CHECK:                 %[[ADDI_4:.*]] = arith.addi %[[REMSI_1]], %[[CONSTANT_4]] : index
+// CHECK:                 %[[SELECT_1:.*]] = arith.select %[[CMPI_1]], %[[ADDI_4]], %[[REMSI_1]] : index
+// CHECK:                 %[[ADDI_5:.*]] = arith.addi %[[MULI_1]], %[[SELECT_1]] : index
+// CHECK:                 %[[EXTRACT_4:.*]] = tensor.extract %[[TO_TENSOR_0]]{{\[}}%[[VAL_2]], %[[VAL_3]]] : tensor<2x4xf32>
+// CHECK:                 memref.store %[[EXTRACT_4]], %[[CAST_1]]{{\[}}%[[ADDI_5]]] : memref<?xf32>
+// CHECK:               }
+// CHECK:             }
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @wrap_boundary_mixed_indirect_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
@@ -653,15 +758,46 @@ module {
 // CHECK-LABEL:   tt.func @wrap_boundary_negative_offset_load_store(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK:           arith.remsi
-// CHECK:           arith.cmpi slt
-// CHECK:           arith.select
-// CHECK:           memref.load
-// CHECK:           memref.store
-// CHECK:           arith.remsi
-// CHECK:           arith.cmpi slt
-// CHECK:           arith.select
-// CHECK:           memref.store
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant -3 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant -1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 2 : index
+// CHECK:           %[[CONSTANT_6:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<2x4xf32>
+// CHECK:           linalg.fill ins(%[[CONSTANT_6]] : f32) outs(%[[ALLOC_0]] : memref<2x4xf32>)
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_5]] step %[[CONSTANT_2]] {
+// CHECK:             scf.for %[[VAL_1:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_4]] step %[[CONSTANT_2]] {
+// CHECK:               %[[MULI_0:.*]] = arith.muli %[[VAL_0]], %[[CONSTANT_4]] : index
+// CHECK:               %[[ADDI_0:.*]] = arith.addi %[[VAL_1]], %[[CONSTANT_1]] : index
+// CHECK:               %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_4]] : index
+// CHECK:               %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_3]] : index
+// CHECK:               %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_4]] : index
+// CHECK:               %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:               %[[ADDI_2:.*]] = arith.addi %[[MULI_0]], %[[SELECT_0]] : index
+// CHECK:               %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[ADDI_2]]] : memref<?xf32>
+// CHECK:               memref.store %[[LOAD_0]], %[[ALLOC_0]]{{\[}}%[[VAL_0]], %[[VAL_1]]] : memref<2x4xf32>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<2x4xf32> to tensor<2x4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[CAST_1:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_1]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_2:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_5]] step %[[CONSTANT_2]] {
+// CHECK:             scf.for %[[VAL_3:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_4]] step %[[CONSTANT_2]] {
+// CHECK:               %[[MULI_1:.*]] = arith.muli %[[VAL_2]], %[[CONSTANT_4]] : index
+// CHECK:               %[[ADDI_3:.*]] = arith.addi %[[VAL_3]], %[[CONSTANT_0]] : index
+// CHECK:               %[[REMSI_1:.*]] = arith.remsi %[[ADDI_3]], %[[CONSTANT_4]] : index
+// CHECK:               %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_1]], %[[CONSTANT_3]] : index
+// CHECK:               %[[ADDI_4:.*]] = arith.addi %[[REMSI_1]], %[[CONSTANT_4]] : index
+// CHECK:               %[[SELECT_1:.*]] = arith.select %[[CMPI_1]], %[[ADDI_4]], %[[REMSI_1]] : index
+// CHECK:               %[[ADDI_5:.*]] = arith.addi %[[MULI_1]], %[[SELECT_1]] : index
+// CHECK:               %[[EXTRACT_0:.*]] = tensor.extract %[[TO_TENSOR_0]]{{\[}}%[[VAL_2]], %[[VAL_3]]] : tensor<2x4xf32>
+// CHECK:               memref.store %[[EXTRACT_0]], %[[CAST_1]]{{\[}}%[[ADDI_5]]] : memref<?xf32>
+// CHECK:             }
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @wrap_boundary_negative_offset_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
@@ -682,11 +818,40 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
-// CHECK:           scf.for
-// CHECK:           cf.assert {{.*}}, "tta-to-memref: wrap boundary must be > 0"
-// CHECK:           bufferization.to_tensor
-// CHECK:           scf.for
-// CHECK:           cf.assert {{.*}}, "tta-to-memref: wrap boundary must be > 0"
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 2 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:           linalg.fill ins(%[[CONSTANT_4]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_0]], %[[CONSTANT_1]] : index
+// CHECK:             %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG2]], %[[CONSTANT_2]] : index
+// CHECK:             cf.assert %[[CMPI_0]], "tta-to-memref: wrap boundary must be > 0"
+// CHECK:             %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[ARG2]] : index
+// CHECK:             %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_2]] : index
+// CHECK:             %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[ARG2]] : index
+// CHECK:             %[[SELECT_0:.*]] = arith.select %[[CMPI_1]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:             %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xf32>
+// CHECK:             memref.store %[[LOAD_0]], %[[ALLOC_0]]{{\[}}%[[VAL_0]]] : memref<4xf32>
+// CHECK:           }
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:           %[[CAST_1:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_1]] : memref<*xf32> to memref<?xf32>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_1]], %[[CONSTANT_0]] : index
+// CHECK:             %[[CMPI_2:.*]] = arith.cmpi sgt, %[[ARG2]], %[[CONSTANT_2]] : index
+// CHECK:             cf.assert %[[CMPI_2]], "tta-to-memref: wrap boundary must be > 0"
+// CHECK:             %[[REMSI_1:.*]] = arith.remsi %[[ADDI_2]], %[[ARG2]] : index
+// CHECK:             %[[CMPI_3:.*]] = arith.cmpi slt, %[[REMSI_1]], %[[CONSTANT_2]] : index
+// CHECK:             %[[ADDI_3:.*]] = arith.addi %[[REMSI_1]], %[[ARG2]] : index
+// CHECK:             %[[SELECT_1:.*]] = arith.select %[[CMPI_3]], %[[ADDI_3]], %[[REMSI_1]] : index
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]]] : tensor<4xf32>
+// CHECK:             memref.store %[[EXTRACT_0]], %[[CAST_1]]{{\[}}%[[SELECT_1]]] : memref<?xf32>
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @wrap_boundary_dynamic_guard(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %boundary: index) {
@@ -739,14 +904,14 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK-DAG:       %[[CONSTANT_0:.*]] = arith.constant 3 : index
-// CHECK-DAG:       %[[CONSTANT_1:.*]] = arith.constant 8 : index
-// CHECK-DAG:       %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 8 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 3 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
-// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_0]] : index
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
 // CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
-// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_2]] : index
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
@@ -772,10 +937,22 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK:           arith.remsi
-// CHECK:           arith.cmpi slt
-// CHECK:           arith.select
-// CHECK:           memref.generic_atomic_rmw
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 8 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant -5 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
+// CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
+// CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             memref.atomic_yield %[[ADDI_2]] : i32
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_wrap_negative_boundary(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
@@ -794,8 +971,23 @@ module {
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
-// CHECK:           cf.assert {{.*}}, "tta-to-memref: wrap boundary must be > 0"
-// CHECK:           memref.generic_atomic_rmw
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 2 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_1]] : index
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG3]], %[[CONSTANT_0]] : index
+// CHECK:           cf.assert %[[CMPI_0]], "tta-to-memref: wrap boundary must be > 0"
+// CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[ARG3]] : index
+// CHECK:           %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[ARG3]] : index
+// CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_1]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             memref.atomic_yield %[[ADDI_2]] : i32
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_wrap_dynamic_boundary(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %boundary: index) {
@@ -839,15 +1031,15 @@ module {
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK-DAG:       %[[CONSTANT_0:.*]] = arith.constant 5 : index
-// CHECK-DAG:       %[[CONSTANT_1:.*]] = arith.constant 16 : index
-// CHECK-DAG:       %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 16 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 5 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
-// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_0]] : index
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
 // CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
-// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_2]] : index
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
@@ -874,10 +1066,23 @@ module {
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK:           arith.remsi
-// CHECK:           arith.cmpi slt
-// CHECK:           arith.select
-// CHECK:           memref.generic_atomic_rmw
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 16 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant -7 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
+// CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
+// CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[CMPI_1:.*]] = arith.cmpi eq, %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             %[[SELECT_1:.*]] = arith.select %[[CMPI_1]], %[[ARG3]], %[[VAL_0]] : i32
+// CHECK:             memref.atomic_yield %[[SELECT_1]] : i32
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_cas_scalar_wrap_negative_boundary(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32) {
@@ -897,8 +1102,24 @@ module {
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
-// CHECK:           cf.assert {{.*}}, "tta-to-memref: wrap boundary must be > 0"
-// CHECK:           memref.generic_atomic_rmw
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_1]] : index
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG4]], %[[CONSTANT_0]] : index
+// CHECK:           cf.assert %[[CMPI_0]], "tta-to-memref: wrap boundary must be > 0"
+// CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[ARG4]] : index
+// CHECK:           %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[ARG4]] : index
+// CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_1]], %[[ADDI_1]], %[[REMSI_0]] : index
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[CMPI_2:.*]] = arith.cmpi eq, %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             %[[SELECT_1:.*]] = arith.select %[[CMPI_2]], %[[ARG3]], %[[VAL_0]] : i32
+// CHECK:             memref.atomic_yield %[[SELECT_1]] : i32
+// CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_cas_scalar_wrap_dynamic_boundary(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32, %boundary: index) {
