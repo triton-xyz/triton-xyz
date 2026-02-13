@@ -4,7 +4,7 @@ module {
   tt.func @chained_indirect_mixed_dims(%src: !tt.ptr<f32>) {
     %offsets0 = arith.constant dense<[0, 1]> : tensor<2xi32>
     %offsets1 = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %addr = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], shape: [0, 0], order: [] : <f32> to !tta.addr<f32, 2, 1>
+    %addr = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
     %idx0 = "tta.indirect_reindex"(%addr, %offsets0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
     %idx1 = "tta.indirect_reindex"(%idx0, %offsets1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
     // expected-error@+2 {{tta-to-memref: mixed_indirect_dim in address chain}}
@@ -22,10 +22,10 @@ module {
     %offsets_b = arith.constant dense<[0, 1, 2, 3, 4]> : tensor<5xi32>
     %mask_a = arith.constant dense<[true, false, true, false]> : tensor<4xi1>
     %mask_b = arith.constant dense<[true, false, true, false, true]> : tensor<5xi1>
-    %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
     %idx0 = "tta.indirect_reindex"(%addr, %offsets_a, %mask_a) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>, tensor<4xi1>) -> !tta.addr<f32, 1, 1>
     %idx1 = "tta.indirect_reindex"(%idx0, %offsets_b, %mask_b) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<5xi32>, tensor<5xi1>) -> !tta.addr<f32, 1, 1>
-    // expected-error@+2 {{tta-to-memref: indirect_index is not mergeable}}
+    // expected-error@+2 {{tta-to-memref: indirect_index merge shape mismatch}}
     // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
     %val = "tta.load"(%idx1) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
     tt.return
@@ -37,7 +37,7 @@ module {
 module {
   tt.func @indirect_on_block_ptr(%base: !tt.ptr<f16>) {
     %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %addr = tta.make_addr %base to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], shape: [4, 4], order: [1, 0] : <f16> to !tta.addr<f16, 2, 1>
+    %addr = tta.make_addr %base to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [4, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
     %idx = "tta.indirect_reindex"(%addr, %offsets) <{indirect_dim = 0 : i32}> : (!tta.addr<f16, 2, 1>, tensor<4xi32>) -> !tta.addr<f16, 2, 1>
     // expected-error@+2 {{tta-to-memref: indirect reindex on block pointer is unsupported}}
     // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
@@ -51,7 +51,7 @@ module {
 module {
   tt.func @loop_carried_addr_unsupported(%src: !tt.ptr<f32>, %n: i32, %step: i32) {
     %c0 = arith.constant 0 : i32
-    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
     %res = scf.for %iv = %c0 to %n step %step iter_args(%addr = %addr0) -> (!tta.addr<f32, 1, 1>) : i32 {
       // expected-error@+1 {{'tta.load' op unsupported loop-carried !tta.addr recurrence in scf.for iter_args}}
       %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
@@ -86,7 +86,7 @@ module {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
     %indices = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
     %res = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %addr0) -> (!tta.addr<f32, 1, 1>) : i32 {
       // expected-error@+1 {{'tta.load' op unsupported loop-carried !tta.addr recurrence in scf.for iter_args}}
       %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
@@ -102,7 +102,7 @@ module {
 module {
   tt.func @loop_carried_addr_unsupported_dynamic_lower_bound(%src: !tt.ptr<f32>, %lb: i32, %n: i32) {
     %c1 = arith.constant 1 : i32
-    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
     %res = scf.for %iv = %lb to %n step %c1 iter_args(%addr = %addr0) -> (!tta.addr<f32, 1, 1>) : i32 {
       // expected-error@+1 {{'tta.load' op unsupported loop-carried !tta.addr recurrence in scf.for iter_args}}
       %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
@@ -118,7 +118,7 @@ module {
 module {
   tt.func @loop_carried_addr_unsupported_dynamic_step(%src: !tt.ptr<f32>, %n: i32, %step: i32) {
     %c0 = arith.constant 0 : i32
-    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
     %res = scf.for %iv = %c0 to %n step %step iter_args(%addr = %addr0) -> (!tta.addr<f32, 1, 1>) : i32 {
       // expected-error@+1 {{'tta.load' op unsupported loop-carried !tta.addr recurrence in scf.for iter_args}}
       %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
@@ -147,6 +147,20 @@ module {
 // -----
 
 module {
+  tt.func @atomic_indirect_on_block_ptr(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
+    %indices = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+    %addr = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
+    %idx = "tta.indirect_reindex"(%addr, %indices) <{indirect_dim = 0 : i32}> : (!tta.addr<i32, 1, 1>, tensor<4xi32>) -> !tta.addr<i32, 1, 1>
+    // expected-error@+2 {{tta-to-memref: block pointer tta.atomic is unsupported}}
+    // expected-error@+1 {{failed to legalize operation 'tta.atomic' that was explicitly marked illegal}}
+    %r = "tta.atomic"(%idx, %off, %val) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
+    tt.return
+  }
+}
+
+// -----
+
+module {
   tt.func @atomic_tensor_unsupported(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %val: tensor<4xi32>) {
     %ptr_i = tta.from_tt_ptr %ptr : !tt.ptr<i32> to !tta.addr<i32, 1, 1>
     // expected-error@+2 {{tta-to-memref: tensor tta.atomic is unsupported}}
@@ -164,6 +178,55 @@ module {
     // expected-error@+2 {{tta-to-memref: tensor tta.atomic_cas is unsupported}}
     // expected-error@+1 {{failed to legalize operation 'tta.atomic_cas' that was explicitly marked illegal}}
     %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @wrap_boundary_non_positive(%src: !tt.ptr<f32>) {
+    %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [-1] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    // expected-error@+2 {{tta-to-memref: wrap boundary must be greater than zero}}
+    // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
+    %val = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @wrap_boundary_non_positive_store(%dst: !tt.ptr<f32>) {
+    %val = arith.constant dense<0.0> : tensor<4xf32>
+    %addr = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], layout: [-1] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    // expected-error@+2 {{tta-to-memref: wrap boundary must be greater than zero}}
+    // expected-error@+1 {{failed to legalize operation 'tta.store' that was explicitly marked illegal}}
+    "tta.store"(%addr, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @atomic_wrap_boundary_non_positive(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
+    %addr = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [3], layout: [-8] {layout_kind = "strided"} : <i32> to !tta.addr<i32, 1, 1>
+    // expected-error@+2 {{tta-to-memref: wrap boundary must be greater than zero}}
+    // expected-error@+1 {{failed to legalize operation 'tta.atomic' that was explicitly marked illegal}}
+    %r = "tta.atomic"(%addr, %off, %val) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
+    tt.return
+  }
+}
+
+// -----
+
+module {
+  tt.func @atomic_cas_wrap_boundary_non_positive(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32) {
+    %addr = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [5], layout: [-8] {layout_kind = "strided"} : <i32> to !tta.addr<i32, 1, 1>
+    // expected-error@+2 {{tta-to-memref: wrap boundary must be greater than zero}}
+    // expected-error@+1 {{failed to legalize operation 'tta.atomic_cas' that was explicitly marked illegal}}
+    %r = "tta.atomic_cas"(%addr, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
     tt.return
   }
 }

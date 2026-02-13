@@ -99,6 +99,22 @@ bool areAllZero(ArrayRef<OpFoldResult> values) {
       values, [](OpFoldResult value) { return isConstantIntValue(value, 0); });
 }
 
+constexpr StringLiteral kLayoutKindStrided = "strided";
+constexpr StringLiteral kLayoutKindBlock = "block";
+constexpr StringLiteral kLayoutPayloadOrderKey = "order";
+
+bool isValidLayoutKind(StringRef layoutKind) {
+  return layoutKind == kLayoutKindStrided || layoutKind == kLayoutKindBlock;
+}
+
+DenseI32ArrayAttr getPayloadOrderAttr(DictionaryAttr payload) {
+  if (!payload) {
+    return DenseI32ArrayAttr();
+  }
+  return dyn_cast_or_null<DenseI32ArrayAttr>(
+      payload.get(kLayoutPayloadOrderKey));
+}
+
 LogicalResult verifyIndirectReindexLike(Operation *op, Value indirectIndex,
                                         IntegerAttr indirectDimAttr, Value mask,
                                         int64_t rank) {
@@ -289,6 +305,64 @@ struct ComposeReindexOfAdvancePattern : public OpRewritePattern<ReindexOp> {
   }
 };
 
+struct ComposeReindexOfIndirectReindexPattern
+    : public OpRewritePattern<ReindexOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ReindexOp op,
+                                PatternRewriter &rewriter) const override {
+    auto producer = op.getAddress().getDefiningOp<IndirectReindexOp>();
+    if (!producer) {
+      return failure();
+    }
+
+    Value shiftedBase = createReindexWithSameOffsets(
+        rewriter, op.getLoc(), producer.getAddress(), op.getMixedOffsets());
+    int64_t indirectDim = producer.getIndirectDimAttr().getInt();
+    Value replacement =
+        producer.getMask()
+            ? IndirectReindexOp::create(rewriter, op.getLoc(), shiftedBase,
+                                        producer.getIndirectIndex(),
+                                        producer.getMask(), indirectDim)
+                  .getResult()
+            : IndirectReindexOp::create(rewriter, op.getLoc(), shiftedBase,
+                                        producer.getIndirectIndex(),
+                                        indirectDim)
+                  .getResult();
+    rewriter.replaceOp(op, replacement);
+    return success();
+  }
+};
+
+struct ComposeAdvanceOfIndirectReindexPattern
+    : public OpRewritePattern<AdvanceOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AdvanceOp op,
+                                PatternRewriter &rewriter) const override {
+    auto producer = op.getAddress().getDefiningOp<IndirectReindexOp>();
+    if (!producer) {
+      return failure();
+    }
+
+    Value shiftedBase = createReindexWithSameOffsets(
+        rewriter, op.getLoc(), producer.getAddress(), op.getMixedDeltas());
+    int64_t indirectDim = producer.getIndirectDimAttr().getInt();
+    Value replacement =
+        producer.getMask()
+            ? IndirectReindexOp::create(rewriter, op.getLoc(), shiftedBase,
+                                        producer.getIndirectIndex(),
+                                        producer.getMask(), indirectDim)
+                  .getResult()
+            : IndirectReindexOp::create(rewriter, op.getLoc(), shiftedBase,
+                                        producer.getIndirectIndex(),
+                                        indirectDim)
+                  .getResult();
+    rewriter.replaceOp(op, replacement);
+    return success();
+  }
+};
+
 struct HoistFromTTPtrThroughReindexPattern
     : public OpRewritePattern<FromTTPtrOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -404,7 +478,8 @@ LogicalResult FromTTPtrOp::verify() {
 void FromTTPtrOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                               MLIRContext *context) {
   results.add<HoistFromTTPtrThroughReindexPattern,
-              HoistFromTTPtrThroughAdvancePattern>(context);
+              HoistFromTTPtrThroughAdvancePattern,
+              HoistFromTTPtrThroughIndirectReindexPattern>(context);
 }
 
 LogicalResult MakeAddrOp::verify() {
@@ -416,8 +491,8 @@ LogicalResult MakeAddrOp::verify() {
   if (static_cast<int64_t>(getMixedOffsets().size()) != rank) {
     return emitOpError("offsets must match sizes rank");
   }
-  if (static_cast<int64_t>(getMixedShape().size()) != rank) {
-    return emitOpError("shape must match sizes rank");
+  if (static_cast<int64_t>(getMixedLayout().size()) != rank) {
+    return emitOpError("layout must match sizes rank");
   }
 
   auto baseType = dyn_cast<triton::PointerType>(getBase().getType());
@@ -440,19 +515,42 @@ LogicalResult MakeAddrOp::verify() {
     return emitOpError("result address space must match base address space");
   }
 
-  if (!getOrder().empty() && static_cast<int64_t>(getOrder().size()) != rank) {
+  StringRef layoutKind = getLayoutKindString();
+  if (!isValidLayoutKind(layoutKind)) {
+    return emitOpError("layout_kind must be either \"strided\" or \"block\"");
+  }
+
+  DictionaryAttr layoutPayload = getLayoutPayloadAttr();
+  Attribute payloadOrder =
+      layoutPayload ? layoutPayload.get(kLayoutPayloadOrderKey) : Attribute();
+  if (payloadOrder && !isa<DenseI32ArrayAttr>(payloadOrder)) {
+    return emitOpError("layout_payload.order must be DenseI32ArrayAttr");
+  }
+  DenseI32ArrayAttr orderAttr = getPayloadOrderAttr(layoutPayload);
+  SmallVector<int32_t> order =
+      orderAttr ? SmallVector<int32_t>(orderAttr.asArrayRef())
+                : SmallVector<int32_t>();
+
+  bool isBlockLayout = layoutKind == "block";
+  if (isBlockLayout && !orderAttr) {
+    return emitOpError("block layout requires layout_payload.order");
+  }
+  if (isBlockLayout && static_cast<int64_t>(order.size()) != rank) {
     return emitOpError(
         "order length must match sizes rank for block pointer result");
   }
+  if (!isBlockLayout && !order.empty()) {
+    return emitOpError("order must be empty for strided layout");
+  }
 
-  if (!getOrder().empty()) {
-    SmallVector<int64_t> order;
-    order.reserve(getOrder().size());
-    for (int32_t value : getOrder()) {
-      order.push_back(value);
+  if (isBlockLayout) {
+    SmallVector<int64_t> orderAsI64;
+    orderAsI64.reserve(order.size());
+    for (int32_t value : order) {
+      orderAsI64.push_back(value);
     }
 
-    if (!isPermutationVector(order)) {
+    if (!isPermutationVector(orderAsI64)) {
       return emitOpError("order must be a permutation of [0, rank)");
     }
   }
@@ -462,23 +560,25 @@ LogicalResult MakeAddrOp::verify() {
 
 void MakeAddrOp::build(OpBuilder &b, OperationState &state, Value base,
                        ArrayRef<int64_t> sizes, ArrayRef<OpFoldResult> strides,
-                       ArrayRef<OpFoldResult> offsets,
-                       ArrayRef<OpFoldResult> shape, ArrayRef<int32_t> order) {
-  SmallVector<int64_t> staticStrides, staticOffsets, staticShape;
-  SmallVector<Value> dynamicStrides, dynamicOffsets, dynamicShape;
+                       ArrayRef<OpFoldResult> offsets, StringRef layoutKind,
+                       ArrayRef<OpFoldResult> layout,
+                       DictionaryAttr layoutPayload) {
+  SmallVector<int64_t> staticStrides, staticOffsets, staticLayout;
+  SmallVector<Value> dynamicStrides, dynamicOffsets, dynamicLayout;
 
   dispatchIndexOpFoldResults(offsets, dynamicOffsets, staticOffsets);
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
-  dispatchIndexOpFoldResults(shape, dynamicShape, staticShape);
+  dispatchIndexOpFoldResults(layout, dynamicLayout, staticLayout);
 
   auto basePtr = cast<triton::PointerType>(base.getType());
   Type resultType = AddrType::get(basePtr.getPointeeType(), sizes.size(),
                                   basePtr.getAddressSpace());
 
   build(b, state, resultType, base, sizes, dynamicStrides, dynamicOffsets,
-        dynamicShape, b.getDenseI64ArrayAttr(staticStrides),
+        dynamicLayout, b.getDenseI64ArrayAttr(staticStrides),
         b.getDenseI64ArrayAttr(staticOffsets),
-        b.getDenseI64ArrayAttr(staticShape), order);
+        b.getDenseI64ArrayAttr(staticLayout), b.getStringAttr(layoutKind),
+        layoutPayload);
 }
 
 void ReindexOp::build(OpBuilder &b, OperationState &state, Value address,
@@ -545,8 +645,8 @@ OpFoldResult ReindexOp::fold(FoldAdaptor adaptor) {
 
 void ReindexOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                             MLIRContext *context) {
-  results.add<ComposeReindexOfReindexPattern, ComposeReindexOfAdvancePattern>(
-      context);
+  results.add<ComposeReindexOfReindexPattern, ComposeReindexOfAdvancePattern,
+              ComposeReindexOfIndirectReindexPattern>(context);
 }
 
 void AdvanceOp::build(OpBuilder &b, OperationState &state, Value address,
@@ -585,8 +685,8 @@ OpFoldResult AdvanceOp::fold(FoldAdaptor adaptor) {
 
 void AdvanceOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                             MLIRContext *context) {
-  results.add<ComposeAdvanceOfAdvancePattern, ComposeAdvanceOfReindexPattern>(
-      context);
+  results.add<ComposeAdvanceOfAdvancePattern, ComposeAdvanceOfReindexPattern,
+              ComposeAdvanceOfIndirectReindexPattern>(context);
 }
 
 void AtomicOp::build(OpBuilder &b, OperationState &state, StringRef kind,

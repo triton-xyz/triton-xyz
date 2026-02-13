@@ -7,8 +7,9 @@
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
+#include <cctype>
 #include <optional>
-#include <utility>
+#include <string>
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOTTASTRUCTURED
@@ -28,8 +29,40 @@ using mlir::triton::tta_conversion::markFallback;
 using AnalysisAddress = mlir::triton::address::AnalysisAddress;
 using TTAEmitter = mlir::triton::address::TTAEmitter;
 
-static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
-                                           PatternRewriter &rewriter) {
+struct AddressAndMaskDims {
+  Value addr;
+  SmallVector<OpFoldResult> maskDims;
+};
+
+static std::string normalizeFallbackReason(StringRef reason) {
+  std::string normalized;
+  normalized.reserve(reason.size());
+
+  bool pendingUnderscore = false;
+  for (char c : reason) {
+    unsigned char uc = static_cast<unsigned char>(c);
+    if (std::isalnum(uc)) {
+      if (pendingUnderscore && !normalized.empty()) {
+        normalized.push_back('_');
+      }
+      pendingUnderscore = false;
+      normalized.push_back(
+          static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      continue;
+    }
+    pendingUnderscore = true;
+  }
+
+  if (normalized.empty()) {
+    return "address_analysis_failed";
+  }
+  return normalized;
+}
+
+static FailureOr<Value>
+analyzeAndEmitAddress(Value ptrLike, Location loc, PatternRewriter &rewriter,
+                      StringRef &reason,
+                      bool enableMakeGatherScatterTensorPtr = true) {
   if (isa<tta::AddrType>(ptrLike.getType())) {
     return ptrLike;
   }
@@ -38,18 +71,36 @@ static FailureOr<Value> getOrCreateAddress(Value ptrLike, Location loc,
     return ptrLike;
   }
 
-  AnalysisAddress analysis(/*enableMakeGatherScatterTensorPtr=*/false);
-  auto maybeAddr = analysis.analyze(ptrLike, loc, rewriter);
-  if (failed(maybeAddr)) {
+  AnalysisAddress analysis(enableMakeGatherScatterTensorPtr);
+  std::optional<StringRef> analyzeFailureReason;
+  auto maybeDescriptor =
+      analysis.analyzeDescriptor(ptrLike, loc, rewriter, &analyzeFailureReason);
+  if (failed(maybeDescriptor)) {
+    if (analyzeFailureReason && !analyzeFailureReason->empty()) {
+      reason =
+          rewriter.getStringAttr(normalizeFallbackReason(*analyzeFailureReason))
+              .getValue();
+    } else {
+      reason = "address_analysis_failed";
+    }
     return failure();
   }
 
-  auto maybeMakeAddr = TTAEmitter::emitMakeAddr(*maybeAddr, loc, rewriter);
-  if (failed(maybeMakeAddr)) {
+  std::optional<StringRef> emitFailureReason;
+  auto maybeAddress = TTAEmitter::emitAddress(*maybeDescriptor, loc, rewriter,
+                                              &emitFailureReason);
+  if (failed(maybeAddress)) {
+    if (emitFailureReason && !emitFailureReason->empty()) {
+      reason =
+          rewriter.getStringAttr(normalizeFallbackReason(*emitFailureReason))
+              .getValue();
+    } else {
+      reason = "emit_address_failed";
+    }
     return failure();
   }
 
-  return *maybeMakeAddr;
+  return *maybeAddress;
 }
 
 template <typename OpTy>
@@ -68,26 +119,21 @@ static std::optional<StringRef> getEarlyFallbackReason(OpTy op) {
   return std::nullopt;
 }
 
-struct AddressAndMaskDims {
-  Value addr;
-  SmallVector<OpFoldResult> maskDims;
-};
-
 template <typename OpTy>
 static FailureOr<AddressAndMaskDims>
-getAddressAndMaskDims(OpTy op, PatternRewriter &rewriter,
-                      StringRef &failureReason) {
-  auto maybeAddr = getOrCreateAddress(op.getPtr(), op.getLoc(), rewriter);
-  // TODO: more detailed info
+getAddressAndMaskDims(OpTy op, PatternRewriter &rewriter, StringRef &reason,
+                      bool enableMakeGatherScatterTensorPtr = true) {
+  auto maybeAddr =
+      analyzeAndEmitAddress(op.getPtr(), op.getLoc(), rewriter, reason,
+                            enableMakeGatherScatterTensorPtr);
   if (failed(maybeAddr)) {
-    failureReason = "address_analysis_failed";
     return failure();
   }
 
   auto maybeMaskDims =
       TTAEmitter::analyzeMaskDims(op.getMask(), op.getLoc(), rewriter);
   if (failed(maybeMaskDims)) {
-    failureReason = "mask_analysis_failed";
+    reason = "mask_analysis_failed";
     return failure();
   }
 
@@ -175,21 +221,15 @@ struct ConvertTTAdvancePattern : OpRewritePattern<triton::AdvanceOp> {
       return failure();
     }
 
-    AnalysisAddress analysis(/*enableMakeGatherScatterTensorPtr=*/false);
-    auto maybeAddr = analysis.analyze(op.getResult(), op.getLoc(), rewriter);
-    if (failed(maybeAddr)) {
-      markFallback(op, "address_analysis_failed", rewriter);
+    StringRef failureReason;
+    auto maybeAddress = analyzeAndEmitAddress(op.getResult(), op.getLoc(),
+                                              rewriter, failureReason);
+    if (failed(maybeAddress)) {
+      markFallback(op, failureReason, rewriter);
       return success();
     }
 
-    auto maybeMakeAddr =
-        TTAEmitter::emitMakeAddr(*maybeAddr, op.getLoc(), rewriter);
-    if (failed(maybeMakeAddr)) {
-      markFallback(op, "emit_make_addr_failed", rewriter);
-      return success();
-    }
-
-    rewriter.replaceOp(op, *maybeMakeAddr);
+    rewriter.replaceOp(op, *maybeAddress);
     return success();
   }
 };

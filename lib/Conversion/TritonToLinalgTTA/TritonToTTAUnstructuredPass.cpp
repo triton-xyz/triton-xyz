@@ -16,6 +16,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
+#include "triton-shared/AnalysisAddress/AnalysisAddress.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Utils/Utils.h"
@@ -45,6 +46,7 @@ namespace mlir::triton {
 
 namespace {
 
+using TTAEmitter = mlir::triton::address::TTAEmitter;
 using mlir::triton::tta_conversion::hasLoweredTTAAddressRoot;
 using mlir::triton::tta_conversion::markFallback;
 
@@ -125,6 +127,63 @@ static bool shouldHandleForFallback(LoadStoreLikeOp op) {
   return !hasLoweredTTAAddressRoot(op.getPtr());
 }
 
+static std::optional<int64_t> getStaticLinearOffsetSize(Type offsetType) {
+  auto tensorType = dyn_cast<RankedTensorType>(offsetType);
+  if (!tensorType || tensorType.getRank() != 1 || tensorType.isDynamicDim(0)) {
+    return std::nullopt;
+  }
+  if (!tensorType.getElementType().isInteger(32) &&
+      !tensorType.getElementType().isInteger(64)) {
+    return std::nullopt;
+  }
+  return tensorType.getShape()[0];
+}
+
+static FailureOr<mlir::triton::address::AddressDescriptor>
+buildLinearAddressDescriptor(OpBuilder &builder, Value ptr, int64_t size) {
+  auto ptrType = dyn_cast<triton::PointerType>(ptr.getType());
+  if (!ptrType) {
+    return failure();
+  }
+
+  mlir::triton::address::AddressDescriptor descriptor;
+  descriptor.base = ptr;
+  descriptor.elementType = ptrType.getPointeeType();
+  descriptor.addressSpace = ptrType.getAddressSpace();
+  descriptor.rank = 1;
+  descriptor.layoutKind = mlir::triton::address::LayoutKind::Strided;
+
+  mlir::triton::address::DimRule dim;
+  dim.size = builder.getIndexAttr(size);
+  dim.stride = builder.getIndexAttr(1);
+  dim.offset = builder.getIndexAttr(0);
+  descriptor.dims.push_back(std::move(dim));
+  return descriptor;
+}
+
+static FailureOr<Value> emitLinearAddressFromStaticSize(OpBuilder &builder,
+                                                        Location loc, Value ptr,
+                                                        int64_t size) {
+  auto maybeDescriptor = buildLinearAddressDescriptor(builder, ptr, size);
+  if (failed(maybeDescriptor)) {
+    return failure();
+  }
+
+  return TTAEmitter::emitMakeAddr(*maybeDescriptor, loc, builder);
+}
+
+static FailureOr<Value> emitLinearAddressFromOffsetTensor(OpBuilder &builder,
+                                                          Location loc,
+                                                          Value ptr,
+                                                          Value offset) {
+  auto offsetSize = getStaticLinearOffsetSize(offset.getType());
+  if (!offsetSize) {
+    return failure();
+  }
+
+  return emitLinearAddressFromStaticSize(builder, loc, ptr, *offsetSize);
+}
+
 static SmallVector<ReassociationIndices>
 getCollapseTo1DReassociation(unsigned rank) {
   SmallVector<ReassociationIndices> reassociation(1);
@@ -153,74 +212,6 @@ static FailureOr<Value> flattenTensorTo1D(OpBuilder &builder, Location loc,
   auto collapse = tensor::CollapseShapeOp::create(builder, loc, flatType, value,
                                                   reassociation);
   return collapse.getResult();
-}
-
-static Value getScalarValue(Value operand, Location loc, OpBuilder &builder) {
-  SmallVector<Operation *> ops;
-
-  auto reconstructScalarValue = [&](Value src) {
-    for (auto op = ops.rbegin(); op != ops.rend(); ++op) {
-      src = TypeSwitch<Operation *, Value>(*op)
-                .Case<arith::SIToFPOp>([&](Operation *operation) {
-                  Type resultType = operation->getResult(0).getType();
-                  if (auto shapedType = dyn_cast<ShapedType>(resultType)) {
-                    resultType = shapedType.getElementType();
-                  }
-                  return arith::SIToFPOp::create(builder, loc, resultType, src)
-                      .getResult();
-                })
-                .Case<arith::TruncFOp>([&](Operation *operation) {
-                  Type resultType = operation->getResult(0).getType();
-                  if (auto shapedType = dyn_cast<ShapedType>(resultType)) {
-                    resultType = shapedType.getElementType();
-                  }
-                  return arith::TruncFOp::create(builder, loc, resultType, src)
-                      .getResult();
-                })
-                .Default([](Operation *) -> Value {
-                  llvm_unreachable("unsupported scalar cast op");
-                });
-    }
-    return src;
-  };
-
-  while (true) {
-    if (!isa<ShapedType>(operand.getType())) {
-      return reconstructScalarValue(operand);
-    }
-
-    if (auto constOp = operand.getDefiningOp<arith::ConstantOp>()) {
-      if (auto attr = dyn_cast<DenseElementsAttr>(constOp.getValue())) {
-        if (!attr.isSplat()) {
-          return Value();
-        }
-        auto elementAttr = attr.getSplatValue<Attribute>();
-        auto scalar = arith::ConstantOp::materialize(
-            builder, elementAttr, attr.getElementType(), constOp.getLoc());
-        return reconstructScalarValue(scalar.getResult());
-      }
-      return Value();
-    }
-
-    if (auto splat = operand.getDefiningOp<triton::SplatOp>()) {
-      operand = splat.getSrc();
-      continue;
-    }
-
-    if (auto sitofp = operand.getDefiningOp<arith::SIToFPOp>()) {
-      ops.push_back(sitofp.getOperation());
-      operand = sitofp.getIn();
-      continue;
-    }
-
-    if (auto truncf = operand.getDefiningOp<arith::TruncFOp>()) {
-      ops.push_back(truncf.getOperation());
-      operand = truncf.getIn();
-      continue;
-    }
-
-    return Value();
-  }
 }
 
 static FailureOr<Value> castOffsetToSupportedType(Value offset, Location loc,
@@ -403,12 +394,13 @@ static FailureOr<Value> normalizeStoreValueTo1DTensor(Value value, Location loc,
 
 static FailureOr<Value> getScalarOther(triton::LoadOp load, Location loc,
                                        OpBuilder &builder) {
-  if (Value other = load.getOther()) {
-    auto scalarOther = getScalarValue(other, loc, builder);
-    if (!scalarOther) {
-      return failure();
-    }
-    return scalarOther;
+  auto maybeScalarOther =
+      TTAEmitter::getScalarOther(load.getOther(), loc, builder);
+  if (failed(maybeScalarOther)) {
+    return failure();
+  }
+  if (*maybeScalarOther) {
+    return *maybeScalarOther;
   }
 
   Type elementType = getElementTypeOrSelf(load.getType());
@@ -418,48 +410,6 @@ static FailureOr<Value> getScalarOther(triton::LoadOp load, Location loc,
   }
 
   return arith::ConstantOp::create(builder, loc, zeroAttr).getResult();
-}
-
-static std::optional<int64_t> getStaticOffsetSize(Type offsetType) {
-  auto tensorType = dyn_cast<RankedTensorType>(offsetType);
-  if (!tensorType || tensorType.getRank() != 1 || tensorType.isDynamicDim(0)) {
-    return std::nullopt;
-  }
-  if (!tensorType.getElementType().isInteger(32) &&
-      !tensorType.getElementType().isInteger(64)) {
-    return std::nullopt;
-  }
-  return tensorType.getShape()[0];
-}
-
-static FailureOr<tta::MakeAddrOp>
-buildLinearMakeAddr(OpBuilder &builder, Location loc, Value ptr, Value offset) {
-  if (!isa<triton::PointerType>(ptr.getType())) {
-    return failure();
-  }
-
-  auto offsetSize = getStaticOffsetSize(offset.getType());
-  if (!offsetSize) {
-    return failure();
-  }
-
-  SmallVector<int64_t> sizes{*offsetSize};
-  SmallVector<OpFoldResult> strides{builder.getIndexAttr(1)};
-  SmallVector<OpFoldResult> offsets{builder.getIndexAttr(0)};
-  SmallVector<OpFoldResult> shape{builder.getIndexAttr(0)};
-
-  return tta::MakeAddrOp::create(builder, loc, ptr, sizes, strides, offsets,
-                                 shape, ArrayRef<int32_t>{});
-}
-
-static FailureOr<Value> buildLinearImportedAddr(OpBuilder &builder,
-                                                Location loc, Value ptr,
-                                                Value offset) {
-  auto maybeMakeAddr = buildLinearMakeAddr(builder, loc, ptr, offset);
-  if (failed(maybeMakeAddr)) {
-    return failure();
-  }
-  return maybeMakeAddr->getResult();
 }
 
 static Value createZeroOffset(OpBuilder &builder, Location loc,
@@ -495,21 +445,6 @@ static Value materializeAddPtrFromOffset(OpBuilder &builder, Location loc,
   }
 
   return triton::AddPtrOp::create(builder, loc, ptrType, basePtr, offset)
-      .getResult();
-}
-
-static FailureOr<Value> buildAtomicImportedAddr(OpBuilder &builder,
-                                                Location loc, Value ptr) {
-  if (!isa<triton::PointerType>(ptr.getType())) {
-    return failure();
-  }
-
-  SmallVector<int64_t> sizes{1};
-  SmallVector<OpFoldResult> strides{builder.getIndexAttr(1)};
-  SmallVector<OpFoldResult> offsets{builder.getIndexAttr(0)};
-  SmallVector<OpFoldResult> shape{builder.getIndexAttr(0)};
-  return tta::MakeAddrOp::create(builder, loc, ptr, sizes, strides, offsets,
-                                 shape, ArrayRef<int32_t>{})
       .getResult();
 }
 
@@ -1201,8 +1136,8 @@ public:
                   return success();
                 }
 
-                auto maybeAddr = buildLinearImportedAddr(b, loc, offsetInfo.ptr,
-                                                         *maybeFlatOffset);
+                auto maybeAddr = emitLinearAddressFromOffsetTensor(
+                    b, loc, offsetInfo.ptr, *maybeFlatOffset);
                 if (failed(maybeAddr)) {
                   markFallbackAndPreserve(load, "make_addr_build_failed");
                   return success();
@@ -1277,8 +1212,8 @@ public:
                   return success();
                 }
 
-                auto maybeAddr = buildLinearImportedAddr(b, loc, offsetInfo.ptr,
-                                                         *maybeFlatOffset);
+                auto maybeAddr = emitLinearAddressFromOffsetTensor(
+                    b, loc, offsetInfo.ptr, *maybeFlatOffset);
                 if (failed(maybeAddr)) {
                   markFallbackAndPreserve(store, "make_addr_build_failed");
                   return success();
@@ -1420,7 +1355,7 @@ public:
                 }
 
                 auto maybeImportedPtr =
-                    buildAtomicImportedAddr(b, loc, offsetInfo.ptr);
+                    emitLinearAddressFromStaticSize(b, loc, offsetInfo.ptr, 1);
                 if (failed(maybeImportedPtr)) {
                   markFallbackAndPreserve(atomic, "make_addr_build_failed");
                   materializeAtomicPtr();
@@ -1482,7 +1417,7 @@ public:
                 }
 
                 auto maybeImportedPtr =
-                    buildAtomicImportedAddr(b, loc, offsetInfo.ptr);
+                    emitLinearAddressFromStaticSize(b, loc, offsetInfo.ptr, 1);
                 if (failed(maybeImportedPtr)) {
                   markFallbackAndPreserve(atomic, "make_addr_build_failed");
                   materializeAtomicPtr();
