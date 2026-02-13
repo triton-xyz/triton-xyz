@@ -1,9 +1,9 @@
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_VERIFYTTABRIDGEELIMINATED
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h.inc"
 } // namespace mlir::triton
 
 using namespace mlir;

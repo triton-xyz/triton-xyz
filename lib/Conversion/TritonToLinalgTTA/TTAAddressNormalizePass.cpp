@@ -1,10 +1,10 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TTAADDRESSNORMALIZE
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h.inc"
 } // namespace mlir::triton
 
 using namespace mlir;
