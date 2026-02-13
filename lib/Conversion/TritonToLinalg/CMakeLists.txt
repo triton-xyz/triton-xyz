@@ -38,7 +38,6 @@ add_triton_library(TritonToLinalg
   TritonAddressIR
   TritonStructuredIR
   TritonSharedAnalysis
-  TritonSharedAnalysisStructured
   TritonSharedUtils
   TritonArithToLinalg
 )

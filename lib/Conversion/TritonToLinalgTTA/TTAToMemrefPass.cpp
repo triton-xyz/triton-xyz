@@ -17,7 +17,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/AnalysisAddress/AnalysisAddress.h"
+#include "triton-shared/Analysis/AnalysisAddress.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"

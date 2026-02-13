@@ -19,7 +19,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/AnalysisStructured/PtrAnalysis.h"
+#include "triton-shared/Analysis/AnalysisStructured.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 

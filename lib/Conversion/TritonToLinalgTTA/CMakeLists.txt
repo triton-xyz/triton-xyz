@@ -28,7 +28,6 @@ add_triton_library(TritonToLinalgTTA
   TritonTilingExtIR
   TritonAddressIR
   XyzIR
-  TritonSharedAnalysisAddress
   TritonSharedAnalysis
   TritonSharedUtils
   TritonArithToLinalg

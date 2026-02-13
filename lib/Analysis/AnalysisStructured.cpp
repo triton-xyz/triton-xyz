@@ -1,4 +1,4 @@
-#include "triton-shared/AnalysisStructured/PtrAnalysis.h"
+#include "triton-shared/Analysis/AnalysisStructured.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
