@@ -8,7 +8,7 @@ add_triton_library(TritonToLinalgTTA
   TritonToTTAUnstructuredPass.cpp
 
   DEPENDS
-  TritonToLinalgConversionPassIncGen
+  TritonToLinalgTTAConversionPassIncGen
 
   LINK_LIBS PUBLIC
   MLIRSCFTransforms

@@ -17,7 +17,7 @@
 #include "mlir/Support/LLVM.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/AnalysisAddress/AnalysisAddress.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -41,7 +41,7 @@ using namespace mlir;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOTTAUNSTRUCTURED
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

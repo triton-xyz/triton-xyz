@@ -16,6 +16,7 @@
 ## Upstream Source References
 
 - Treat `llvm-triton/` and `third_party/triton/` as read-only reference sources unless a task explicitly requires edits there.
+- When reviewing local changes, ignore diffs under `third_party/` unless the task explicitly requires vendored code changes.
 - For MLIR passes, dialects, or conversions, look for upstream patterns in `llvm-triton/llvm-project/mlir/` to match naming, structure, and pass/test layout.
 - For new `.mlir` tests, mirror `llvm-triton/llvm-project/mlir/test/` conventions for `// RUN:` lines and `FileCheck` patterns where applicable.
 - For Triton-facing changes, check `third_party/triton/` for expected behavior, API usage, and existing tests to keep parity.
