@@ -57,7 +57,13 @@ def TTA_FromTTPtrOp : TTA_Op<"from_tt_ptr", [Pure]> {
   let hasCanonicalizer = 1;
 }
 
-// TODO: can we better abstract `BlockPtr`/`StructuredPtr`/`SplitPtr` ?
+// Address model notes:
+// - Core affine pieces are always `sizes/strides/offsets`.
+// - `layout_kind` chooses how `layout` is interpreted:
+//   * "strided": `layout[i]` is a wrap boundary for dim i (0 means no wrap).
+//   * "block": `layout` is parent-shape; permutation is in
+//     `layout_payload.order`.
+// - `layout_payload` is an extensibility slot for layout-specific fields.
 def TTA_MakeAddrOp
   : TTA_Op<"make_addr", [AttrSizedOperandSegments, Pure]> {
   let summary = "create a unified address descriptor";
@@ -66,23 +72,25 @@ def TTA_MakeAddrOp
                        DenseI64ArrayAttr:$sizes,
                        Variadic<Index>:$strides,
                        Variadic<Index>:$offsets,
-                       Variadic<Index>:$shape,
+                       Variadic<Index>:$layout,
                        DenseI64ArrayAttr:$static_strides,
                        DenseI64ArrayAttr:$static_offsets,
-                       DenseI64ArrayAttr:$static_shape,
-                       DenseI32ArrayAttr:$order);
+                       DenseI64ArrayAttr:$static_layout,
+                       StrAttr:$layout_kind,
+                       OptionalAttr<DictionaryAttr>:$layout_payload);
 
   let results = (outs TTA_AddrTypePred:$result);
 
+  // Keep layout metadata in attr-dict (layout_kind/layout_payload) so the
+  // textual syntax stays stable while layout families evolve.
   let assemblyFormat = [{
     $base `to` `sizes` `` `:` $sizes
     `` `,` `strides` `` `:`
     custom<DynamicIndexList>($strides, $static_strides)
     `` `,` `offsets` `` `:`
     custom<DynamicIndexList>($offsets, $static_offsets)
-    `` `,` `shape` `` `:`
-    custom<DynamicIndexList>($shape, $static_shape)
-    `` `,` `order` `` `:` $order
+    `` `,` `layout` `` `:`
+    custom<DynamicIndexList>($layout, $static_layout)
     attr-dict `:` type($base) `to` type($result)
   }];
 
@@ -92,8 +100,9 @@ def TTA_MakeAddrOp
       "ArrayRef<int64_t>":$sizes,
       "ArrayRef<OpFoldResult>":$strides,
       "ArrayRef<OpFoldResult>":$offsets,
-      "ArrayRef<OpFoldResult>":$shape,
-      "ArrayRef<int32_t>":$order)>,
+      "StringRef":$layoutKind,
+      "ArrayRef<OpFoldResult>":$layout,
+      CArg<"DictionaryAttr", "DictionaryAttr()">:$layoutPayload)>,
   ];
 
   let extraClassDeclaration = [{
@@ -110,16 +119,34 @@ def TTA_MakeAddrOp
       Builder b(getContext());
       return ::mlir::getMixedValues(getStaticOffsets(), getOffsets(), b);
     }
-    SmallVector<OpFoldResult> getMixedShape() {
+    SmallVector<OpFoldResult> getMixedLayout() {
       Builder b(getContext());
-      return ::mlir::getMixedValues(getStaticShape(), getShape(), b);
+      return ::mlir::getMixedValues(getStaticLayout(), getLayout(), b);
+    }
+    StringRef getLayoutKindString() {
+      return getLayoutKindAttr().getValue();
+    }
+    // `order` is currently only meaningful for block layout and stored in
+    // layout_payload for forward-compatible schema evolution.
+    SmallVector<int32_t> getLayoutOrder() {
+      if (auto payload = getLayoutPayloadAttr()) {
+        if (auto orderAttr =
+                dyn_cast_or_null<DenseI32ArrayAttr>(payload.get("order"))) {
+          return SmallVector<int32_t>(orderAttr.asArrayRef());
+        }
+      }
+      return {};
     }
     bool isBlockPtr() {
-      return !getOrder().empty();
+      return getLayoutKindString() == "block";
     }
+    // For non-block layout:
+    // - all-zero layout => structured ptr
+    // - any non-zero layout => split ptr
     bool isStructuredPtr() {
       return !isBlockPtr() &&
-             llvm::all_of(getStaticShape(), [](auto shape) { return shape == 0; });
+             llvm::all_of(getStaticLayout(),
+                          [](auto shape) { return shape == 0; });
     }
     bool isSplitPtr() {
       return !isBlockPtr() &&

@@ -11,7 +11,7 @@ module {
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
 // CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[CONSTANT_2]] : i32 -> tensor<4xi32>
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_0:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_0]], %[[ADDI_0]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
 // CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[VAL_1:.*]] = "tta.load"(%[[VAL_0]], %[[CONSTANT_3]]) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, f32) -> tensor<4xf32>
@@ -29,7 +29,7 @@ module {
 // CHECK:           %[[ADDF_0:.*]] = arith.addf %[[VAL_1]], %[[LOAD_0]] : tensor<4xf32>
 // CHECK:           %[[SPLAT_5:.*]] = tt.splat %[[CONSTANT_0]] : i32 -> tensor<4xi32>
 // CHECK:           %[[ADDI_3:.*]] = arith.addi %[[SPLAT_5]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG2]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG2]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_1]], %[[ADDI_3]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
 // CHECK:           "tta.store"(%[[VAL_2]], %[[ADDF_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
 // CHECK:           tt.return
@@ -79,12 +79,12 @@ module {
 // CHECK:           %[[SPLAT_3:.*]] = tt.splat %[[CONSTANT_2]] : f32 -> tensor<4xf32>
 // CHECK:           %[[SPLAT_4:.*]] = tt.splat %[[CONSTANT_3]] : f32 -> tensor<4xf32>
 // CHECK:           %[[ADDF_0:.*]] = arith.addf %[[SPLAT_3]], %[[SPLAT_4]] : tensor<4xf32>
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_0:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_0]], %[[ADDI_0]], %[[CMPI_0]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>, tensor<4xi1>) -> !tta.addr<f32, 1, 1>
 // CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]], %[[CMPI_0]], %[[ADDF_0]] {tta.fallback, tta.fallback_reason = "other_not_scalar_splat"} : tensor<4x!tt.ptr<f32>>
 // CHECK:           %[[SPLAT_5:.*]] = tt.splat %[[CONSTANT_0]] : i32 -> tensor<4xi32>
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[SPLAT_5]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_1:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_1]], %[[ADDI_1]], %[[CMPI_0]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>, tensor<4xi1>) -> !tta.addr<f32, 1, 1>
 // CHECK:           "tta.store"(%[[VAL_1]], %[[LOAD_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
 // CHECK:           tt.return
@@ -127,7 +127,7 @@ module {
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
 // CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[CONSTANT_2]] : i32 -> tensor<4xi32>
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_0:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_0]], %[[ADDI_0]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
 // CHECK:           %[[CONSTANT_5:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[VAL_1:.*]] = "tta.load"(%[[VAL_0]], %[[CONSTANT_5]]) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, f32) -> tensor<4xf32>
@@ -144,7 +144,7 @@ module {
 // CHECK:           %[[ADDF_0:.*]] = arith.addf %[[VAL_1]], %[[LOAD_0]] : tensor<4xf32>
 // CHECK:           %[[SPLAT_2:.*]] = tt.splat %[[CONSTANT_0]] : i32 -> tensor<4xi32>
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[SPLAT_2]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG2]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG2]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_1]], %[[ADDI_1]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
 // CHECK:           "tta.store"(%[[VAL_2]], %[[ADDF_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
 // CHECK:           tt.return
@@ -225,7 +225,7 @@ module {
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4xi32>
 // CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_1]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
 // CHECK:           %[[PTR_TO_INT_0:.*]] = tt.ptr_to_int %[[ADDPTR_0]] {tta.fallback, tta.fallback_reason = "ptr_to_int_tensor_result_unsupported"} : tensor<4x!tt.ptr<f32>> -> tensor<4xi64>
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[VAL_0:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_0]], %[[ADDI_0]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[VAL_1:.*]] = "tta.load"(%[[VAL_0]], %[[CONSTANT_1]]) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, f32) -> tensor<4xf32>
