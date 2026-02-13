@@ -81,7 +81,7 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 - Baseline behavior tests should use `--triton-to-linalg` and baseline pass names.
 - TTA behavior tests should use `--triton-to-linalg-tta` or `--triton-to-tta-*`.
 - Keep baseline and TTA expectations in separate test files or split-input sections; avoid mixing unrelated routes in one check flow.
-- Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features.
+- Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features, organizing multi module tests with `--split-input-file` and `// -----`.
 - Keep each case minimal and use focused `CHECK:` patterns to avoid over-specifying behavior.
 - When adding or modifying tests with `FileCheck`, regenerate check lines by following `utils/agent/lit_gen_demo.sh` (use it as the single source of truth, and avoid hand-editing large `CHECK` blocks).
 - After regeneration, run targeted validation first (for touched files) and then broader `lit`/`lit -v` as needed.
