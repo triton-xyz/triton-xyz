@@ -97,6 +97,14 @@ def TTAToMemref : Pass<"tta-to-memref", "mlir::ModuleOp"> {
   ];
 }
 
+def TTAToXyz : Pass<"tta-to-xyz", "mlir::ModuleOp"> {
+  let summary = "Convert indirect tta load/store to xyz gather/scatter ops";
+  let dependentDialects = [
+    "tta::TritonAddressDialect",
+    "xyz::XyzDialect"
+  ];
+}
+
 def TTAAddressNormalize : Pass<"tta-address-normalize", "mlir::ModuleOp"> {
   let summary = "Canonicalize and compose tta address chains";
   let dependentDialects = [

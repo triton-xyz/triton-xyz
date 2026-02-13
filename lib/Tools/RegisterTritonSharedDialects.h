@@ -9,6 +9,7 @@
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
+#include "triton-shared/Dialect/Xyz/IR/XyzDialect.h"
 #include "triton-shared/Pipelines/Pipelines.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/Transforms/Passes.h"
@@ -26,7 +27,8 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::triton::registerTritonToLinalgPipelines();
   mlir::triton::registerTritonToLinalgTTAPipelines();
 
-  registry.insert<
-      mlir::ttx::TritonTilingExtDialect, mlir::tta::TritonAddressDialect,
-      mlir::tts::TritonStructuredDialect, mlir::triton::TritonDialect>();
+  registry.insert<mlir::ttx::TritonTilingExtDialect,
+                  mlir::tta::TritonAddressDialect,
+                  mlir::tts::TritonStructuredDialect, mlir::xyz::XyzDialect,
+                  mlir::triton::TritonDialect>();
 }

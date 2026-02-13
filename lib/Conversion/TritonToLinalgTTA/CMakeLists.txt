@@ -1,6 +1,7 @@
 add_triton_library(TritonToLinalgTTA
   TTAAddressNormalizePass.cpp
   TTAToMemrefPass.cpp
+  TTAToXyzPass.cpp
   TritonToTTAStructuredPass.cpp
   VerifyTTABridgeEliminatedPass.cpp
   VerifyTTALoweredPass.cpp
@@ -26,6 +27,7 @@ add_triton_library(TritonToLinalgTTA
   TritonTransforms
   TritonTilingExtIR
   TritonAddressIR
+  XyzIR
   TritonSharedAnalysisAddress
   TritonSharedAnalysis
   TritonSharedUtils
