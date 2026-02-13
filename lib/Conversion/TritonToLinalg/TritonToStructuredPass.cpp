@@ -12,7 +12,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/AnalysisStructured/PtrAnalysis.h"
+#include "triton-shared/Analysis/AnalysisStructured.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"

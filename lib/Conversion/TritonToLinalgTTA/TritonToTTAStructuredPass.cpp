@@ -2,7 +2,7 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/AnalysisAddress/AnalysisAddress.h"
+#include "triton-shared/Analysis/AnalysisAddress.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"

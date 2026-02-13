@@ -1,4 +1,4 @@
-#include "triton-shared/AnalysisAddress/AnalysisAddress.h"
+#include "triton-shared/Analysis/AnalysisAddress.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
