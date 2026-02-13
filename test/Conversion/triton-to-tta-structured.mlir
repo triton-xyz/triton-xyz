@@ -97,7 +97,7 @@ module {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <i32> to !tta.addr<i32, 1, 1>
 // CHECK:           %[[IDX:.*]] = "tta.load"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<i32, 1, 1>) -> tensor<4xi32>
-// CHECK:           %[[LOAD_0:.*]] = tt.load {{.*}} {tta.fallback, tta.fallback_reason = "indirect_non_gather_dim_must_be_singleton_or_broadcast"} : tensor<4x4x!tt.ptr<f32>>
+// CHECK:           %[[LOAD_0:.*]] = tt.load {{.*}} {tta.fallback, tta.fallback_reason = "indirect non-gather dim must be singleton or broadcast"} : tensor<4x4x!tt.ptr<f32>>
 // CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG2]] to sizes: [4, 4], strides: {{\[}}%[[CONSTANT_0]], 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
 // CHECK:           "tta.store"(%[[MAKE_ADDR_1]], %[[LOAD_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<4x4xf32>) -> ()
 // CHECK:           tt.return

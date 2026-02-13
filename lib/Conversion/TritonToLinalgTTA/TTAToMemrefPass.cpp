@@ -337,13 +337,14 @@ static bool canProveNoWrapAccess(const AddressDescriptor &descriptor,
       continue;
     }
 
-    __int128 first = static_cast<__int128>(*maybeOffset);
-    __int128 delta = static_cast<__int128>(*maybeExtent - 1) *
-                     static_cast<__int128>(*maybeStride);
-    __int128 last = first + delta;
-    __int128 lower = first < last ? first : last;
-    __int128 upper = first < last ? last : first;
-    if (lower < 0 || upper >= static_cast<__int128>(*maybeBoundary)) {
+    // Fast-path check assumes normal Triton index ranges where 64-bit affine
+    // arithmetic does not overflow.
+    int64_t first = *maybeOffset;
+    int64_t delta = (*maybeExtent - 1) * (*maybeStride);
+    int64_t last = first + delta;
+    int64_t lower = first < last ? first : last;
+    int64_t upper = first < last ? last : first;
+    if (lower < 0 || upper >= *maybeBoundary) {
       return false;
     }
   }

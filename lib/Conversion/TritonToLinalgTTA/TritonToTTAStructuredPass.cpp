@@ -7,9 +7,7 @@
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
-#include <cctype>
 #include <optional>
-#include <string>
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOTTASTRUCTURED
@@ -34,31 +32,6 @@ struct AddressAndMaskDims {
   SmallVector<OpFoldResult> maskDims;
 };
 
-static std::string normalizeFallbackReason(StringRef reason) {
-  std::string normalized;
-  normalized.reserve(reason.size());
-
-  bool pendingUnderscore = false;
-  for (char c : reason) {
-    unsigned char uc = static_cast<unsigned char>(c);
-    if (std::isalnum(uc)) {
-      if (pendingUnderscore && !normalized.empty()) {
-        normalized.push_back('_');
-      }
-      pendingUnderscore = false;
-      normalized.push_back(
-          static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-      continue;
-    }
-    pendingUnderscore = true;
-  }
-
-  if (normalized.empty()) {
-    return "address_analysis_failed";
-  }
-  return normalized;
-}
-
 static FailureOr<Value>
 analyzeAndEmitAddress(Value ptrLike, Location loc, PatternRewriter &rewriter,
                       StringRef &reason,
@@ -77,9 +50,7 @@ analyzeAndEmitAddress(Value ptrLike, Location loc, PatternRewriter &rewriter,
       analysis.analyzeDescriptor(ptrLike, loc, rewriter, &analyzeFailureReason);
   if (failed(maybeDescriptor)) {
     if (analyzeFailureReason && !analyzeFailureReason->empty()) {
-      reason =
-          rewriter.getStringAttr(normalizeFallbackReason(*analyzeFailureReason))
-              .getValue();
+      reason = *analyzeFailureReason;
     } else {
       reason = "address_analysis_failed";
     }
@@ -91,9 +62,7 @@ analyzeAndEmitAddress(Value ptrLike, Location loc, PatternRewriter &rewriter,
                                               &emitFailureReason);
   if (failed(maybeAddress)) {
     if (emitFailureReason && !emitFailureReason->empty()) {
-      reason =
-          rewriter.getStringAttr(normalizeFallbackReason(*emitFailureReason))
-              .getValue();
+      reason = *emitFailureReason;
     } else {
       reason = "emit_address_failed";
     }
