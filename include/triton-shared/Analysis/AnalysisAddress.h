@@ -65,6 +65,19 @@ struct AddressFeatures {
   bool hasIndirect = false;
 };
 
+struct AddressAnalysisOptions {
+  bool enableRefine = true;
+  bool enableValidation = true;
+  bool enableDescriptorDebugDump = false;
+  bool enableRelaxedSingleIndirectNonGatherDims = true;
+};
+
+struct AddressAnalysisResult {
+  AddressDescriptor descriptor;
+  AddressFeatures features;
+  AddressClass addressClass = AddressClass::StructuredPtr;
+};
+
 AddressFeatures getAddressFeatures(const AddressDescriptor &descriptor);
 
 AddressClass classifyAddress(const AddressDescriptor &descriptor);
@@ -74,11 +87,45 @@ public:
   explicit AnalysisAddress(bool enableMakeGatherScatterTensorPtr = true)
       : ptrAnalysis(enableMakeGatherScatterTensorPtr) {}
 
+  FailureOr<AddressAnalysisResult> analyzeDescriptorWithOptions(
+      Value ptrLike, Location loc, OpBuilder &builder,
+      const AddressAnalysisOptions &options = AddressAnalysisOptions(),
+      std::optional<StringRef> *failureReason = nullptr);
+
   FailureOr<AddressDescriptor>
   analyzeDescriptor(Value ptrLike, Location loc, OpBuilder &builder,
                     std::optional<StringRef> *failureReason = nullptr);
 
 private:
+  FailureOr<AddressDescriptor> analyzeSeedDescriptor(
+      Value ptrLike, Location loc, OpBuilder &builder,
+      const AddressAnalysisOptions &options = AddressAnalysisOptions(),
+      std::optional<StringRef> *failureReason = nullptr);
+
+  FailureOr<AddressDescriptor> analyzeFromTTAChain(
+      Value ptrLike, Location loc, OpBuilder &builder,
+      const AddressAnalysisOptions &options = AddressAnalysisOptions(),
+      std::optional<StringRef> *failureReason = nullptr);
+
+  FailureOr<AddressDescriptor> analyzeFromPtrStateSeed(
+      Value ptrLike, Location loc, OpBuilder &builder,
+      const AddressAnalysisOptions &options = AddressAnalysisOptions(),
+      std::optional<StringRef> *failureReason = nullptr);
+
+  LogicalResult refineDescriptor(
+      AddressDescriptor &descriptor, Value ptrLike, Location loc,
+      OpBuilder &builder,
+      const AddressAnalysisOptions &options = AddressAnalysisOptions(),
+      std::optional<StringRef> *failureReason = nullptr);
+
+  LogicalResult validateDescriptor(
+      const AddressDescriptor &descriptor,
+      const AddressAnalysisOptions &options = AddressAnalysisOptions(),
+      std::optional<StringRef> *failureReason = nullptr);
+
+  static void dumpDescriptor(const AddressDescriptor &descriptor,
+                             StringRef stage);
+
   ptrexpr::PtrExprAnalysis ptrAnalysis;
 };
 

@@ -11,7 +11,9 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 namespace triton {
@@ -25,6 +27,258 @@ static void setFailureReason(std::optional<StringRef> *failureReason,
       (!failureReason->has_value() || (*failureReason)->empty())) {
     *failureReason = reason;
   }
+}
+
+static void clearFailureReason(std::optional<StringRef> *failureReason) {
+  if (failureReason) {
+    *failureReason = std::nullopt;
+  }
+}
+
+static void printOpFoldResult(raw_ostream &os, OpFoldResult ofr) {
+  if (Attribute attr = dyn_cast<Attribute>(ofr)) {
+    attr.print(os);
+    return;
+  }
+  cast<Value>(ofr).print(os);
+}
+
+static const char *layoutKindToString(LayoutKind kind) {
+  switch (kind) {
+  case LayoutKind::Strided:
+    return "strided";
+  case LayoutKind::Block:
+    return "block";
+  }
+  return "unknown";
+}
+
+static std::optional<int64_t> getSplatIntConstant(Value value) {
+  auto cstOp = value.getDefiningOp<arith::ConstantOp>();
+  if (!cstOp) {
+    return std::nullopt;
+  }
+
+  Attribute valueAttr = cstOp.getValue();
+  if (auto intAttr = dyn_cast<IntegerAttr>(valueAttr)) {
+    return intAttr.getValue().getSExtValue();
+  }
+
+  auto dense = dyn_cast<DenseElementsAttr>(valueAttr);
+  if (!dense || !dense.getElementType().isIntOrIndex()) {
+    return std::nullopt;
+  }
+  if (dense.isSplat()) {
+    return dense.getSplatValue<APInt>().getSExtValue();
+  }
+
+  auto values = dense.getValues<APInt>();
+  auto it = values.begin();
+  if (it == values.end()) {
+    return std::nullopt;
+  }
+  APInt first = *it;
+  ++it;
+  for (; it != values.end(); ++it) {
+    if (*it != first) {
+      return std::nullopt;
+    }
+  }
+  return first.getSExtValue();
+}
+
+static std::optional<int64_t> getRefinerConstantFromExpr(Value value) {
+  if (auto cst = getSplatIntConstant(value)) {
+    return cst;
+  }
+  if (auto ext = value.getDefiningOp<arith::ExtSIOp>()) {
+    return getRefinerConstantFromExpr(ext.getIn());
+  }
+  if (auto cast = value.getDefiningOp<arith::IndexCastOp>()) {
+    return getRefinerConstantFromExpr(cast.getIn());
+  }
+  if (auto trunc = value.getDefiningOp<arith::TruncIOp>()) {
+    return getRefinerConstantFromExpr(trunc.getIn());
+  }
+  if (auto expand = value.getDefiningOp<triton::ExpandDimsOp>()) {
+    return getRefinerConstantFromExpr(expand.getSrc());
+  }
+  if (auto broadcast = value.getDefiningOp<triton::BroadcastOp>()) {
+    return getRefinerConstantFromExpr(broadcast.getSrc());
+  }
+  if (auto splat = value.getDefiningOp<triton::SplatOp>()) {
+    return getRefinerConstantFromExpr(splat.getSrc());
+  }
+  if (auto add = value.getDefiningOp<arith::AddIOp>()) {
+    auto lhs = getRefinerConstantFromExpr(add.getLhs());
+    auto rhs = getRefinerConstantFromExpr(add.getRhs());
+    if (!lhs || !rhs) {
+      return std::nullopt;
+    }
+    return *lhs + *rhs;
+  }
+  if (auto mul = value.getDefiningOp<arith::MulIOp>()) {
+    auto lhs = getRefinerConstantFromExpr(mul.getLhs());
+    auto rhs = getRefinerConstantFromExpr(mul.getRhs());
+    if (!lhs || !rhs) {
+      return std::nullopt;
+    }
+    return *lhs * *rhs;
+  }
+  return std::nullopt;
+}
+
+static Value stripRefinerViewLikeAndCastOps(Value value) {
+  Value current = value;
+  while (true) {
+    if (auto ext = current.getDefiningOp<arith::ExtSIOp>()) {
+      current = ext.getIn();
+      continue;
+    }
+    if (auto cast = current.getDefiningOp<arith::IndexCastOp>()) {
+      current = cast.getIn();
+      continue;
+    }
+    if (auto trunc = current.getDefiningOp<arith::TruncIOp>()) {
+      current = trunc.getIn();
+      continue;
+    }
+    if (auto expand = current.getDefiningOp<triton::ExpandDimsOp>()) {
+      current = expand.getSrc();
+      continue;
+    }
+    if (auto broadcast = current.getDefiningOp<triton::BroadcastOp>()) {
+      current = broadcast.getSrc();
+      continue;
+    }
+    if (auto splat = current.getDefiningOp<triton::SplatOp>()) {
+      current = splat.getSrc();
+      continue;
+    }
+    if (auto collapse = current.getDefiningOp<tensor::CollapseShapeOp>()) {
+      current = collapse.getSrc();
+      continue;
+    }
+    if (auto cast = current.getDefiningOp<tensor::CastOp>()) {
+      current = cast.getSource();
+      continue;
+    }
+    return current;
+  }
+}
+
+struct RefinerLinearExpr {
+  int64_t constant = 0;
+  DenseMap<Value, int64_t> terms;
+};
+
+static void addLinearTerm(RefinerLinearExpr &expr, Value leaf, int64_t coeff) {
+  if (coeff == 0) {
+    return;
+  }
+  int64_t merged = coeff;
+  auto it = expr.terms.find(leaf);
+  if (it != expr.terms.end()) {
+    merged += it->second;
+  }
+  if (merged == 0) {
+    expr.terms.erase(leaf);
+    return;
+  }
+  expr.terms[leaf] = merged;
+}
+
+static LogicalResult
+buildRefinerLinearExpr(Value value, int64_t scale, RefinerLinearExpr &expr,
+                       std::optional<StringRef> *failureReason = nullptr) {
+  if (scale == 0) {
+    return success();
+  }
+
+  if (auto cst = getRefinerConstantFromExpr(value)) {
+    expr.constant += scale * *cst;
+    return success();
+  }
+
+  if (auto add = value.getDefiningOp<arith::AddIOp>()) {
+    if (failed(
+            buildRefinerLinearExpr(add.getLhs(), scale, expr, failureReason)) ||
+        failed(
+            buildRefinerLinearExpr(add.getRhs(), scale, expr, failureReason))) {
+      return failure();
+    }
+    return success();
+  }
+
+  if (auto mul = value.getDefiningOp<arith::MulIOp>()) {
+    auto lhsCst = getRefinerConstantFromExpr(mul.getLhs());
+    auto rhsCst = getRefinerConstantFromExpr(mul.getRhs());
+    if (lhsCst && rhsCst) {
+      expr.constant += scale * *lhsCst * *rhsCst;
+      return success();
+    }
+    if (lhsCst) {
+      return buildRefinerLinearExpr(mul.getRhs(), scale * *lhsCst, expr,
+                                    failureReason);
+    }
+    if (rhsCst) {
+      return buildRefinerLinearExpr(mul.getLhs(), scale * *rhsCst, expr,
+                                    failureReason);
+    }
+    setFailureReason(failureReason, "refiner_v1 unsupported muli pattern");
+    return failure();
+  }
+
+  if (auto ext = value.getDefiningOp<arith::ExtSIOp>()) {
+    return buildRefinerLinearExpr(ext.getIn(), scale, expr, failureReason);
+  }
+
+  if (auto cast = value.getDefiningOp<arith::IndexCastOp>()) {
+    return buildRefinerLinearExpr(cast.getIn(), scale, expr, failureReason);
+  }
+
+  if (auto trunc = value.getDefiningOp<arith::TruncIOp>()) {
+    return buildRefinerLinearExpr(trunc.getIn(), scale, expr, failureReason);
+  }
+
+  if (auto expand = value.getDefiningOp<triton::ExpandDimsOp>()) {
+    return buildRefinerLinearExpr(expand.getSrc(), scale, expr, failureReason);
+  }
+
+  if (auto broadcast = value.getDefiningOp<triton::BroadcastOp>()) {
+    return buildRefinerLinearExpr(broadcast.getSrc(), scale, expr,
+                                  failureReason);
+  }
+
+  if (auto splat = value.getDefiningOp<triton::SplatOp>()) {
+    return buildRefinerLinearExpr(splat.getSrc(), scale, expr, failureReason);
+  }
+
+  if (auto range = value.getDefiningOp<triton::MakeRangeOp>()) {
+    addLinearTerm(expr, range.getResult(), scale);
+    return success();
+  }
+
+  Value leaf = stripRefinerViewLikeAndCastOps(value);
+  if (auto cst = getSplatIntConstant(leaf)) {
+    expr.constant += scale * *cst;
+    return success();
+  }
+
+  Type leafType = leaf.getType();
+  if (leafType.isIntOrIndex()) {
+    addLinearTerm(expr, leaf, scale);
+    return success();
+  }
+  if (auto tensorType = dyn_cast<RankedTensorType>(leafType)) {
+    if (tensorType.getElementType().isIntOrIndex()) {
+      addLinearTerm(expr, leaf, scale);
+      return success();
+    }
+  }
+
+  setFailureReason(failureReason, "refiner_v1 unsupported expression leaf");
+  return failure();
 }
 
 static FailureOr<AddressDescriptor>
@@ -242,10 +496,8 @@ mergeIndirectIndex(Value lhsIndex, Value rhsIndex, Location loc,
   FailureOr<Value> rhsIndexTensor =
       castIndirectIndexToIndex(rhsIndex, loc, builder);
   if (failed(lhsIndexTensor) || failed(rhsIndexTensor)) {
-    if (failureReason) {
-      *failureReason =
-          StringRef("indirect_index merge rank/type is unsupported");
-    }
+    setFailureReason(failureReason,
+                     "indirect_index merge rank/type is unsupported");
     return failure();
   }
 
@@ -254,9 +506,7 @@ mergeIndirectIndex(Value lhsIndex, Value rhsIndex, Location loc,
   FailureOr<RankedTensorType> maybeMergedType =
       getMerged1DTensorType(lhsType, rhsType, builder.getIndexType());
   if (failed(maybeMergedType)) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_index merge shape mismatch");
-    }
+    setFailureReason(failureReason, "indirect_index merge shape mismatch");
     return failure();
   }
 
@@ -265,9 +515,7 @@ mergeIndirectIndex(Value lhsIndex, Value rhsIndex, Location loc,
   FailureOr<Value> rhsMerged =
       castTensorToType(*rhsIndexTensor, *maybeMergedType, loc, builder);
   if (failed(lhsMerged) || failed(rhsMerged)) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_index merge shape mismatch");
-    }
+    setFailureReason(failureReason, "indirect_index merge shape mismatch");
     return failure();
   }
 
@@ -284,9 +532,7 @@ mergeIndirectMask(Value lhsMask, Value rhsMask, Location loc,
   FailureOr<RankedTensorType> maybeMergedMaskType =
       getMerged1DTensorType(lhsMaskType, rhsMaskType, builder.getI1Type());
   if (failed(maybeMergedMaskType)) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_mask shape mismatch");
-    }
+    setFailureReason(failureReason, "indirect_mask shape mismatch");
     return failure();
   }
 
@@ -295,9 +541,7 @@ mergeIndirectMask(Value lhsMask, Value rhsMask, Location loc,
   FailureOr<Value> rhsMergedMask =
       castTensorToType(rhsMask, *maybeMergedMaskType, loc, builder);
   if (failed(lhsMergedMask) || failed(rhsMergedMask)) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_mask shape mismatch");
-    }
+    setFailureReason(failureReason, "indirect_mask shape mismatch");
     return failure();
   }
 
@@ -310,9 +554,7 @@ static LogicalResult applyIndirectReindex(
     OpBuilder &builder, std::optional<StringRef> *failureReason = nullptr) {
   int32_t indirectDim = reindex.getIndirectDimAttr().getInt();
   if (indirectDim < 0 || indirectDim >= descriptor.rank) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_dim out of bounds");
-    }
+    setFailureReason(failureReason, "indirect_dim out of bounds");
     return failure();
   }
 
@@ -357,9 +599,7 @@ static FailureOr<Value> normalizeIndirectIndexTensorForTTA(
     std::optional<StringRef> *failureReason = nullptr) {
   auto tensorType = dyn_cast<RankedTensorType>(indexTensor.getType());
   if (!tensorType) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_index must be ranked tensor");
-    }
+    setFailureReason(failureReason, "indirect_index must be ranked tensor");
     return failure();
   }
   if (tensorType.getRank() != 1) {
@@ -369,15 +609,11 @@ static FailureOr<Value> normalizeIndirectIndexTensorForTTA(
         continue;
       }
       if (ShapedType::isDynamic(size)) {
-        if (failureReason) {
-          *failureReason = StringRef("indirect_index must be 1D tensor");
-        }
+        setFailureReason(failureReason, "indirect_index must be 1D tensor");
         return failure();
       }
       if (nonSingletonDim.has_value()) {
-        if (failureReason) {
-          *failureReason = StringRef("indirect_index must be 1D tensor");
-        }
+        setFailureReason(failureReason, "indirect_index must be 1D tensor");
         return failure();
       }
       nonSingletonDim = static_cast<int64_t>(dim);
@@ -414,9 +650,8 @@ static FailureOr<Value> normalizeIndirectIndexTensorForTTA(
 
   auto intType = dyn_cast<IntegerType>(elementType);
   if (!intType) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_index must use int/index elements");
-    }
+    setFailureReason(failureReason,
+                     "indirect_index must use int/index elements");
     return failure();
   }
 
@@ -466,8 +701,9 @@ static Value peelBroadcastForZeroStrideDims(Value indexTensor,
   return current;
 }
 
-static FailureOr<AddressDescriptor> toAddressDescriptorFromSingleIndirectState(
+static FailureOr<AddressDescriptor> toAddressDescriptorFromIndirectState(
     const ptrexpr::PtrState &state, Location loc, OpBuilder &builder,
+    bool enableRelaxedSingleIndirectNonGatherDims,
     std::optional<StringRef> *failureReason = nullptr) {
   if (state.isEmpty() || !state.source || state.getRank() <= 0 ||
       state.isStructured()) {
@@ -476,101 +712,84 @@ static FailureOr<AddressDescriptor> toAddressDescriptorFromSingleIndirectState(
 
   auto baseType = dyn_cast<triton::PointerType>(state.source.getType());
   if (!baseType) {
-    if (failureReason) {
-      *failureReason = StringRef("unsupported address base type");
-    }
+    setFailureReason(failureReason, "unsupported address base type");
     return failure();
   }
 
   if (state.isBlockPtr()) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect block pointer is unsupported");
-    }
+    setFailureReason(failureReason, "indirect block pointer is unsupported");
     return failure();
   }
 
-  int64_t indirectDim = 0;
-  std::optional<int64_t> maybeIndirectDim;
+  SmallVector<int64_t> indirectDims;
   for (int64_t i = 0; i < state.getRank(); ++i) {
     if (!isUnstructuredOffset(state.offsets[i])) {
       continue;
     }
-    if (maybeIndirectDim.has_value()) {
-      if (failureReason) {
-        *failureReason = StringRef("mixed_indirect_dim in address chain");
-      }
+    indirectDims.push_back(i);
+  }
+  if (indirectDims.empty()) {
+    return failure();
+  }
+  DenseMap<int64_t, Value> indirectIndexByDim;
+  for (int64_t indirectDim : indirectDims) {
+    auto maybeStride = getIntAttr(state.strides[indirectDim]);
+    if (!maybeStride || *maybeStride != 1) {
+      setFailureReason(failureReason, "indirect_dim stride must be 1");
       return failure();
     }
-    maybeIndirectDim = i;
-  }
-  if (!maybeIndirectDim.has_value()) {
-    return failure();
-  }
-  indirectDim = *maybeIndirectDim;
-
-  auto maybeStride = getIntAttr(state.strides[indirectDim]);
-  if (!maybeStride || *maybeStride != 1) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_dim stride must be 1");
+    if (!hasConstZero(state.shape[indirectDim])) {
+      setFailureReason(failureReason,
+                       "indirect shape with modulo is unsupported");
+      return failure();
     }
-    return failure();
-  }
-  if (!hasConstZero(state.shape[indirectDim])) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect shape with modulo is unsupported");
+
+    auto maybeIndexTensor = dyn_cast<Value>(state.offsets[indirectDim]);
+    if (!maybeIndexTensor) {
+      setFailureReason(failureReason, "indirect_index must be tensor value");
+      return failure();
     }
-    return failure();
-  }
 
-  auto maybeIndexTensor = dyn_cast<Value>(state.offsets[indirectDim]);
-  if (!maybeIndexTensor) {
-    if (failureReason) {
-      *failureReason = StringRef("indirect_index must be tensor value");
+    maybeIndexTensor =
+        peelBroadcastForZeroStrideDims(maybeIndexTensor, indirectDim, state);
+
+    auto normalizedIndex = normalizeIndirectIndexTensorForTTA(
+        maybeIndexTensor, loc, builder, failureReason);
+    if (failed(normalizedIndex)) {
+      return failure();
     }
-    return failure();
-  }
-
-  maybeIndexTensor =
-      peelBroadcastForZeroStrideDims(maybeIndexTensor, indirectDim, state);
-
-  auto normalizedIndex = normalizeIndirectIndexTensorForTTA(
-      maybeIndexTensor, loc, builder, failureReason);
-  if (failed(normalizedIndex)) {
-    return failure();
+    indirectIndexByDim[indirectDim] = *normalizedIndex;
   }
 
   for (int64_t i = 0; i < state.getRank(); ++i) {
-    if (i == indirectDim) {
+    if (indirectIndexByDim.count(i)) {
       continue;
     }
 
     auto maybeSize = getIntAttr(state.sizes[i]);
     if (!maybeSize) {
-      if (failureReason) {
-        *failureReason =
-            StringRef("indirect non-gather dim size is unsupported");
-      }
+      setFailureReason(failureReason,
+                       "indirect non-gather dim size is unsupported");
       return failure();
     }
 
     if (!hasConstZero(state.offsets[i]) || !hasConstZero(state.shape[i])) {
-      if (failureReason) {
-        *failureReason =
-            StringRef("indirect non-gather dim state is unsupported");
-      }
+      setFailureReason(failureReason,
+                       "indirect non-gather dim state is unsupported");
       return failure();
     }
 
-    auto maybeStructuredStride = getIntAttr(state.strides[i]);
-    bool isSingleton = *maybeSize == 1;
-    bool isBroadcastStructured =
-        maybeStructuredStride && *maybeStructuredStride == 0;
-    if (!isSingleton && !isBroadcastStructured) {
-      if (failureReason) {
-        *failureReason =
-            StringRef("indirect non-gather dim must be singleton or broadcast");
+    if (!enableRelaxedSingleIndirectNonGatherDims) {
+      auto maybeStructuredStride = getIntAttr(state.strides[i]);
+      bool isSingleton = *maybeSize == 1;
+      bool isBroadcastStructured =
+          maybeStructuredStride && *maybeStructuredStride == 0;
+      if (!isSingleton && !isBroadcastStructured) {
+        setFailureReason(
+            failureReason,
+            "indirect non-gather dim must be singleton or broadcast");
+        return failure();
       }
-      return failure();
     }
   }
 
@@ -590,9 +809,9 @@ static FailureOr<AddressDescriptor> toAddressDescriptorFromSingleIndirectState(
     if (!hasConstZero(state.shape[i])) {
       dim.wrapBoundary = WrapBoundary{state.shape[i]};
     }
-    if (i == indirectDim) {
+    if (auto it = indirectIndexByDim.find(i); it != indirectIndexByDim.end()) {
       dim.offset = builder.getIndexAttr(0);
-      dim.indirect = IndirectIndexRule{*normalizedIndex, Value()};
+      dim.indirect = IndirectIndexRule{it->second, Value()};
     }
     descriptor.dims.push_back(std::move(dim));
   }
@@ -629,12 +848,84 @@ AddressClass classifyAddress(const AddressDescriptor &descriptor) {
   return AddressClass::StructuredPtr;
 }
 
+FailureOr<AddressAnalysisResult> AnalysisAddress::analyzeDescriptorWithOptions(
+    Value ptrLike, Location loc, OpBuilder &builder,
+    const AddressAnalysisOptions &options,
+    std::optional<StringRef> *failureReason) {
+  clearFailureReason(failureReason);
+  auto maybeDescriptor =
+      analyzeSeedDescriptor(ptrLike, loc, builder, options, failureReason);
+  if (failed(maybeDescriptor)) {
+    return failure();
+  }
+
+  if (options.enableDescriptorDebugDump) {
+    dumpDescriptor(*maybeDescriptor, "seed");
+  }
+
+  AddressDescriptor descriptor = *maybeDescriptor;
+  if (options.enableRefine &&
+      failed(refineDescriptor(descriptor, ptrLike, loc, builder, options,
+                              failureReason))) {
+    return failure();
+  }
+  if (options.enableDescriptorDebugDump) {
+    dumpDescriptor(descriptor, "refine");
+  }
+
+  if (options.enableValidation &&
+      failed(validateDescriptor(descriptor, options, failureReason))) {
+    return failure();
+  }
+  if (options.enableDescriptorDebugDump) {
+    dumpDescriptor(descriptor, "validate");
+  }
+
+  AddressAnalysisResult result;
+  result.descriptor = std::move(descriptor);
+  result.features = getAddressFeatures(result.descriptor);
+  result.addressClass = classifyAddress(result.descriptor);
+  return result;
+}
+
 FailureOr<AddressDescriptor>
 AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
                                    OpBuilder &builder,
                                    std::optional<StringRef> *failureReason) {
+  auto maybeResult = analyzeDescriptorWithOptions(
+      ptrLike, loc, builder, AddressAnalysisOptions(), failureReason);
+  if (failed(maybeResult)) {
+    return failure();
+  }
+  return maybeResult->descriptor;
+}
+
+FailureOr<AddressDescriptor> AnalysisAddress::analyzeSeedDescriptor(
+    Value ptrLike, Location loc, OpBuilder &builder,
+    const AddressAnalysisOptions &options,
+    std::optional<StringRef> *failureReason) {
+  std::optional<StringRef> chainFailureReason;
+  auto maybeDescriptor =
+      analyzeFromTTAChain(ptrLike, loc, builder, options, &chainFailureReason);
+  if (succeeded(maybeDescriptor)) {
+    return maybeDescriptor;
+  }
+  if (chainFailureReason.has_value()) {
+    setFailureReason(failureReason, *chainFailureReason);
+    return failure();
+  }
+
+  return analyzeFromPtrStateSeed(ptrLike, loc, builder, options, failureReason);
+}
+
+FailureOr<AddressDescriptor>
+AnalysisAddress::analyzeFromTTAChain(Value ptrLike, Location loc,
+                                     OpBuilder &builder,
+                                     const AddressAnalysisOptions &options,
+                                     std::optional<StringRef> *failureReason) {
   if (auto imported = ptrLike.getDefiningOp<tta::FromTTPtrOp>()) {
-    return analyzeDescriptor(imported.getSource(), loc, builder, failureReason);
+    return analyzeSeedDescriptor(imported.getSource(), loc, builder, options,
+                                 failureReason);
   }
 
   if (auto makeAddr = ptrLike.getDefiningOp<tta::MakeAddrOp>()) {
@@ -642,8 +933,8 @@ AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
   }
 
   if (auto reindex = ptrLike.getDefiningOp<tta::ReindexOp>()) {
-    auto maybeDescriptor =
-        analyzeDescriptor(reindex.getAddress(), loc, builder, failureReason);
+    auto maybeDescriptor = analyzeSeedDescriptor(
+        reindex.getAddress(), loc, builder, options, failureReason);
     if (failed(maybeDescriptor)) {
       return failure();
     }
@@ -656,8 +947,8 @@ AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
   }
 
   if (auto reindex = ptrLike.getDefiningOp<tta::IndirectReindexOp>()) {
-    auto maybeDescriptor =
-        analyzeDescriptor(reindex.getAddress(), loc, builder, failureReason);
+    auto maybeDescriptor = analyzeSeedDescriptor(
+        reindex.getAddress(), loc, builder, options, failureReason);
     if (failed(maybeDescriptor)) {
       return failure();
     }
@@ -670,8 +961,8 @@ AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
   }
 
   if (auto advanceOp = ptrLike.getDefiningOp<tta::AdvanceOp>()) {
-    auto maybeDescriptor =
-        analyzeDescriptor(advanceOp.getAddress(), loc, builder, failureReason);
+    auto maybeDescriptor = analyzeSeedDescriptor(
+        advanceOp.getAddress(), loc, builder, options, failureReason);
     if (failed(maybeDescriptor)) {
       return failure();
     }
@@ -684,8 +975,8 @@ AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
   }
 
   if (auto advanceOp = ptrLike.getDefiningOp<triton::AdvanceOp>()) {
-    auto maybeDescriptor =
-        analyzeDescriptor(advanceOp.getPtr(), loc, builder, failureReason);
+    auto maybeDescriptor = analyzeSeedDescriptor(
+        advanceOp.getPtr(), loc, builder, options, failureReason);
     if (failed(maybeDescriptor)) {
       return failure();
     }
@@ -722,6 +1013,13 @@ AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
     return maybeDescriptor;
   }
 
+  return failure();
+}
+
+FailureOr<AddressDescriptor> AnalysisAddress::analyzeFromPtrStateSeed(
+    Value ptrLike, Location loc, OpBuilder &builder,
+    const AddressAnalysisOptions &options,
+    std::optional<StringRef> *failureReason) {
   ptrexpr::PtrState state;
   if (auto makeTensorPtr = ptrLike.getDefiningOp<triton::MakeTensorPtrOp>()) {
     if (failed(ptrAnalysis.visitOperandMakeTensorPtr(makeTensorPtr, state, loc,
@@ -745,12 +1043,200 @@ AnalysisAddress::analyzeDescriptor(Value ptrLike, Location loc,
     return toAddressDescriptor(state, failureReason);
   }
 
-  auto maybeDescriptor = toAddressDescriptorFromSingleIndirectState(
-      state, loc, builder, failureReason);
+  auto maybeDescriptor = toAddressDescriptorFromIndirectState(
+      state, loc, builder, options.enableRelaxedSingleIndirectNonGatherDims,
+      failureReason);
   if (failed(maybeDescriptor)) {
     return failure();
   }
   return *maybeDescriptor;
+}
+
+LogicalResult
+AnalysisAddress::refineDescriptor(AddressDescriptor &descriptor, Value ptrLike,
+                                  Location loc, OpBuilder &builder,
+                                  const AddressAnalysisOptions &options,
+                                  std::optional<StringRef> *failureReason) {
+  (void)options;
+
+  if (descriptor.layoutKind != LayoutKind::Strided) {
+    return success();
+  }
+
+  SmallVector<int64_t> indirectDims;
+  for (auto [dim, rule] : llvm::enumerate(descriptor.dims)) {
+    if (!rule.indirect.has_value()) {
+      continue;
+    }
+    indirectDims.push_back(static_cast<int64_t>(dim));
+  }
+  if (indirectDims.empty()) {
+    return success();
+  }
+  if (indirectDims.size() != 1) {
+    return success();
+  }
+  int64_t indirectDim = indirectDims.front();
+
+  auto addPtr = ptrLike.getDefiningOp<triton::AddPtrOp>();
+  if (!addPtr) {
+    return success();
+  }
+
+  auto maybeOldStride = getIntAttr(descriptor.dims[indirectDim].stride);
+  if (!maybeOldStride) {
+    setFailureReason(failureReason,
+                     "refiner_v1 indirect stride must be static");
+    return failure();
+  }
+
+  RefinerLinearExpr offsetExpr;
+  if (failed(buildRefinerLinearExpr(addPtr.getOffset(), /*scale=*/1, offsetExpr,
+                                    failureReason))) {
+    return failure();
+  }
+
+  Value seedLeaf = stripRefinerViewLikeAndCastOps(
+      descriptor.dims[indirectDim].indirect->indexTensor);
+  auto seedCoeffIt = offsetExpr.terms.find(seedLeaf);
+  if (seedCoeffIt == offsetExpr.terms.end()) {
+    return success();
+  }
+  int64_t seedCoeff = seedCoeffIt->second;
+  if (seedCoeff <= 0) {
+    setFailureReason(failureReason,
+                     "refiner_v1 indirect coefficient must be positive");
+    return failure();
+  }
+
+  if (offsetExpr.constant != 0) {
+    setFailureReason(failureReason,
+                     "refiner_v1 non-zero constant offset is unsupported");
+    return failure();
+  }
+
+  for (const auto &term : offsetExpr.terms) {
+    if (term.first == seedLeaf) {
+      continue;
+    }
+    if (!term.first.getDefiningOp<triton::MakeRangeOp>()) {
+      setFailureReason(failureReason,
+                       "refiner_v1 unsupported structured expression term");
+      return failure();
+    }
+  }
+
+  // v1 refinement: recover the gather-axis scaling that ptrAnalysis may drop
+  // in mixed structured/unstructured expressions.
+  descriptor.dims[indirectDim].stride =
+      builder.getIndexAttr(*maybeOldStride * seedCoeff);
+  return success();
+}
+
+LogicalResult
+AnalysisAddress::validateDescriptor(const AddressDescriptor &descriptor,
+                                    const AddressAnalysisOptions &options,
+                                    std::optional<StringRef> *failureReason) {
+  (void)options;
+
+  if (!descriptor.base) {
+    setFailureReason(failureReason, "descriptor base is missing");
+    return failure();
+  }
+
+  auto baseType = dyn_cast<triton::PointerType>(descriptor.base.getType());
+  if (!baseType) {
+    setFailureReason(failureReason, "descriptor base must be pointer");
+    return failure();
+  }
+
+  if (descriptor.rank <= 0 ||
+      descriptor.rank != static_cast<int64_t>(descriptor.dims.size())) {
+    setFailureReason(failureReason, "descriptor rank mismatch");
+    return failure();
+  }
+
+  if (descriptor.elementType != baseType.getPointeeType() ||
+      descriptor.addressSpace != baseType.getAddressSpace()) {
+    setFailureReason(failureReason, "descriptor pointer type mismatch");
+    return failure();
+  }
+
+  if (descriptor.layoutKind == LayoutKind::Block) {
+    if (!descriptor.blockLayout.has_value()) {
+      setFailureReason(failureReason, "descriptor block layout missing");
+      return failure();
+    }
+    if (descriptor.blockLayout->parentShape.size() != descriptor.dims.size() ||
+        descriptor.blockLayout->order.size() != descriptor.dims.size()) {
+      setFailureReason(failureReason, "descriptor block layout rank mismatch");
+      return failure();
+    }
+  }
+
+  return success();
+}
+
+void AnalysisAddress::dumpDescriptor(const AddressDescriptor &descriptor,
+                                     StringRef stage) {
+  llvm::dbgs() << "[analysis-address] " << stage
+               << " layout=" << layoutKindToString(descriptor.layoutKind)
+               << " rank=" << descriptor.rank << "\n";
+  llvm::dbgs() << "  base: ";
+  descriptor.base.print(llvm::dbgs());
+  llvm::dbgs() << "\n";
+  llvm::dbgs() << "  element_type: " << descriptor.elementType
+               << " address_space=" << descriptor.addressSpace << "\n";
+
+  for (auto [index, dim] : llvm::enumerate(descriptor.dims)) {
+    llvm::dbgs() << "  dim[" << index << "]: size=";
+    printOpFoldResult(llvm::dbgs(), dim.size);
+    llvm::dbgs() << " stride=";
+    printOpFoldResult(llvm::dbgs(), dim.stride);
+    llvm::dbgs() << " offset=";
+    printOpFoldResult(llvm::dbgs(), dim.offset);
+    llvm::dbgs() << " wrap=";
+    if (dim.wrapBoundary.has_value()) {
+      printOpFoldResult(llvm::dbgs(), dim.wrapBoundary->boundary);
+    } else {
+      llvm::dbgs() << "<none>";
+    }
+    llvm::dbgs() << " indirect=";
+    if (!dim.indirect.has_value()) {
+      llvm::dbgs() << "<none>";
+    } else {
+      llvm::dbgs() << "{index=";
+      dim.indirect->indexTensor.print(llvm::dbgs());
+      llvm::dbgs() << ", mask=";
+      if (dim.indirect->maskTensor) {
+        dim.indirect->maskTensor.print(llvm::dbgs());
+      } else {
+        llvm::dbgs() << "<none>";
+      }
+      llvm::dbgs() << "}";
+    }
+    llvm::dbgs() << "\n";
+  }
+
+  if (descriptor.blockLayout.has_value()) {
+    llvm::dbgs() << "  block.parent_shape=[";
+    for (auto [index, ofr] :
+         llvm::enumerate(descriptor.blockLayout->parentShape)) {
+      if (index != 0) {
+        llvm::dbgs() << ", ";
+      }
+      printOpFoldResult(llvm::dbgs(), ofr);
+    }
+    llvm::dbgs() << "]\n";
+    llvm::dbgs() << "  block.order=[";
+    for (auto [index, order] : llvm::enumerate(descriptor.blockLayout->order)) {
+      if (index != 0) {
+        llvm::dbgs() << ", ";
+      }
+      llvm::dbgs() << order;
+    }
+    llvm::dbgs() << "]\n";
+  }
 }
 
 FailureOr<Value>
@@ -758,25 +1244,20 @@ TTAEmitter::emitAddress(const AddressDescriptor &descriptor, Location loc,
                         OpBuilder &builder,
                         std::optional<StringRef> *failureReason) {
   AddressDescriptor baseDescriptor = descriptor;
-  std::optional<int64_t> indirectDim;
-  Value indirectIndex;
-  Value indirectMask;
+  struct IndirectEmission {
+    int64_t dim;
+    Value index;
+    Value mask;
+  };
+  SmallVector<IndirectEmission> indirects;
 
   for (auto [dim, rule] : llvm::enumerate(baseDescriptor.dims)) {
     if (!rule.indirect.has_value()) {
       continue;
     }
-
-    if (indirectDim.has_value()) {
-      if (failureReason) {
-        *failureReason = StringRef("multiple indirect dims are unsupported");
-      }
-      return failure();
-    }
-
-    indirectDim = static_cast<int64_t>(dim);
-    indirectIndex = rule.indirect->indexTensor;
-    indirectMask = rule.indirect->maskTensor;
+    indirects.push_back(IndirectEmission{static_cast<int64_t>(dim),
+                                         rule.indirect->indexTensor,
+                                         rule.indirect->maskTensor});
     rule.indirect.reset();
   }
 
@@ -785,25 +1266,29 @@ TTAEmitter::emitAddress(const AddressDescriptor &descriptor, Location loc,
     setFailureReason(failureReason, "emit make_addr failed");
     return failure();
   }
-  if (!indirectDim.has_value()) {
+  if (indirects.empty()) {
     return *maybeBase;
   }
 
-  auto normalizedIndex = normalizeIndirectIndexTensorForTTA(
-      indirectIndex, loc, builder, failureReason);
-  if (failed(normalizedIndex)) {
-    return failure();
+  Value current = *maybeBase;
+  for (const IndirectEmission &indirect : indirects) {
+    auto normalizedIndex = normalizeIndirectIndexTensorForTTA(
+        indirect.index, loc, builder, failureReason);
+    if (failed(normalizedIndex)) {
+      return failure();
+    }
+    if (indirect.mask) {
+      current = tta::IndirectReindexOp::create(builder, loc, current,
+                                               *normalizedIndex, indirect.mask,
+                                               indirect.dim)
+                    .getResult();
+      continue;
+    }
+    current = tta::IndirectReindexOp::create(builder, loc, current,
+                                             *normalizedIndex, indirect.dim)
+                  .getResult();
   }
-
-  if (indirectMask) {
-    return tta::IndirectReindexOp::create(builder, loc, *maybeBase,
-                                          *normalizedIndex, indirectMask,
-                                          *indirectDim)
-        .getResult();
-  }
-  return tta::IndirectReindexOp::create(builder, loc, *maybeBase,
-                                        *normalizedIndex, *indirectDim)
-      .getResult();
+  return current;
 }
 
 FailureOr<Value>
