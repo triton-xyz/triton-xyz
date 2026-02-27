@@ -16,8 +16,8 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/AnalysisAddress.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
@@ -112,10 +112,14 @@ static std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
   return std::nullopt;
 }
 
+struct IndirectDimInfo {
+  int64_t dim;
+  Value index;
+  Value mask;
+};
+
 struct IndirectInfo {
-  Value indirectIndex;
-  Value indirectMask;
-  std::optional<int64_t> indirectDim;
+  SmallVector<IndirectDimInfo> dims;
 };
 
 enum class AddressLoweringPath {
@@ -134,9 +138,20 @@ struct LoopProgression {
   int64_t step;
 };
 
+struct AddressStepInfo {
+  SmallVector<OpFoldResult> offsets;
+  SmallVector<IndirectDimInfo> indirects;
+};
+
 static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value);
 static FailureOr<LoopProgression>
 getConstantLoopProgression(ForIterArgInfo info);
+static FailureOr<SmallVector<OpFoldResult>>
+collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
+                           ConversionPatternRewriter &rewriter);
+static FailureOr<AddressStepInfo>
+collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
+                       ConversionPatternRewriter &rewriter);
 static bool isAddressSeedResolvable(Value value);
 static bool isSupportedLoopStepExpr(Value value, Value iterArg);
 static Value stripAddressViewLikeChain(Value address);
@@ -147,9 +162,73 @@ static LogicalResult emitTTAToMemrefError(Operation *op, StringRef reason) {
   return failure();
 }
 
+static void setFailureReason(std::optional<StringRef> *failureReason,
+                             StringRef reason) {
+  if (failureReason) {
+    *failureReason = reason;
+  }
+}
+
 static FailureOr<Value>
 castIndirectIndexToIndex(Value indirectIndex, Location loc,
                          ConversionPatternRewriter &rewriter);
+
+static FailureOr<Value>
+buildIdentityIndexTensor(Value indexTensor, Location loc,
+                         ConversionPatternRewriter &rewriter) {
+  auto tensorType = dyn_cast<RankedTensorType>(indexTensor.getType());
+  if (!tensorType || tensorType.getRank() != 1 ||
+      !tensorType.getElementType().isIndex()) {
+    return failure();
+  }
+
+  if (!tensorType.isDynamicDim(0)) {
+    int64_t size = tensorType.getDimSize(0);
+    SmallVector<int64_t> values;
+    values.reserve(size);
+    for (int64_t i = 0; i < size; ++i) {
+      values.push_back(i);
+    }
+    auto attr = DenseIntElementsAttr::get(tensorType, values);
+    return arith::ConstantOp::create(rewriter, loc, attr).getResult();
+  }
+
+  Value extent = tensor::DimOp::create(rewriter, loc, indexTensor, /*index=*/0)
+                     .getResult();
+  auto generate = tensor::GenerateOp::create(
+      rewriter, loc, tensorType, ValueRange{extent},
+      [&](OpBuilder &builder, Location bodyLoc, ValueRange indices) {
+        tensor::YieldOp::create(builder, bodyLoc, indices.front());
+      });
+  return generate.getResult();
+}
+
+static FailureOr<Value>
+buildAllTrueMaskTensor(Value maskTensor, Location loc,
+                       ConversionPatternRewriter &rewriter) {
+  auto tensorType = dyn_cast<RankedTensorType>(maskTensor.getType());
+  if (!tensorType || tensorType.getRank() != 1 ||
+      !tensorType.getElementType().isInteger(1)) {
+    return failure();
+  }
+
+  if (!tensorType.isDynamicDim(0)) {
+    auto attr = DenseElementsAttr::get(tensorType, true);
+    return arith::ConstantOp::create(rewriter, loc, attr).getResult();
+  }
+
+  Value extent =
+      tensor::DimOp::create(rewriter, loc, maskTensor, /*index=*/0).getResult();
+  auto generate = tensor::GenerateOp::create(
+      rewriter, loc, tensorType, ValueRange{extent},
+      [&](OpBuilder &builder, Location bodyLoc, ValueRange) {
+        Value trueValue = arith::ConstantOp::create(builder, bodyLoc,
+                                                    builder.getBoolAttr(true))
+                              .getResult();
+        tensor::YieldOp::create(builder, bodyLoc, trueValue);
+      });
+  return generate.getResult();
+}
 
 static bool isAddressChainRootedAtMakeAddr(Value value) {
   while (true) {
@@ -172,20 +251,15 @@ static bool isAddressChainRootedAtMakeAddr(Value value) {
 static FailureOr<IndirectInfo>
 collectIndirectInfo(const AddressDescriptor &descriptor,
                     std::optional<StringRef> *failureReason = nullptr) {
+  (void)failureReason;
   IndirectInfo info;
   for (auto [dim, rule] : llvm::enumerate(descriptor.dims)) {
     if (!rule.indirect.has_value()) {
       continue;
     }
-    if (info.indirectIndex) {
-      if (failureReason) {
-        *failureReason = StringRef("mixed_indirect_dim in address chain");
-      }
-      return failure();
-    }
-    info.indirectDim = static_cast<int64_t>(dim);
-    info.indirectIndex = rule.indirect->indexTensor;
-    info.indirectMask = rule.indirect->maskTensor;
+    info.dims.push_back(IndirectDimInfo{static_cast<int64_t>(dim),
+                                        rule.indirect->indexTensor,
+                                        rule.indirect->maskTensor});
   }
   return info;
 }
@@ -206,8 +280,47 @@ collectAddressFeatures(const AddressDescriptor &descriptor) {
 }
 
 static bool hasAnyIndirectAccess(const IndirectInfo &indirectInfo) {
-  return indirectInfo.indirectIndex || indirectInfo.indirectMask ||
-         indirectInfo.indirectDim.has_value();
+  return !indirectInfo.dims.empty();
+}
+
+static const IndirectDimInfo *
+getSingleIndirectDimInfo(const IndirectInfo &indirectInfo) {
+  if (indirectInfo.dims.size() != 1) {
+    return nullptr;
+  }
+  return &indirectInfo.dims.front();
+}
+
+struct NormalizedIndirectDimInfo {
+  int64_t dim;
+  Value index;
+  Value mask;
+};
+
+static FailureOr<SmallVector<NormalizedIndirectDimInfo>>
+normalizeIndirectInfo(const IndirectInfo &indirectInfo, Location loc,
+                      ConversionPatternRewriter &rewriter) {
+  SmallVector<NormalizedIndirectDimInfo> normalized;
+  normalized.reserve(indirectInfo.dims.size());
+  for (const IndirectDimInfo &dimInfo : indirectInfo.dims) {
+    auto maybeIndex = castIndirectIndexToIndex(dimInfo.index, loc, rewriter);
+    if (failed(maybeIndex)) {
+      return failure();
+    }
+    normalized.push_back(
+        NormalizedIndirectDimInfo{dimInfo.dim, *maybeIndex, dimInfo.mask});
+  }
+  return normalized;
+}
+
+static const NormalizedIndirectDimInfo *findNormalizedIndirectDim(
+    ArrayRef<NormalizedIndirectDimInfo> normalizedIndirect, int64_t dim) {
+  for (const NormalizedIndirectDimInfo &entry : normalizedIndirect) {
+    if (entry.dim == dim) {
+      return &entry;
+    }
+  }
+  return nullptr;
 }
 
 static AddressLoweringPath
@@ -309,8 +422,7 @@ static bool canProveNoWrapAccess(const AddressDescriptor &descriptor,
   if (descriptor.layoutKind == LayoutKind::Block) {
     return false;
   }
-  if (indirectInfo.indirectIndex || indirectInfo.indirectMask ||
-      indirectInfo.indirectDim.has_value()) {
+  if (hasAnyIndirectAccess(indirectInfo)) {
     return false;
   }
   if (descriptor.dims.size() != loadedShape.size()) {
@@ -367,8 +479,7 @@ static FailureOr<Rank1WrapSegments> buildRank1WrapSegments(
       !maskDims.empty()) {
     return failure();
   }
-  if (indirectInfo.indirectIndex || indirectInfo.indirectMask ||
-      indirectInfo.indirectDim.has_value()) {
+  if (hasAnyIndirectAccess(indirectInfo)) {
     return failure();
   }
   if (ShapedType::isDynamic(loadedShape[0]) || loadedShape[0] <= 0) {
@@ -411,6 +522,140 @@ static FailureOr<Rank1WrapSegments> buildRank1WrapSegments(
     return failure();
   }
   return segments;
+}
+
+static FailureOr<SmallVector<OpFoldResult>>
+collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
+                           ConversionPatternRewriter &rewriter) {
+  auto collectDeltas =
+      [&](auto &&self, Value current) -> FailureOr<SmallVector<OpFoldResult>> {
+    if (current == root) {
+      SmallVector<OpFoldResult> zeros;
+      zeros.reserve(rank);
+      for (int64_t i = 0; i < rank; ++i) {
+        zeros.push_back(rewriter.getIndexAttr(0));
+      }
+      return zeros;
+    }
+
+    if (auto imported = current.getDefiningOp<tta::FromTTPtrOp>()) {
+      return self(self, imported.getSource());
+    }
+
+    if (auto advance = current.getDefiningOp<tta::AdvanceOp>()) {
+      auto maybeOffsets = self(self, advance.getAddress());
+      if (failed(maybeOffsets)) {
+        return failure();
+      }
+
+      auto deltas = advance.getMixedDeltas();
+      if (static_cast<int64_t>(deltas.size()) != rank) {
+        return failure();
+      }
+
+      SmallVector<OpFoldResult> composed = *maybeOffsets;
+      for (auto [i, delta] : llvm::enumerate(deltas)) {
+        composed[i] = addOFRs(composed[i], delta, loc, rewriter);
+      }
+      return composed;
+    }
+
+    if (auto reindex = current.getDefiningOp<tta::ReindexOp>()) {
+      auto maybeOffsets = self(self, reindex.getAddress());
+      if (failed(maybeOffsets)) {
+        return failure();
+      }
+
+      auto reindexOffsets = reindex.getMixedOffsets();
+      if (static_cast<int64_t>(reindexOffsets.size()) != rank) {
+        return failure();
+      }
+
+      SmallVector<OpFoldResult> composed = *maybeOffsets;
+      for (auto [i, offset] : llvm::enumerate(reindexOffsets)) {
+        composed[i] = addOFRs(composed[i], offset, loc, rewriter);
+      }
+      return composed;
+    }
+
+    if (current.getDefiningOp<tta::IndirectReindexOp>()) {
+      return failure();
+    }
+
+    return failure();
+  };
+
+  return collectDeltas(collectDeltas, value);
+}
+
+static FailureOr<AddressStepInfo>
+collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
+                       ConversionPatternRewriter &rewriter) {
+  auto collectStep = [&](auto &&self,
+                         Value current) -> FailureOr<AddressStepInfo> {
+    if (current == root) {
+      AddressStepInfo info;
+      info.offsets.reserve(rank);
+      for (int64_t i = 0; i < rank; ++i) {
+        info.offsets.push_back(rewriter.getIndexAttr(0));
+      }
+      return info;
+    }
+
+    if (auto imported = current.getDefiningOp<tta::FromTTPtrOp>()) {
+      return self(self, imported.getSource());
+    }
+
+    if (auto advance = current.getDefiningOp<tta::AdvanceOp>()) {
+      auto maybeInfo = self(self, advance.getAddress());
+      if (failed(maybeInfo)) {
+        return failure();
+      }
+      auto deltas = advance.getMixedDeltas();
+      if (static_cast<int64_t>(deltas.size()) != rank) {
+        return failure();
+      }
+      for (auto [i, delta] : llvm::enumerate(deltas)) {
+        maybeInfo->offsets[i] =
+            addOFRs(maybeInfo->offsets[i], delta, loc, rewriter);
+      }
+      return *maybeInfo;
+    }
+
+    if (auto reindex = current.getDefiningOp<tta::ReindexOp>()) {
+      auto maybeInfo = self(self, reindex.getAddress());
+      if (failed(maybeInfo)) {
+        return failure();
+      }
+      auto offsets = reindex.getMixedOffsets();
+      if (static_cast<int64_t>(offsets.size()) != rank) {
+        return failure();
+      }
+      for (auto [i, offset] : llvm::enumerate(offsets)) {
+        maybeInfo->offsets[i] =
+            addOFRs(maybeInfo->offsets[i], offset, loc, rewriter);
+      }
+      return *maybeInfo;
+    }
+
+    if (auto indirect = current.getDefiningOp<tta::IndirectReindexOp>()) {
+      auto maybeInfo = self(self, indirect.getAddress());
+      if (failed(maybeInfo)) {
+        return failure();
+      }
+      int64_t dim = indirect.getIndirectDimAttr().getInt();
+      if (dim < 0 || dim >= rank) {
+        return failure();
+      }
+      maybeInfo->indirects.push_back(IndirectDimInfo{
+          dim, indirect.getIndirectIndex(), indirect.getMask()});
+      return *maybeInfo;
+    }
+
+    return failure();
+  };
+
+  return collectStep(collectStep, value);
 }
 
 static FailureOr<AddressDescriptor> collectAddressDescriptorWithCommonAnalysis(
@@ -463,80 +708,13 @@ collectAddressDescriptor(Value address, Location loc,
       return failure();
     }
 
-    FailureOr<IndirectInfo> maybeIndirectInfo =
-        collectIndirectInfo(*maybeInitDescriptor, failureReason);
-    if (failed(maybeIndirectInfo)) {
-      return failure();
-    }
-    if (maybeIndirectInfo->indirectIndex || maybeIndirectInfo->indirectMask ||
-        maybeIndirectInfo->indirectDim.has_value()) {
-      if (failureReason) {
-        *failureReason =
-            StringRef("unsupported loop-carried indirect recurrence");
-      }
-      return failure();
-    }
-
     auto yieldOp =
         cast<scf::YieldOp>(iterArgInfo.forOp.getBody()->getTerminator());
     Value yielded = yieldOp.getResults()[iterArgInfo.iterArgIndex];
     int64_t rank = static_cast<int64_t>(maybeInitDescriptor->dims.size());
-
-    auto collectLoopStepOffsets =
-        [&](auto &&self, Value value) -> FailureOr<SmallVector<OpFoldResult>> {
-      if (value == address) {
-        SmallVector<OpFoldResult> zeros;
-        zeros.reserve(rank);
-        for (int64_t i = 0; i < rank; ++i) {
-          zeros.push_back(rewriter.getIndexAttr(0));
-        }
-        return zeros;
-      }
-
-      if (auto advance = value.getDefiningOp<tta::AdvanceOp>()) {
-        auto maybeOffsets = self(self, advance.getAddress());
-        if (failed(maybeOffsets)) {
-          return failure();
-        }
-        auto deltas = advance.getMixedDeltas();
-        if (static_cast<int64_t>(deltas.size()) != rank) {
-          return failure();
-        }
-
-        SmallVector<OpFoldResult> composed = *maybeOffsets;
-        for (auto [i, delta] : llvm::enumerate(deltas)) {
-          composed[i] = addOFRs(composed[i], delta, loc, rewriter);
-        }
-        return composed;
-      }
-
-      if (auto reindex = value.getDefiningOp<tta::ReindexOp>()) {
-        auto maybeOffsets = self(self, reindex.getAddress());
-        if (failed(maybeOffsets)) {
-          return failure();
-        }
-        auto reindexOffsets = reindex.getMixedOffsets();
-        if (static_cast<int64_t>(reindexOffsets.size()) != rank) {
-          return failure();
-        }
-
-        SmallVector<OpFoldResult> composed = *maybeOffsets;
-        for (auto [i, offset] : llvm::enumerate(reindexOffsets)) {
-          composed[i] = addOFRs(composed[i], offset, loc, rewriter);
-        }
-        return composed;
-      }
-
-      if (value.getDefiningOp<tta::IndirectReindexOp>()) {
-        return failure();
-      }
-
-      return failure();
-    };
-
-    auto maybeStepOffsets =
-        collectLoopStepOffsets(collectLoopStepOffsets, yielded);
-    if (failed(maybeStepOffsets)) {
+    auto maybeStepInfo =
+        collectAddressStepInfo(yielded, address, rank, loc, rewriter);
+    if (failed(maybeStepInfo)) {
       if (failureReason) {
         *failureReason =
             StringRef("unsupported loop-carried address step expression");
@@ -587,13 +765,302 @@ collectAddressDescriptor(Value address, Location loc,
                           rewriter, loc, rewriter.getIndexType(), loopIndexInt)
                           .getResult();
 
-    for (auto [i, stepOffset] : llvm::enumerate(*maybeStepOffsets)) {
+    for (auto [i, stepOffset] : llvm::enumerate(maybeStepInfo->offsets)) {
       OpFoldResult scaled = mulOFRs(stepOffset, iterCount, loc, rewriter);
       maybeInitDescriptor->dims[i].offset =
           addOFRs(maybeInitDescriptor->dims[i].offset, scaled, loc, rewriter);
     }
 
+    if (!maybeStepInfo->indirects.empty()) {
+      SmallVector<Value> mergedStepIndices(rank);
+      SmallVector<Value> mergedStepMasks(rank);
+      SmallVector<RankedTensorType> mergedStepTypes(rank);
+
+      for (const IndirectDimInfo &info : maybeStepInfo->indirects) {
+        int64_t dim = info.dim;
+        if (dim < 0 || dim >= rank) {
+          setFailureReason(
+              failureReason,
+              "loop-carried indirect recurrence indirect_dim out of bounds");
+          return failure();
+        }
+
+        auto maybeStepIndex =
+            castIndirectIndexToIndex(info.index, loc, rewriter);
+        if (failed(maybeStepIndex)) {
+          setFailureReason(
+              failureReason,
+              "loop-carried indirect recurrence requires 1D int/index step "
+              "index");
+          return failure();
+        }
+        auto stepType = dyn_cast<RankedTensorType>((*maybeStepIndex).getType());
+        if (!stepType || stepType.getRank() != 1 ||
+            !stepType.getElementType().isIndex()) {
+          setFailureReason(
+              failureReason,
+              "loop-carried indirect recurrence requires 1D index");
+          return failure();
+        }
+
+        if (!mergedStepTypes[dim]) {
+          mergedStepTypes[dim] = stepType;
+          mergedStepIndices[dim] = *maybeStepIndex;
+        } else {
+          if (stepType.getShape() != mergedStepTypes[dim].getShape() ||
+              stepType.getElementType() !=
+                  mergedStepTypes[dim].getElementType()) {
+            setFailureReason(failureReason,
+                             "loop-carried indirect recurrence step index "
+                             "shape/type mismatch on same dim");
+            return failure();
+          }
+          mergedStepIndices[dim] =
+              arith::AddIOp::create(rewriter, loc, mergedStepIndices[dim],
+                                    *maybeStepIndex)
+                  .getResult();
+        }
+
+        if (Value mask = info.mask) {
+          auto maskType = dyn_cast<RankedTensorType>(mask.getType());
+          if (!maskType || maskType.getRank() != 1 ||
+              !maskType.getElementType().isInteger(1)) {
+            setFailureReason(failureReason,
+                             "loop-carried indirect recurrence requires 1D "
+                             "mask");
+            return failure();
+          }
+          if (maskType.getShape() != stepType.getShape()) {
+            setFailureReason(
+                failureReason,
+                "loop-carried indirect recurrence step mask shape mismatch "
+                "with step index on same dim");
+            return failure();
+          }
+          if (!mergedStepMasks[dim]) {
+            mergedStepMasks[dim] = mask;
+          } else {
+            mergedStepMasks[dim] =
+                arith::AndIOp::create(rewriter, loc, mergedStepMasks[dim], mask)
+                    .getResult();
+          }
+        }
+      }
+
+      Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0).getResult();
+      Value isIterZero =
+          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
+                                iterCount, zero)
+              .getResult();
+
+      for (int64_t recurrenceDim = 0; recurrenceDim < rank; ++recurrenceDim) {
+        RankedTensorType expectedType = mergedStepTypes[recurrenceDim];
+        if (!expectedType) {
+          continue;
+        }
+        Value mergedStepIndex = mergedStepIndices[recurrenceDim];
+        Value mergedStepMask = mergedStepMasks[recurrenceDim];
+
+        SmallVector<Value> iterCountDynamicSizes;
+        if (expectedType.isDynamicDim(0)) {
+          iterCountDynamicSizes.push_back(
+              tensor::DimOp::create(rewriter, loc, mergedStepIndex, /*index=*/0)
+                  .getResult());
+        }
+        Value iterCountTensor =
+            tensor::SplatOp::create(rewriter, loc, iterCount, expectedType,
+                                    iterCountDynamicSizes)
+                .getResult();
+        Value scaledStepIndex =
+            arith::MulIOp::create(rewriter, loc, mergedStepIndex,
+                                  iterCountTensor)
+                .getResult();
+
+        auto &dimRule = maybeInitDescriptor->dims[recurrenceDim];
+        if (dimRule.indirect.has_value()) {
+          auto maybeSeedIndex = castIndirectIndexToIndex(
+              dimRule.indirect->indexTensor, loc, rewriter);
+          if (failed(maybeSeedIndex)) {
+            setFailureReason(
+                failureReason,
+                "loop-carried indirect recurrence requires 1D int/index seed "
+                "index");
+            return failure();
+          }
+
+          auto seedType =
+              dyn_cast<RankedTensorType>((*maybeSeedIndex).getType());
+          if (!seedType || seedType.getRank() != 1 ||
+              !seedType.getElementType().isIndex()) {
+            setFailureReason(failureReason,
+                             "loop-carried indirect recurrence requires 1D "
+                             "index");
+            return failure();
+          }
+          if (seedType.getShape() != expectedType.getShape() ||
+              seedType.getElementType() != expectedType.getElementType()) {
+            setFailureReason(
+                failureReason,
+                "loop-carried indirect recurrence seed/step index shape/type "
+                "mismatch on same dim");
+            return failure();
+          }
+
+          dimRule.indirect->indexTensor =
+              arith::AddIOp::create(rewriter, loc, *maybeSeedIndex,
+                                    scaledStepIndex)
+                  .getResult();
+
+          if (mergedStepMask) {
+            Value seedMask = dimRule.indirect->maskTensor;
+            Value mergedMask = mergedStepMask;
+            if (seedMask) {
+              auto seedMaskType =
+                  dyn_cast<RankedTensorType>(seedMask.getType());
+              auto stepMaskType =
+                  dyn_cast<RankedTensorType>(mergedStepMask.getType());
+              if (!seedMaskType || !stepMaskType ||
+                  seedMaskType.getRank() != 1 || stepMaskType.getRank() != 1 ||
+                  !seedMaskType.getElementType().isInteger(1) ||
+                  !stepMaskType.getElementType().isInteger(1)) {
+                setFailureReason(
+                    failureReason,
+                    "loop-carried indirect recurrence requires 1D mask");
+                return failure();
+              }
+              if (seedMaskType.getShape() != stepMaskType.getShape()) {
+                setFailureReason(
+                    failureReason,
+                    "loop-carried indirect recurrence seed/step mask shape "
+                    "mismatch on same dim");
+                return failure();
+              }
+              Value andMask =
+                  arith::AndIOp::create(rewriter, loc, seedMask, mergedStepMask)
+                      .getResult();
+              auto ifOp = scf::IfOp::create(rewriter, loc, seedMask.getType(),
+                                            isIterZero, true);
+              rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+              scf::YieldOp::create(rewriter, loc, ValueRange{seedMask});
+              rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+              scf::YieldOp::create(rewriter, loc, ValueRange{andMask});
+              rewriter.setInsertionPointAfter(ifOp);
+              mergedMask = ifOp.getResult(0);
+            } else {
+              auto maskType =
+                  dyn_cast<RankedTensorType>(mergedStepMask.getType());
+              if (!maskType || maskType.getRank() != 1 ||
+                  !maskType.getElementType().isInteger(1)) {
+                setFailureReason(
+                    failureReason,
+                    "loop-carried indirect recurrence requires 1D mask");
+                return failure();
+              }
+              auto maybeAllTrueMask =
+                  buildAllTrueMaskTensor(mergedStepMask, loc, rewriter);
+              if (failed(maybeAllTrueMask)) {
+                setFailureReason(
+                    failureReason,
+                    "loop-carried indirect recurrence requires 1D mask");
+                return failure();
+              }
+              auto ifOp = scf::IfOp::create(
+                  rewriter, loc, mergedStepMask.getType(), isIterZero, true);
+              rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+              scf::YieldOp::create(rewriter, loc,
+                                   ValueRange{*maybeAllTrueMask});
+              rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+              scf::YieldOp::create(rewriter, loc, ValueRange{mergedStepMask});
+              rewriter.setInsertionPointAfter(ifOp);
+              mergedMask = ifOp.getResult(0);
+            }
+            dimRule.indirect->maskTensor = mergedMask;
+          }
+          continue;
+        }
+
+        auto maybeStepOffset =
+            getIntAttr(maybeStepInfo->offsets[recurrenceDim]);
+        if (!maybeStepOffset || *maybeStepOffset != 0) {
+          setFailureReason(
+              failureReason,
+              "loop-carried indirect recurrence without seed requires "
+              "zero direct step on same dim");
+          return failure();
+        }
+
+        auto maybeIdentityIndex =
+            buildIdentityIndexTensor(mergedStepIndex, loc, rewriter);
+        if (failed(maybeIdentityIndex)) {
+          setFailureReason(failureReason, "loop-carried indirect recurrence "
+                                          "without seed requires 1D index");
+          return failure();
+        }
+
+        auto ifOp = scf::IfOp::create(rewriter, loc, expectedType, isIterZero,
+                                      /*withElseRegion=*/true);
+        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        scf::YieldOp::create(rewriter, loc, ValueRange{*maybeIdentityIndex});
+        rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        scf::YieldOp::create(rewriter, loc, ValueRange{scaledStepIndex});
+        rewriter.setInsertionPointAfter(ifOp);
+
+        dimRule.indirect = mlir::triton::address::IndirectIndexRule{
+            ifOp.getResult(0), Value()};
+
+        if (mergedStepMask) {
+          auto maskType = dyn_cast<RankedTensorType>(mergedStepMask.getType());
+          if (!maskType || maskType.getRank() != 1 ||
+              !maskType.getElementType().isInteger(1)) {
+            setFailureReason(failureReason,
+                             "loop-carried indirect recurrence requires 1D "
+                             "mask");
+            return failure();
+          }
+          auto maybeAllTrueMask =
+              buildAllTrueMaskTensor(mergedStepMask, loc, rewriter);
+          if (failed(maybeAllTrueMask)) {
+            setFailureReason(failureReason,
+                             "loop-carried indirect recurrence requires 1D "
+                             "mask");
+            return failure();
+          }
+          auto maskIfOp = scf::IfOp::create(
+              rewriter, loc, mergedStepMask.getType(), isIterZero, true);
+          rewriter.setInsertionPointToStart(&maskIfOp.getThenRegion().front());
+          scf::YieldOp::create(rewriter, loc, ValueRange{*maybeAllTrueMask});
+          rewriter.setInsertionPointToStart(&maskIfOp.getElseRegion().front());
+          scf::YieldOp::create(rewriter, loc, ValueRange{mergedStepMask});
+          rewriter.setInsertionPointAfter(maskIfOp);
+          dimRule.indirect->maskTensor = maskIfOp.getResult(0);
+        }
+      }
+    }
+
     return *maybeInitDescriptor;
+  }
+
+  Value root = stripAddressViewLikeChain(address);
+  if (root != address) {
+    auto maybeIterArgInfo = getForIterArgInfo(root);
+    if (succeeded(maybeIterArgInfo)) {
+      auto maybeRootDescriptor =
+          collectAddressDescriptor(root, loc, rewriter, failureReason);
+      if (failed(maybeRootDescriptor)) {
+        return failure();
+      }
+
+      int64_t rank = static_cast<int64_t>(maybeRootDescriptor->dims.size());
+      auto maybeViewOffsets =
+          collectAddressOffsetDeltas(address, root, rank, loc, rewriter);
+      if (succeeded(maybeViewOffsets)) {
+        for (auto [i, offset] : llvm::enumerate(*maybeViewOffsets)) {
+          maybeRootDescriptor->dims[i].offset = addOFRs(
+              maybeRootDescriptor->dims[i].offset, offset, loc, rewriter);
+        }
+        return *maybeRootDescriptor;
+      }
+    }
   }
 
   if (auto maybeDescriptor = collectAddressDescriptorWithCommonAnalysis(
@@ -677,8 +1144,9 @@ static bool isAddressSeedResolvable(Value value) {
       continue;
     }
 
-    if (value.getDefiningOp<tta::IndirectReindexOp>()) {
-      return false;
+    if (auto reindex = value.getDefiningOp<tta::IndirectReindexOp>()) {
+      value = reindex.getAddress();
+      continue;
     }
 
     if (auto advance = value.getDefiningOp<tta::AdvanceOp>()) {
@@ -703,8 +1171,8 @@ static bool isSupportedLoopStepExpr(Value value, Value iterArg) {
     return isSupportedLoopStepExpr(reindex.getAddress(), iterArg);
   }
 
-  if (value.getDefiningOp<tta::IndirectReindexOp>()) {
-    return false;
+  if (auto reindex = value.getDefiningOp<tta::IndirectReindexOp>()) {
+    return isSupportedLoopStepExpr(reindex.getAddress(), iterArg);
   }
 
   return false;
@@ -1256,9 +1724,9 @@ castBaseMemrefToLinear(Value baseMemref, Type elementType, Location loc,
 }
 
 static FailureOr<SmallVector<Value>> buildWrapAwareLoopUpperBounds(
-    const AddressDescriptor &descriptor, const IndirectInfo &indirectInfo,
-    ArrayRef<int64_t> loadedShape, ArrayRef<OpFoldResult> maskDims,
-    Value normalizedIndirectIndex, Location loc,
+    const AddressDescriptor &descriptor, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims,
+    ArrayRef<NormalizedIndirectDimInfo> normalizedIndirect, Location loc,
     ConversionPatternRewriter &rewriter) {
   int64_t rank = loadedShape.size();
   if (rank <= 0 || static_cast<int64_t>(descriptor.dims.size()) != rank) {
@@ -1284,26 +1752,23 @@ static FailureOr<SmallVector<Value>> buildWrapAwareLoopUpperBounds(
     }
   }
 
-  if (!normalizedIndirectIndex) {
+  if (normalizedIndirect.empty()) {
     return upperBounds;
   }
-  if (!indirectInfo.indirectDim.has_value()) {
-    return failure();
-  }
-  int64_t gatherDim = *indirectInfo.indirectDim;
-  if (gatherDim < 0 || gatherDim >= rank) {
-    return failure();
-  }
 
-  auto maybeIndirectSize =
-      getIndirectSize(normalizedIndirectIndex, loc, rewriter);
-  if (failed(maybeIndirectSize)) {
-    return failure();
+  for (const NormalizedIndirectDimInfo &indirectDim : normalizedIndirect) {
+    if (indirectDim.dim < 0 || indirectDim.dim >= rank) {
+      return failure();
+    }
+    auto maybeIndirectSize = getIndirectSize(indirectDim.index, loc, rewriter);
+    if (failed(maybeIndirectSize)) {
+      return failure();
+    }
+    upperBounds[indirectDim.dim] =
+        arith::MinSIOp::create(rewriter, loc, upperBounds[indirectDim.dim],
+                               *maybeIndirectSize)
+            .getResult();
   }
-  upperBounds[gatherDim] =
-      arith::MinSIOp::create(rewriter, loc, upperBounds[gatherDim],
-                             *maybeIndirectSize)
-          .getResult();
   return upperBounds;
 }
 
@@ -1353,23 +1818,17 @@ buildWrappedLinearizedTerm(const DimRule &rule, Value logicalIndex,
   return buildEuclideanModulo(term, boundary, loc, rewriter);
 }
 
-static FailureOr<Value>
-buildWrapAwareLinearOffset(const AddressDescriptor &descriptor,
-                           const IndirectInfo &indirectInfo,
-                           ArrayRef<Value> ivs, Value normalizedIndirectIndex,
-                           Location loc, ConversionPatternRewriter &rewriter) {
+static FailureOr<Value> buildWrapAwareLinearOffset(
+    const AddressDescriptor &descriptor,
+    ArrayRef<NormalizedIndirectDimInfo> normalizedIndirect, ArrayRef<Value> ivs,
+    Location loc, ConversionPatternRewriter &rewriter) {
   int64_t rank = descriptor.dims.size();
   if (static_cast<int64_t>(ivs.size()) != rank) {
     return failure();
   }
 
-  std::optional<int64_t> gatherDim = std::nullopt;
-  if (normalizedIndirectIndex) {
-    if (!indirectInfo.indirectDim.has_value()) {
-      return failure();
-    }
-    gatherDim = *indirectInfo.indirectDim;
-    if (*gatherDim < 0 || *gatherDim >= rank) {
+  for (const NormalizedIndirectDimInfo &indirectDim : normalizedIndirect) {
+    if (indirectDim.dim < 0 || indirectDim.dim >= rank) {
       return failure();
     }
   }
@@ -1377,9 +1836,11 @@ buildWrapAwareLinearOffset(const AddressDescriptor &descriptor,
   Value total = makeIndexConstant(loc, 0, rewriter);
   for (auto [dim, iv] : llvm::enumerate(ivs)) {
     Value logicalIndex = iv;
-    if (gatherDim.has_value() && static_cast<int64_t>(dim) == *gatherDim) {
+    if (const NormalizedIndirectDimInfo *indirectDim =
+            findNormalizedIndirectDim(normalizedIndirect,
+                                      static_cast<int64_t>(dim))) {
       logicalIndex = tensor::ExtractOp::create(
-                         rewriter, loc, normalizedIndirectIndex, ValueRange{iv})
+                         rewriter, loc, indirectDim->index, ValueRange{iv})
                          .getResult();
     }
 
@@ -1391,6 +1852,33 @@ buildWrapAwareLinearOffset(const AddressDescriptor &descriptor,
     total = arith::AddIOp::create(rewriter, loc, total, *maybeTerm).getResult();
   }
   return total;
+}
+
+static FailureOr<Value> buildIndirectExecutionMask(
+    ArrayRef<NormalizedIndirectDimInfo> normalizedIndirect, ArrayRef<Value> ivs,
+    Location loc, ConversionPatternRewriter &rewriter) {
+  Value combinedMask;
+  for (const NormalizedIndirectDimInfo &indirectDim : normalizedIndirect) {
+    if (!indirectDim.mask) {
+      continue;
+    }
+    if (indirectDim.dim < 0 ||
+        indirectDim.dim >= static_cast<int64_t>(ivs.size())) {
+      return failure();
+    }
+    Value currentMask =
+        tensor::ExtractOp::create(rewriter, loc, indirectDim.mask,
+                                  ValueRange{ivs[indirectDim.dim]})
+            .getResult();
+    if (!combinedMask) {
+      combinedMask = currentMask;
+      continue;
+    }
+    combinedMask =
+        arith::AndIOp::create(rewriter, loc, combinedMask, currentMask)
+            .getResult();
+  }
+  return combinedMask;
 }
 
 static LogicalResult lowerWrapAwareLoad(tta::LoadOp op,
@@ -1407,19 +1895,15 @@ static LogicalResult lowerWrapAwareLoad(tta::LoadOp op,
     return failure();
   }
 
-  Value normalizedIndirectIndex;
-  if (indirectInfo.indirectIndex) {
-    auto maybeIndirect = castIndirectIndexToIndex(indirectInfo.indirectIndex,
-                                                  op.getLoc(), rewriter);
-    if (failed(maybeIndirect)) {
-      return failure();
-    }
-    normalizedIndirectIndex = *maybeIndirect;
+  auto maybeNormalizedIndirect =
+      normalizeIndirectInfo(indirectInfo, op.getLoc(), rewriter);
+  if (failed(maybeNormalizedIndirect)) {
+    return failure();
   }
 
   auto maybeUpperBounds = buildWrapAwareLoopUpperBounds(
-      descriptor, indirectInfo, loadedShape, maskDims, normalizedIndirectIndex,
-      op.getLoc(), rewriter);
+      descriptor, loadedShape, maskDims, *maybeNormalizedIndirect, op.getLoc(),
+      rewriter);
   if (failed(maybeUpperBounds)) {
     return failure();
   }
@@ -1427,7 +1911,6 @@ static LogicalResult lowerWrapAwareLoad(tta::LoadOp op,
   int64_t rank = loadedShape.size();
   Value lowerBound = makeIndexConstant(op.getLoc(), 0, rewriter);
   Value step = makeIndexConstant(op.getLoc(), 1, rewriter);
-  std::optional<int64_t> gatherDim = indirectInfo.indirectDim;
   SmallVector<Value> ivs;
   ivs.reserve(rank);
 
@@ -1435,8 +1918,7 @@ static LogicalResult lowerWrapAwareLoad(tta::LoadOp op,
     if (dim == rank) {
       auto emitOne = [&](ConversionPatternRewriter &rw) -> LogicalResult {
         auto maybeLinearOffset = buildWrapAwareLinearOffset(
-            descriptor, indirectInfo, ivs, normalizedIndirectIndex, op.getLoc(),
-            rw);
+            descriptor, *maybeNormalizedIndirect, ivs, op.getLoc(), rw);
         if (failed(maybeLinearOffset)) {
           return failure();
         }
@@ -1448,14 +1930,13 @@ static LogicalResult lowerWrapAwareLoad(tta::LoadOp op,
         return success();
       };
 
-      if (indirectInfo.indirectMask) {
-        if (!gatherDim.has_value() || *gatherDim < 0 || *gatherDim >= rank) {
-          return failure();
-        }
-        Value maskValue = tensor::ExtractOp::create(rewriter, op.getLoc(),
-                                                    indirectInfo.indirectMask,
-                                                    ValueRange{ivs[*gatherDim]})
-                              .getResult();
+      auto maybeMask = buildIndirectExecutionMask(*maybeNormalizedIndirect, ivs,
+                                                  op.getLoc(), rewriter);
+      if (failed(maybeMask)) {
+        return failure();
+      }
+      if (*maybeMask) {
+        Value maskValue = *maybeMask;
         auto ifOp = scf::IfOp::create(rewriter, op.getLoc(), maskValue);
         rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
         if (failed(emitOne(rewriter))) {
@@ -1500,19 +1981,15 @@ static LogicalResult lowerWrapAwareStore(tta::StoreOp op,
     return failure();
   }
 
-  Value normalizedIndirectIndex;
-  if (indirectInfo.indirectIndex) {
-    auto maybeIndirect = castIndirectIndexToIndex(indirectInfo.indirectIndex,
-                                                  op.getLoc(), rewriter);
-    if (failed(maybeIndirect)) {
-      return failure();
-    }
-    normalizedIndirectIndex = *maybeIndirect;
+  auto maybeNormalizedIndirect =
+      normalizeIndirectInfo(indirectInfo, op.getLoc(), rewriter);
+  if (failed(maybeNormalizedIndirect)) {
+    return failure();
   }
 
   auto maybeUpperBounds = buildWrapAwareLoopUpperBounds(
-      descriptor, indirectInfo, loadedShape, maskDims, normalizedIndirectIndex,
-      op.getLoc(), rewriter);
+      descriptor, loadedShape, maskDims, *maybeNormalizedIndirect, op.getLoc(),
+      rewriter);
   if (failed(maybeUpperBounds)) {
     return failure();
   }
@@ -1520,7 +1997,6 @@ static LogicalResult lowerWrapAwareStore(tta::StoreOp op,
   int64_t rank = loadedShape.size();
   Value lowerBound = makeIndexConstant(op.getLoc(), 0, rewriter);
   Value step = makeIndexConstant(op.getLoc(), 1, rewriter);
-  std::optional<int64_t> gatherDim = indirectInfo.indirectDim;
   SmallVector<Value> ivs;
   ivs.reserve(rank);
 
@@ -1528,8 +2004,7 @@ static LogicalResult lowerWrapAwareStore(tta::StoreOp op,
     if (dim == rank) {
       auto emitOne = [&](ConversionPatternRewriter &rw) -> LogicalResult {
         auto maybeLinearOffset = buildWrapAwareLinearOffset(
-            descriptor, indirectInfo, ivs, normalizedIndirectIndex, op.getLoc(),
-            rw);
+            descriptor, *maybeNormalizedIndirect, ivs, op.getLoc(), rw);
         if (failed(maybeLinearOffset)) {
           return failure();
         }
@@ -1541,14 +2016,13 @@ static LogicalResult lowerWrapAwareStore(tta::StoreOp op,
         return success();
       };
 
-      if (indirectInfo.indirectMask) {
-        if (!gatherDim.has_value() || *gatherDim < 0 || *gatherDim >= rank) {
-          return failure();
-        }
-        Value maskValue = tensor::ExtractOp::create(rewriter, op.getLoc(),
-                                                    indirectInfo.indirectMask,
-                                                    ValueRange{ivs[*gatherDim]})
-                              .getResult();
+      auto maybeMask = buildIndirectExecutionMask(*maybeNormalizedIndirect, ivs,
+                                                  op.getLoc(), rewriter);
+      if (failed(maybeMask)) {
+        return failure();
+      }
+      if (*maybeMask) {
+        Value maskValue = *maybeMask;
         auto ifOp = scf::IfOp::create(rewriter, op.getLoc(), maskValue);
         rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
         if (failed(emitOne(rewriter))) {
@@ -1612,6 +2086,8 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
                                       ? *collectFailureReason
                                       : "failed to collect address chain");
     }
+    const IndirectDimInfo *singleIndirect =
+        getSingleIndirectDimInfo(*maybeIndirectInfo);
 
     auto maybeLoadedShape =
         resolveLoadedShape(*loadedInfo, descriptor, &collectFailureReason);
@@ -1716,10 +2192,33 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
       return success();
     }
 
-    if (!maybeIndirectInfo->indirectDim.has_value()) {
+    if (hasAnyIndirectAccess(*maybeIndirectInfo) && !singleIndirect) {
+      if (addressFeatures.hasBlockLayout) {
+        return emitTTAToMemrefError(
+            op.getOperation(),
+            "indirect reindex on block pointer is unsupported");
+      }
+      maybeFillWithOther(alloc, op.getOther(), op.getLoc(), rewriter);
+      if (failed(lowerWrapAwareLoad(op, descriptor, *maybeIndirectInfo,
+                                    loadedShape, maskDims, *maybeBaseMemref,
+                                    alloc, rewriter))) {
+        return rewriter.notifyMatchFailure(
+            op, "failed to lower multi-indirect load");
+      }
+      Value resultTensor = bufferization::ToTensorOp::create(
+                               rewriter, op.getLoc(),
+                               cast<RankedTensorType>(op.getType()), alloc,
+                               /*restrict=*/true,
+                               /*writable=*/true)
+                               .getResult();
+      rewriter.replaceOp(op, resultTensor);
+      return success();
+    }
+
+    if (!singleIndirect) {
       return rewriter.notifyMatchFailure(op, "indirect dim is missing");
     }
-    int64_t gatherDim = *maybeIndirectInfo->indirectDim;
+    int64_t gatherDim = singleIndirect->dim;
     if (gatherDim < 0 || gatherDim >= loadedInfo->rank) {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
@@ -1730,8 +2229,8 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
     }
     OpFoldResult gatherBaseOffset = descriptor.dims[gatherDim].offset;
 
-    auto maybeIndirectIndex = castIndirectIndexToIndex(
-        maybeIndirectInfo->indirectIndex, op.getLoc(), rewriter);
+    auto maybeIndirectIndex =
+        castIndirectIndexToIndex(singleIndirect->index, op.getLoc(), rewriter);
     if (failed(maybeIndirectIndex)) {
       return rewriter.notifyMatchFailure(op, "invalid indirect index");
     }
@@ -1742,8 +2241,7 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
       return rewriter.notifyMatchFailure(op, "invalid indirect index size");
     }
 
-    if (maskDims.empty() &&
-        (op.getOther() || maybeIndirectInfo->indirectMask)) {
+    if (maskDims.empty() && (op.getOther() || singleIndirect->mask)) {
       maskDims = getMixedStaticSizes(loadedShape, rewriter);
     }
 
@@ -1769,12 +2267,11 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
     if (indirectIndexType.isDynamicDim(0)) {
       upperBound = computeIndirectUpperBound(
           *maybeOffsetSize, maskDims, gatherDim,
-          static_cast<bool>(maybeIndirectInfo->indirectMask), op.getLoc(),
-          rewriter);
+          static_cast<bool>(singleIndirect->mask), op.getLoc(), rewriter);
     } else {
       upperBound = computeIndirectUpperBound(
           *maybeOffsetSize, maskDims, gatherDim,
-          static_cast<bool>(maybeIndirectInfo->indirectMask),
+          static_cast<bool>(singleIndirect->mask),
           indirectIndexType.getShape()[0], op.getLoc(), rewriter);
     }
 
@@ -1824,11 +2321,11 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
       return success();
     };
 
-    if (maybeIndirectInfo->indirectMask) {
-      Value maskValue = tensor::ExtractOp::create(
-                            rewriter, op.getLoc(),
-                            maybeIndirectInfo->indirectMask, ValueRange{iv})
-                            .getResult();
+    if (singleIndirect->mask) {
+      Value maskValue =
+          tensor::ExtractOp::create(rewriter, op.getLoc(), singleIndirect->mask,
+                                    ValueRange{iv})
+              .getResult();
       auto ifOp = scf::IfOp::create(rewriter, op.getLoc(), maskValue);
       rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
       if (failed(copyBody(rewriter))) {
@@ -1890,6 +2387,8 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
                                       ? *collectFailureReason
                                       : "failed to collect address chain");
     }
+    const IndirectDimInfo *singleIndirect =
+        getSingleIndirectDimInfo(*maybeIndirectInfo);
 
     auto maybeLoadedShape =
         resolveLoadedShape(*loadedInfo, descriptor, &collectFailureReason);
@@ -1973,10 +2472,26 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
       return success();
     }
 
-    if (!maybeIndirectInfo->indirectDim.has_value()) {
+    if (hasAnyIndirectAccess(*maybeIndirectInfo) && !singleIndirect) {
+      if (addressFeatures.hasBlockLayout) {
+        return emitTTAToMemrefError(
+            op.getOperation(),
+            "indirect reindex on block pointer is unsupported");
+      }
+      if (failed(lowerWrapAwareStore(op, descriptor, *maybeIndirectInfo,
+                                     loadedShape, maskDims, *maybeBaseMemref,
+                                     adaptor.getValue(), rewriter))) {
+        return rewriter.notifyMatchFailure(
+            op, "failed to lower multi-indirect store");
+      }
+      rewriter.eraseOp(op);
+      return success();
+    }
+
+    if (!singleIndirect) {
       return rewriter.notifyMatchFailure(op, "indirect dim is missing");
     }
-    int64_t gatherDim = *maybeIndirectInfo->indirectDim;
+    int64_t gatherDim = singleIndirect->dim;
     if (gatherDim < 0 || gatherDim >= loadedInfo->rank) {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
@@ -1987,8 +2502,8 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
     }
     OpFoldResult gatherBaseOffset = descriptor.dims[gatherDim].offset;
 
-    auto maybeIndirectIndex = castIndirectIndexToIndex(
-        maybeIndirectInfo->indirectIndex, op.getLoc(), rewriter);
+    auto maybeIndirectIndex =
+        castIndirectIndexToIndex(singleIndirect->index, op.getLoc(), rewriter);
     if (failed(maybeIndirectIndex)) {
       return rewriter.notifyMatchFailure(op, "invalid indirect index");
     }
@@ -1999,7 +2514,7 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
       return rewriter.notifyMatchFailure(op, "invalid indirect index size");
     }
 
-    if (maskDims.empty() && maybeIndirectInfo->indirectMask) {
+    if (maskDims.empty() && singleIndirect->mask) {
       maskDims = getMixedStaticSizes(loadedShape, rewriter);
     }
 
@@ -2023,12 +2538,11 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
     if (indirectIndexType.isDynamicDim(0)) {
       upperBound = computeIndirectUpperBound(
           *maybeOffsetSize, maskDims, gatherDim,
-          static_cast<bool>(maybeIndirectInfo->indirectMask), op.getLoc(),
-          rewriter);
+          static_cast<bool>(singleIndirect->mask), op.getLoc(), rewriter);
     } else {
       upperBound = computeIndirectUpperBound(
           *maybeOffsetSize, maskDims, gatherDim,
-          static_cast<bool>(maybeIndirectInfo->indirectMask),
+          static_cast<bool>(singleIndirect->mask),
           indirectIndexType.getShape()[0], op.getLoc(), rewriter);
     }
 
@@ -2079,11 +2593,11 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
       return success();
     };
 
-    if (maybeIndirectInfo->indirectMask) {
-      Value maskValue = tensor::ExtractOp::create(
-                            rewriter, op.getLoc(),
-                            maybeIndirectInfo->indirectMask, ValueRange{iv})
-                            .getResult();
+    if (singleIndirect->mask) {
+      Value maskValue =
+          tensor::ExtractOp::create(rewriter, op.getLoc(), singleIndirect->mask,
+                                    ValueRange{iv})
+              .getResult();
       auto ifOp = scf::IfOp::create(rewriter, op.getLoc(), maskValue);
       rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
       if (failed(storeBody(rewriter))) {

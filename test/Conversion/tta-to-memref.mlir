@@ -362,6 +362,313 @@ module {
 // -----
 
 module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_derived_use(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[C0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[C1:.*]] = arith.constant 1 : i32
+// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+// CHECK:           %[[FOR:.*]]:2 = scf.for %[[IV:.*]] = %[[C0]] to %[[ARG2]] step %[[C1]] iter_args(%[[SRC_ADDR:.*]] = %[[MAKE_ADDR_0]], %[[DST_ADDR:.*]] = %[[MAKE_ADDR_1]]) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[IV_IDX_0:.*]] = arith.index_cast %[[IV]] : i32 to index
+// CHECK:             %[[SRC_OFF:.*]] = arith.addi %[[IV_IDX_0]], %[[SRC_CONST:.*]] : index
+// CHECK:             %[[SRC_BASE:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[SRC_ALLOC:.*]] = memref.alloc() : memref<4xf32>
+// CHECK:             %[[SRC_VIEW:.*]] = memref.reinterpret_cast %[[SRC_BASE]] to offset: {{\[}}%[[SRC_OFF]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             memref.copy %[[SRC_VIEW]], %[[SRC_ALLOC]] : memref<4xf32, strided<[1], offset: ?>> to memref<4xf32>
+// CHECK:             %[[TO_TENSOR:.*]] = bufferization.to_tensor %[[SRC_ALLOC]] restrict writable : memref<4xf32> to tensor<4xf32>
+// CHECK:             %[[DST_OFF:.*]] = arith.addi %[[IV_IDX_0]], %[[DST_CONST:.*]] : index
+// CHECK:             %[[DST_BASE:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f32> to memref<*xf32>
+// CHECK:             %[[DST_VIEW:.*]] = memref.reinterpret_cast %[[DST_BASE]] to offset: {{\[}}%[[DST_OFF]]], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1], offset: ?>>
+// CHECK:             bufferization.materialize_in_destination %[[TO_TENSOR]] in writable %[[DST_VIEW]] : (tensor<4xf32>, memref<4xf32, strided<[1], offset: ?>>) -> ()
+// CHECK:             %[[NEXT_SRC:.*]] = "tta.advance"(%[[SRC_ADDR]]) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             %[[NEXT_DST:.*]] = "tta.reindex"(%[[DST_ADDR]]) <{static_offsets = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+// CHECK:             scf.yield %[[NEXT_SRC]], %[[NEXT_DST]] : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_derived_use(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %src_addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %dst_addr0 = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%src_addr = %src_addr0, %dst_addr = %dst_addr0) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) : i32 {
+      %src_use = "tta.reindex"(%src_addr) <{static_offsets = array<i64: 2>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      %dst_use = "tta.advance"(%dst_addr) <{static_deltas = array<i64: 3>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      %val = "tta.load"(%src_use) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+      "tta.store"(%dst_use, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+      %next_src = "tta.advance"(%src_addr) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      %next_dst = "tta.reindex"(%dst_addr) <{static_offsets = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      scf.yield %next_src, %next_dst : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_seed(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[IDX:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[FOR:.*]]:2 = scf.for %[[IV:.*]] = %{{.*}} to %[[ARG2]] step %{{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[IV_IDX:.*]] = arith.index_cast %[[IV]] : i32 to index
+// CHECK:             scf.for %[[INNER_IV:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
+// CHECK:               %[[EXTRACT:.*]] = tensor.extract %[[IDX]]{{\[}}%[[INNER_IV]]] : tensor<4xindex>
+// CHECK:               %[[OFFSET:.*]] = arith.addi %[[EXTRACT]], %[[IV_IDX]] : index
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_seed(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %idx = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+
+    %src_base = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %dst_base = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %src_addr0 = "tta.indirect_reindex"(%src_base, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
+    %dst_addr0 = "tta.indirect_reindex"(%dst_base, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
+
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%src_addr = %src_addr0, %dst_addr = %dst_addr0) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) : i32 {
+      %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+      "tta.store"(%dst_addr, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+      %next_src = "tta.advance"(%src_addr) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      %next_dst = "tta.reindex"(%dst_addr) <{static_offsets = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      scf.yield %next_src, %next_dst : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_recurrence(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[IDX:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[FOR:.*]]:2 = scf.for %[[IV:.*]] = %{{.*}} to %[[ARG2]] step %{{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[IV_IDX:.*]] = arith.index_cast %[[IV]] : i32 to index
+// CHECK:             %[[SPLAT:.*]] = tensor.splat %[[IV_IDX]] : tensor<4xindex>
+// CHECK:             %[[SCALED:.*]] = arith.muli %[[SPLAT]], %[[IDX]] : tensor<4xindex>
+// CHECK:             %[[RECUR:.*]] = arith.addi %[[SCALED]], %[[IDX]] : tensor<4xindex>
+// CHECK:             scf.for %[[INNER_IV:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
+// CHECK:               %[[EXTRACT:.*]] = tensor.extract %[[RECUR]]{{\[}}%[[INNER_IV]]] : tensor<4xindex>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_recurrence(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %idx = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+
+    %src_base = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %src_addr0 = "tta.indirect_reindex"(%src_base, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
+
+    %dst_addr0 = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%src_addr = %src_addr0, %dst_addr = %dst_addr0) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) : i32 {
+      %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+      "tta.store"(%dst_addr, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+      %next_src = "tta.indirect_reindex"(%src_addr, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
+      %next_dst = "tta.advance"(%dst_addr) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      scf.yield %next_src, %next_dst : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_recurrence_no_seed(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[IDX:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[IDX_I32:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+// CHECK:           %[[FOR:.*]]:2 = scf.for %[[IV:.*]] = %{{.*}} to %[[ARG2]] step %{{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>)  : i32 {
+// CHECK:             %[[IV_IDX:.*]] = arith.index_cast %[[IV]] : i32 to index
+// CHECK:             %[[IS_ZERO:.*]] = arith.cmpi eq, %[[IV_IDX]], %{{.*}} : index
+// CHECK:             %[[SPLAT:.*]] = tensor.splat %[[IV_IDX]] : tensor<4xindex>
+// CHECK:             %[[SCALED:.*]] = arith.muli %[[SPLAT]], %[[IDX]] : tensor<4xindex>
+// CHECK:             %[[CUR_IDX:.*]] = arith.select %[[IS_ZERO]], %[[IDX]], %[[SCALED]] : tensor<4xindex>
+// CHECK:             scf.for %[[INNER_IV:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
+// CHECK:               %[[EXTRACT:.*]] = tensor.extract %[[CUR_IDX]]{{\[}}%[[INNER_IV]]] : tensor<4xindex>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_recurrence_no_seed(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %idx = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %out0 = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %addr0, %out = %out0) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) : i32 {
+      %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+      "tta.store"(%out, %v) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+      %next = "tta.indirect_reindex"(%addr, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
+      %next_out = "tta.advance"(%out) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      scf.yield %next, %next_out : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_recurrence_no_seed_dynamic(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?xi32>,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?xi1>,
+// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[IDX_CAST:.*]] = arith.index_cast %[[ARG2]] : tensor<?xi32> to tensor<?xindex>
+// CHECK:           %[[IDX_DIM:.*]] = tensor.dim %[[IDX_CAST]], %{{.*}} : tensor<?xindex>
+// CHECK:           %[[IDENTITY:.*]] = tensor.generate %[[IDX_DIM]]
+// CHECK:           %[[MASK_DIM:.*]] = tensor.dim %[[ARG3]], %{{.*}} : tensor<?xi1>
+// CHECK:           %[[ALL_TRUE:.*]] = tensor.generate %[[MASK_DIM]]
+// CHECK:           scf.if %{{.*}} {
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_recurrence_no_seed_dynamic(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %idx: tensor<?xi32>, %mask: tensor<?xi1>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %addr0 = tta.make_addr %src to sizes: [4], strides: [2], offsets: [3], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %out0 = tta.make_addr %dst to sizes: [4], strides: [2], offsets: [5], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %addr0, %out = %out0) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) : i32 {
+      %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
+      "tta.store"(%out, %v) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
+      %next = "tta.indirect_reindex"(%addr, %idx, %mask) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<?xi32>, tensor<?xi1>) -> !tta.addr<f32, 1, 1>
+      %next_out = "tta.advance"(%out) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
+      scf.yield %next, %next_out : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_recurrence_multi_dim_mixed_seed(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[IV_IDX:.*]] = arith.index_cast %[[IV:.*]] : i32 to index
+// CHECK:           tensor.splat %[[IV_IDX]] : tensor<2xindex>
+// CHECK:           tensor.splat %[[IV_IDX]] : tensor<4xindex>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_recurrence_multi_dim_mixed_seed(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %idx0 = arith.constant dense<[0, 1]> : tensor<2xi32>
+    %idx1 = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+
+    %src_base = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %src_seed = "tta.indirect_reindex"(%src_base, %idx0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
+    %dst_addr0 = tta.make_addr %dst to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%src_addr = %src_seed, %dst_addr = %dst_addr0) -> (!tta.addr<f32, 2, 1>, !tta.addr<f32, 2, 1>) : i32 {
+      %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x4xf32>
+      "tta.store"(%dst_addr, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x4xf32>) -> ()
+      %next_src0 = "tta.indirect_reindex"(%src_addr, %idx0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
+      %next_src1 = "tta.indirect_reindex"(%next_src0, %idx1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
+      %next_dst = "tta.advance"(%dst_addr) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+      scf.yield %next_src1, %next_dst : !tta.addr<f32, 2, 1>, !tta.addr<f32, 2, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_recurrence_multi_dim_dynamic_wrap(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?xi32>,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?xi1>,
+// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           arith.index_cast %[[ARG2]] : tensor<?xi32> to tensor<?xindex>
+// CHECK:           tensor.dim %{{.*}}, %{{.*}} : tensor<?xindex>
+// CHECK:           tensor.dim %[[ARG3]], %{{.*}} : tensor<?xi1>
+// CHECK:           arith.andi
+// CHECK:           arith.remsi
+// CHECK:           arith.select
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_recurrence_multi_dim_dynamic_wrap(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %idx_dyn: tensor<?xi32>, %mask_dyn: tensor<?xi1>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %idx0 = arith.constant dense<[0, 1]> : tensor<2xi32>
+    %mask0 = arith.constant dense<[true, false]> : tensor<2xi1>
+
+    %src_base = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [1, 3], layout: [5, 9] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %src_seed = "tta.indirect_reindex"(%src_base, %idx0, %mask0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+    %dst_addr0 = tta.make_addr %dst to sizes: [2, 4], strides: [4, 1], offsets: [0, 2], layout: [7, 11] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%src_addr = %src_seed, %dst_addr = %dst_addr0) -> (!tta.addr<f32, 2, 1>, !tta.addr<f32, 2, 1>) : i32 {
+      %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x4xf32>
+      "tta.store"(%dst_addr, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x4xf32>) -> ()
+      %next_src0 = "tta.indirect_reindex"(%src_addr, %idx0, %mask0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+      %next_src1 = "tta.indirect_reindex"(%next_src0, %idx_dyn, %mask_dyn) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<?xi32>, tensor<?xi1>) -> !tta.addr<f32, 2, 1>
+      %next_dst = "tta.advance"(%dst_addr) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+      scf.yield %next_src1, %next_dst : !tta.addr<f32, 2, 1>, !tta.addr<f32, 2, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @loop_carried_addr_supported_indirect_recurrence_multi_dim_same_dim_step_merge(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           tensor.splat %{{.*}} : tensor<2xindex>
+// CHECK:           arith.addi %{{.*}}, %{{.*}} : tensor<2xindex>
+// CHECK:           tensor.splat %{{.*}} : tensor<4xindex>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @loop_carried_addr_supported_indirect_recurrence_multi_dim_same_dim_step_merge(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %idx0_a = arith.constant dense<[0, 1]> : tensor<2xi32>
+    %idx0_b = arith.constant dense<[1, 0]> : tensor<2xi32>
+    %idx1 = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+    %mask0_a = arith.constant dense<[true, false]> : tensor<2xi1>
+    %mask0_b = arith.constant dense<[true, true]> : tensor<2xi1>
+
+    %src_base = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %src_seed = "tta.indirect_reindex"(%src_base, %idx0_a, %mask0_a) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+    %dst_addr0 = tta.make_addr %dst to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+
+    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%src_addr = %src_seed, %dst_addr = %dst_addr0) -> (!tta.addr<f32, 2, 1>, !tta.addr<f32, 2, 1>) : i32 {
+      %val = "tta.load"(%src_addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x4xf32>
+      "tta.store"(%dst_addr, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x4xf32>) -> ()
+      %next_src0 = "tta.indirect_reindex"(%src_addr, %idx0_a, %mask0_a) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+      %next_src1 = "tta.indirect_reindex"(%next_src0, %idx0_b, %mask0_b) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+      %next_src2 = "tta.indirect_reindex"(%next_src1, %idx1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
+      %next_dst = "tta.advance"(%dst_addr) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
+      scf.yield %next_src2, %next_dst : !tta.addr<f32, 2, 1>, !tta.addr<f32, 2, 1>
+    }
+    tt.return
+  }
+}
+
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @indirect_non_zero_offset(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
@@ -555,6 +862,94 @@ module {
     %dst_addr = tta.make_addr %dst to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
     %dst_idx = "tta.indirect_reindex"(%dst_addr, %idx) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
     "tta.store"(%dst_idx, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x4xf32>) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @indirect_reindex_multi_dim_load_store(
+// CHECK:           %[[IDX1:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xindex>
+// CHECK:           %[[IDX0:.*]] = arith.constant dense<[0, 1]> : tensor<2xindex>
+// CHECK:           %[[C1:.*]] = arith.constant 1 : index
+// CHECK:           %[[C0:.*]] = arith.constant 0 : index
+// CHECK:           %[[C4:.*]] = arith.constant 4 : index
+// CHECK:           %[[C2:.*]] = arith.constant 2 : index
+// CHECK:           scf.for %[[IV0:.*]] = %[[C0]] to %[[C2]] step %[[C1]] {
+// CHECK:             scf.for %[[IV1:.*]] = %[[C0]] to %[[C4]] step %[[C1]] {
+// CHECK:               %[[R0:.*]] = tensor.extract %[[IDX0]]{{\[}}%[[IV0]]] : tensor<2xindex>
+// CHECK:               %[[R0M:.*]] = arith.muli %[[R0]], %[[C4]] : index
+// CHECK:               %[[R1:.*]] = tensor.extract %[[IDX1]]{{\[}}%[[IV1]]] : tensor<4xindex>
+// CHECK:               %[[LIN0:.*]] = arith.addi %[[R0M]], %[[R1]] : index
+// CHECK:               %[[V:.*]] = memref.load %{{.*}}{{\[}}%{{.*}}] : memref<?xf32>
+// CHECK:               memref.store %[[V]], %{{.*}}{{\[}}%[[IV0]], %[[IV1]]] : memref<2x4xf32>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           scf.for %[[IV2:.*]] = %[[C0]] to %[[C2]] step %[[C1]] {
+// CHECK:             scf.for %[[IV3:.*]] = %[[C0]] to %[[C4]] step %[[C1]] {
+// CHECK:               %[[S0:.*]] = tensor.extract %[[IDX0]]{{\[}}%[[IV2]]] : tensor<2xindex>
+// CHECK:               %[[S0M:.*]] = arith.muli %[[S0]], %[[C4]] : index
+// CHECK:               %[[S1:.*]] = tensor.extract %[[IDX1]]{{\[}}%[[IV3]]] : tensor<4xindex>
+// CHECK:               %[[LIN1:.*]] = arith.addi %[[S0M]], %[[S1]] : index
+// CHECK:               %[[E:.*]] = tensor.extract %{{.*}}{{\[}}%[[IV2]], %[[IV3]]] : tensor<2x4xf32>
+// CHECK:               memref.store %[[E]], %{{.*}}{{\[}}%{{.*}}] : memref<?xf32>
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @indirect_reindex_multi_dim_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
+    %offsets0 = arith.constant dense<[0, 1]> : tensor<2xi32>
+    %offsets1 = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+
+    %src_addr = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %src_idx0 = "tta.indirect_reindex"(%src_addr, %offsets0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
+    %src_idx1 = "tta.indirect_reindex"(%src_idx0, %offsets1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
+    %val = "tta.load"(%src_idx1) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x4xf32>
+
+    %dst_addr = tta.make_addr %dst to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %dst_idx0 = "tta.indirect_reindex"(%dst_addr, %offsets0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
+    %dst_idx1 = "tta.indirect_reindex"(%dst_idx0, %offsets1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
+    "tta.store"(%dst_idx1, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x4xf32>) -> ()
+    tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @wrap_multi_indirect_load_store(
+// CHECK:           %[[MASK0:.*]] = arith.constant dense<[true, false]> : tensor<2xi1>
+// CHECK:           %[[MASK1:.*]] = arith.constant dense<[true, true, false, true]> : tensor<4xi1>
+// CHECK:           scf.for %[[IV0:.*]] = %[[C0:.*]] to %[[C2:.*]] step %[[C1:.*]] {
+// CHECK:             scf.for %[[IV1:.*]] = %[[C0]] to %[[C4:.*]] step %[[C1]] {
+// CHECK:               %[[M0:.*]] = tensor.extract %[[MASK0]]{{\[}}%[[IV0]]] : tensor<2xi1>
+// CHECK:               %[[M1:.*]] = tensor.extract %[[MASK1]]{{\[}}%[[IV1]]] : tensor<4xi1>
+// CHECK:               %[[M:.*]] = arith.andi %[[M0]], %[[M1]] : i1
+// CHECK:               scf.if %[[M]] {
+// CHECK:                 %[[R:.*]] = arith.remsi {{.*}} : index
+// CHECK:                 %[[S:.*]] = arith.select {{.*}} : index
+// CHECK:               }
+// CHECK:             }
+// CHECK:           }
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @wrap_multi_indirect_load_store(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>) {
+    %idx0 = arith.constant dense<[0, 1]> : tensor<2xi32>
+    %idx1 = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+    %mask0 = arith.constant dense<[true, false]> : tensor<2xi1>
+    %mask1 = arith.constant dense<[true, true, false, true]> : tensor<4xi1>
+
+    %src_addr = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 1], layout: [0, 4] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %src_idx0 = "tta.indirect_reindex"(%src_addr, %idx0, %mask0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+    %src_idx1 = "tta.indirect_reindex"(%src_idx0, %idx1, %mask1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>, tensor<4xi1>) -> !tta.addr<f32, 2, 1>
+    %other = arith.constant 0.0 : f32
+    %val = "tta.load"(%src_idx1, %other) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, f32) -> tensor<2x4xf32>
+
+    %dst_addr = tta.make_addr %dst to sizes: [2, 4], strides: [4, 1], offsets: [0, 2], layout: [0, 4] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
+    %dst_idx0 = "tta.indirect_reindex"(%dst_addr, %idx0, %mask0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
+    %dst_idx1 = "tta.indirect_reindex"(%dst_idx0, %idx1, %mask1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>, tensor<4xi1>) -> !tta.addr<f32, 2, 1>
+    "tta.store"(%dst_idx1, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<2x4xf32>) -> ()
     tt.return
   }
 }
