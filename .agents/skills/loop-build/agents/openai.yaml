@@ -1,0 +1,4 @@
+interface:
+  display_name: "loop-build"
+  short_description: "Implement one validated code slice"
+  default_prompt: "Read .agents/loop/todo.md, implement one pending todo entry, mark it done, then call loop-git skill to commit and push round changes if any."

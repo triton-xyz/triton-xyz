@@ -1,0 +1,4 @@
+interface:
+  display_name: "loop-arch"
+  short_description: "Choose a minimal architecture slice before coding"
+  default_prompt: "Inspect project state and .agents/loop/todo.md, adjust goals and todo entries, then call loop-git skill to commit and push round changes if any."
