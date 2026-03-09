@@ -23,7 +23,7 @@ Return sections in this order:
 
 1. Focus Selected
 2. Selection Reason
-3. Todo Metrics (`total_count`, `done_count`, `pending_count`, `done_ratio`)
+3. Todo Metrics (`total_count`, `done_count`, `pending_count`)
 4. Human Intervention Applied
 5. Changes Made
 6. Checks Run

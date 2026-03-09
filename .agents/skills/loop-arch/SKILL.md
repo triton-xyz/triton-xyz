@@ -10,8 +10,10 @@ description: "Architecture-focused planning skill for this repository. Use when 
 Read and update `.agents/loop/todo.md` as the planning source of truth.
 
 - Keep `Goals` aligned with current repository reality.
+- Keep a small ready backlog, not a single next step. When active work remains, leave `2` to `4` implementation-ready `todo` entries unless there is a clear reason not to.
 - Add or revise todo entries for upcoming implementation slices.
 - Ensure each todo entry is clear enough for `loop-build` to execute.
+- Prefer consecutive slices in the same area so `loop-build` can complete multiple rounds before planning is needed again.
 
 ## Closing Contract
 
@@ -32,6 +34,7 @@ Read and update `.agents/loop/todo.md` as the planning source of truth.
 
 - Read `AGENTS.md` and relevant local instructions.
 - Read `.agents/loop/todo.md` if it exists.
+- Inspect recent loop cadence, for example the last `10` to `20` loop commits, to detect `loop-arch`/`loop-build` thrash or backlog starvation.
 - Inspect repository delta and current quality signals.
 - Identify constraints that must not be violated.
 
@@ -40,13 +43,15 @@ Read and update `.agents/loop/todo.md` as the planning source of truth.
 - Restate the round target in one sentence.
 - Define explicit non-goals for this round.
 - Pick one smallest useful slice that can be built next.
-- Update `Goals` and todo backlog in `.agents/loop/todo.md` when needed.
+- When backlog is empty, thin (`pending_count <= 1`), blocked, or low-quality, update `Goals` and replenish the todo backlog in `.agents/loop/todo.md`.
+- Prefer adding a primary next slice plus `1` to `3` reserve slices that share the same goal area and can be executed without more architecture work.
 
 ### Step 3, Decide architecture direction
 
 - List only the viable options for this round.
 - Select one option and give short, technical reasons.
 - Record impacted files and expected behavior changes.
+- If recent history shows repeated `loop-build -> loop-arch -> loop-build` handoffs, bias toward backlog replenishment over single-entry planning.
 
 ### Step 4, Loop-build handoff
 
@@ -57,6 +62,7 @@ Produce a loop-build-ready handoff with:
 - Validation plan (commands to run).
 - Exit criteria for done.
 - Updated todo entries in `.agents/loop/todo.md`.
+- A clearly identified primary todo and any reserve todos that should allow consecutive `loop-build` rounds.
 
 ### Step 5, Finalize with loop-git skill
 
@@ -75,4 +81,5 @@ Return concise sections in this order:
 5. `Validation Plan`
 6. `Done Criteria`
 7. `Todo Updates`
-8. `Git Finalization`
+8. `Backlog Health`
+9. `Git Finalization`

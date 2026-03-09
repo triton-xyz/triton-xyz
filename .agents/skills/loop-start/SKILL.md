@@ -21,6 +21,7 @@ Use `.agents/loop/todo.md` as the shared dynamic state.
 - `TID` matches `T[0-9]{3,}`.
 - `title` and `notes` are both non-empty.
 - Ignore non-matching lines for metrics.
+- Treat the highest-priority pending entry as implementation-ready only if it describes a concrete code or test change and the notes provide enough execution detail, such as target files, modules, or validation commands.
 
 ## Startup Selection Rules
 
@@ -28,22 +29,15 @@ At round start, evaluate `.agents/loop/todo.md` first.
 
 1. If `.agents/loop/todo.md` does not exist, select `loop-arch`.
 2. If `.agents/loop/todo.md` exists but has no valid todo entries, select `loop-arch`.
-3. If pending todo count (`status = todo`) is `>= 5`, select `loop-build`.
-4. If `done_ratio` is in `[0.65, 0.75]`, randomly select `loop-arch` or `loop-build` with equal probability.
-5. Otherwise, if there is any pending todo, select `loop-build`.
-6. Otherwise, if all todos are done, select `loop-arch`.
+3. If `pending_count = 0`, select `loop-arch`.
+4. If there is at least one pending todo and the highest-priority pending entry is implementation-ready, select `loop-build`.
+5. Otherwise, select `loop-arch`.
 
 Definitions:
 
 - `total_count`: number of valid todo entries.
 - `done_count`: number of valid entries with `status = done`.
 - `pending_count`: number of valid entries with `status = todo`.
-- `done_ratio = done_count / total_count` when `total_count > 0`, else `0`.
-
-Randomization note:
-
-- In the random branch, use a simple 50 or 50 coin flip.
-- Record the random outcome in round output for traceability.
 
 Do not run `loop-arch` and `loop-build` as dual primary focus in one round.
 
@@ -57,13 +51,14 @@ Do not run `loop-arch` and `loop-build` as dual primary focus in one round.
 
 ### Step 2, Compute metrics
 
-- Compute `total_count`, `done_count`, `pending_count`, and `done_ratio`.
+- Compute `total_count`, `done_count`, and `pending_count`.
+- Record whether the top pending todo is implementation-ready and whether backlog depth is `empty`, `thin`, or `healthy`.
 - Record metrics and the matched startup rule.
-- If the random branch is used, record the random outcome explicitly.
 
 ### Step 3, Select focus
 
 - Select exactly one primary focus by the startup rules.
+- Prefer `loop-build` whenever an executable todo exists; use `loop-arch` to replenish or repair the backlog, not as a routine alternation step.
 - Record concise selection reason.
 
 ### Step 4, Delegate execution
@@ -87,6 +82,6 @@ Return concise sections in this order:
 
 ## Guardrails
 
-- Keep startup logic reproducible. If the random branch is used, record the random outcome.
+- Keep startup logic reproducible and deterministic.
 - Keep selection based on parsed todo data, not intuition.
 - Do not duplicate `loop-arch` or `loop-build` internals in this skill.

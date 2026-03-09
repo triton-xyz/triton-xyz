@@ -10,8 +10,10 @@ description: "Implementation-focused skill for this repository. Use when Codex h
 Read `.agents/loop/todo.md` at round start and execute from pending todo entries.
 
 - Select entries with `status = todo`.
+- Select the highest-priority implementation-ready pending entry and preserve the order of the remaining backlog.
 - After successful implementation and validation, change entry status to `done`.
 - Keep edits to `todo.md` minimal and execution-oriented.
+- Backlog editing normally belongs to `loop-arch`, but `loop-build` may use a narrow continuity exception: if finishing the current slice would leave `pending_count = 0`, append at most one obvious follow-up todo only when it is a direct continuation of the validated change and does not require goal or priority changes.
 
 ## Closing Contract
 
@@ -31,6 +33,7 @@ Read `.agents/loop/todo.md` at round start and execute from pending todo entries
 
 - Read `.agents/loop/todo.md` and pick one pending entry.
 - Restate target and done criteria.
+- If the top pending entry is not implementation-ready, stop and hand control back to `loop-arch` instead of guessing.
 - Avoid expanding scope during implementation.
 
 ### Step 2, Implement minimal delta
@@ -57,6 +60,7 @@ Summarize:
 - Behavior delivered.
 - Validation results.
 - Updated todo status in `.agents/loop/todo.md`.
+- Whether backlog continuity was preserved, including any continuity-exception todo that was appended.
 - Next smallest step.
 
 ### Step 5, Finalize with loop-git skill
@@ -70,5 +74,5 @@ Summarize:
 - Do not introduce unrelated refactors.
 - Do not mark done without validation evidence.
 - Do not hide failures; report and bound them.
-- Do not replan the backlog structure; backlog editing belongs to `loop-arch`.
+- Do not replan the backlog structure; backlog editing belongs to `loop-arch` except for the single-entry continuity exception above.
 - Do not bypass the `loop-git` skill when committing round changes.
