@@ -10,7 +10,7 @@ Human intervention contract:
 
 - The user may edit `Goals` and todo entries in `.agents/loop/todo.md` at any time.
 - Always treat the latest user edits in `.agents/loop/todo.md` as authoritative.
-- Do not overwrite or reorder user-authored intent unless required to finish the current round, and report any such change explicitly.
+- Do not overwrite or reorder user-authored intent unless required to finish the current round.
 
 Execution constraints:
 
@@ -24,9 +24,8 @@ Return sections in this order:
 1. Focus Selected
 2. Selection Reason
 3. Todo Metrics (`total_count`, `done_count`, `pending_count`)
-4. Human Intervention Applied
-5. Changes Made
-6. Checks Run
-7. Todo Updates
-8. Git Finalization
-9. Next Step
+4. Changes Made
+5. Checks Run
+6. Todo Updates
+7. Git Finalization
+8. Next Step

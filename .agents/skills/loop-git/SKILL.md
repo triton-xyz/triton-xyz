@@ -1,6 +1,6 @@
 ---
 name: loop-git
-description: "Git finalization skill for this repository. Use when a round produced file changes and needs deterministic staging, commit, push, and result reporting."
+description: "Git finalization skill for this repository. Use when `loop-arch`, `loop-build`, or another round action produced intended file changes and the round must deterministically scope staged files, create one commit, push safely to the current branch upstream or `origin`, and report the exact outcome without force or destructive recovery."
 ---
 
 # Loop Git Skill
@@ -25,6 +25,7 @@ description: "Git finalization skill for this repository. Use when a round produ
 - Run `git status --short`.
 - Confirm only intended files are included.
 - If unrelated dirty files exist, stage only files for this round.
+- If only planning-state files changed, keep the commit limited to those files.
 
 ### Step 3, Stage
 

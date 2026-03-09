@@ -1,9 +1,15 @@
 ---
 name: loop-arch
-description: "Architecture-focused planning skill for this repository. Use when Codex must inspect current project state, narrow ambiguous goals, and define a minimal, executable implementation slice before coding."
+description: "Architecture-focused planning skill for this repository. Use when the next coding slice is not ready, goals are ambiguous, backlog quality is weak, or `.agents/loop/todo.md` is missing, empty, thin, or blocked, and Codex must inspect project state, narrow scope, refresh goals or todo entries, and hand off a minimal executable slice to `loop-build` without doing the implementation itself."
 ---
 
 # Loop Arch Skill
+
+## Role Boundary
+
+- Own backlog shaping, planning, and implementation handoff quality.
+- Do not implement the target feature or test slice in this skill unless a tiny documentation or todo edit is the planning artifact itself.
+- Prefer editing shared planning state over changing runtime code.
 
 ## Shared State Ownership
 
@@ -13,7 +19,9 @@ Read and update `.agents/loop/todo.md` as the planning source of truth.
 - Keep a small ready backlog, not a single next step. When active work remains, leave `2` to `4` implementation-ready `todo` entries unless there is a clear reason not to.
 - Add or revise todo entries for upcoming implementation slices.
 - Ensure each todo entry is clear enough for `loop-build` to execute.
+- Make each implementation-ready note specify target files or modules, expected behavior, and validation intent.
 - Prefer consecutive slices in the same area so `loop-build` can complete multiple rounds before planning is needed again.
+- Preserve user-authored priority and wording unless a change is required to remove ambiguity or unblock execution.
 
 ## Closing Contract
 
@@ -34,7 +42,7 @@ Read and update `.agents/loop/todo.md` as the planning source of truth.
 
 - Read `AGENTS.md` and relevant local instructions.
 - Read `.agents/loop/todo.md` if it exists.
-- Inspect recent loop cadence, for example the last `10` to `20` loop commits, to detect `loop-arch`/`loop-build` thrash or backlog starvation.
+- Inspect recent loop cadence only as needed, for example the last `10` to `20` loop commits, to detect `loop-arch` or `loop-build` thrash or backlog starvation.
 - Inspect repository delta and current quality signals.
 - Identify constraints that must not be violated.
 
@@ -63,6 +71,7 @@ Produce a loop-build-ready handoff with:
 - Exit criteria for done.
 - Updated todo entries in `.agents/loop/todo.md`.
 - A clearly identified primary todo and any reserve todos that should allow consecutive `loop-build` rounds.
+- Notes that let `loop-build` execute without guessing.
 
 ### Step 5, Finalize with loop-git skill
 
@@ -70,16 +79,21 @@ Produce a loop-build-ready handoff with:
 - If changed, call `loop-git` skill and create one commit plus push for this loop-arch slice.
 - Record commit hash, committed files, and push result in round output.
 
-## Output Format
+## Reporting Contract
 
-Return concise sections in this order:
+When used under `loop-start`, supply content that fits the final round report order from `.agents/loop/loop.md`. When used directly, return concise sections in this order:
 
 1. `Target`
 2. `Non-goals`
 3. `Decision`
-4. `Change Plan`
-5. `Validation Plan`
-6. `Done Criteria`
-7. `Todo Updates`
-8. `Backlog Health`
-9. `Git Finalization`
+4. `Changes Made`
+5. `Checks Run`
+6. `Todo Updates`
+7. `Git Finalization`
+8. `Next Step`
+
+Use:
+
+- `Changes Made` for planning artifacts such as goal refreshes, todo rewrites, and handoff decisions.
+- `Checks Run` for repository inspection commands or any validation actually executed.
+- `Next Step` to name the primary todo that `loop-build` should take next.
