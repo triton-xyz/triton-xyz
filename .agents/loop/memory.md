@@ -23,9 +23,11 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `python/tta-ut/torch_npu.py` can patch `triton.compiler.code_generator.ast_to_ttir` for the local CPU harness to skip the first TTIR `module.verify()` gate and expose later failures.
 - A `backend/compiler.py:make_ttir()` verifier bypass is the wrong next move for this class of failure: Triton itself enforces power-of-two tensor sizes in `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp`, and the TTIR pass pipeline verifies that invariant.
 - `python/tta-ut/torch_npu.py` can normalize non-power-of-two `*_SUB` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation; that turns cases like `XBLOCK_SUB=640` into verifier-friendly chunks (`128` here) without editing vendored tests.
+- `python/tta-ut/torch_npu.py` can use the same highest-power-of-two-divisor rule for bare `BLOCK_SIZE` and `*_BLOCK_SIZE` constexpr launch args on the local CPU path; that removes TTIR `tt.make_range` verifier failures for cases like `BLOCK_SIZE=192` in isolated math tests.
 - With that launch-time normalization in place, isolated `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_tanh.py` pass under the local harness env.
 - `backend/compiler.py:make_llir()` needs `--triton-to-ptr` before `--convert-xyz-to-llvm`; without it, bool-output kernels like `third_party/ascend/unittest/pytest_ut/test_triton_eq.py` can leave a `memref<*xi1> -> !tt.ptr<i1> -> tt.bitcast -> !tt.ptr<i8>` chain unresolved until `mlir-translate` rejects the leftover `!tt.ptr<i1>` type.
 - After adding that pass-order fix, isolated `third_party/ascend/unittest/pytest_ut/test_triton_eq.py`, `test_log2.py`, `test_sigmoid.py`, and `test_precise_div.py` pass together under the local harness env.
+- Once the TTIR power-of-two blocker is removed for libdevice-backed math kernels, the next shared failure is later in LLIR lowering: `one-shot-bufferize` currently leaves `tt.extern_elementwise` ops such as `__nv_copysignf` and `__nv_cyl_bessel_i0f` unbufferized.
 
 ## Open Questions
 
@@ -42,6 +44,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Historical note said an interrupted full-suite log lived at `debug/tmp-0/pytest.log`; current repo state has `debug/tmp/pytest.log` instead.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
 - Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
+- Historical note implied `test_cyl_bessel_i0.py` had already been validated after the launch-arg normalization work; current isolated repro shows it still fails later in LLIR lowering on unbufferized `tt.extern_elementwise`.
 
 ## Rules
 
