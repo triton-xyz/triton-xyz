@@ -349,6 +349,7 @@ _patch_ascend_runtime_kwargs()
 
 _XYZ_LIBDEVICE_COMPAT_OPS = (
     "abs",
+    "copysign",
     "sin",
     "cos",
     "tan",

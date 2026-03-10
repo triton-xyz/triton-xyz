@@ -14,13 +14,13 @@
 
 # Current Strategy
 
-- The active associative-scan subgoal is now cleared for both the single-input and multi-input float32 files. Keep using `python/tta-ut/pytest_one.sh` on one isolated repro at a time, but choose the next target from the remaining unresolved suite evidence instead of staying on the now-passing multi-input scan file.
+- The active associative-scan and `copysign` subgoals are now cleared for the float32 corpus. Keep using `python/tta-ut/pytest_one.sh` on one isolated repro at a time, but repoint it away from the now-passing `test_copysign.py` case and choose the next target from the remaining unresolved suite evidence.
 
 # Evidence
 
 - 2026-03-11: `python/tta-ut/setup.sh` clones `third_party/triton-ascend` and wires `python/tta-ut/conftest.py` plus `python/tta-ut/torch_npu.py` into `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/` via symlinks.
 - 2026-03-11: `python/tta-ut/pytest.sh` runs `pytest -v third_party/ascend/unittest/pytest_ut` from `third_party/triton-ascend` with `TRITON_ALWAYS_COMPILE=1`, `TRITON_HOME=debug/tmp`, and logs to `debug/tmp/pytest.log`.
-- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. Its target selection is edited per repro and is currently set to `test_associative_scan_multi_input.py -k test_multi_input_prefix_sum[False-shape0-0]`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. Its target selection is edited per repro and is currently set to `test_copysign.py -k test_copysign[float32-shape0]`.
 - 2026-03-11: `python/tta-ut/conftest.py` provides pytest-side filtering and compatibility policy, including `SKIP_TEST_FILES`, dtype normalization, and the current supported dtype default of `float32`.
 - 2026-03-11: `python/tta-ut/torch_npu.py` supplies the CPU-backed NPU shim by activating `XYZDriver`, remapping selected `torch` allocation APIs away from `npu`, and aliasing `triton.language.extra.cann` and `triton.language.extra.ascend` to `xyz`.
 - 2026-03-11: `debug/tmp-0/pytest.log` shows a prior full-suite run collecting 1544 items and then hitting many failures and errors during execution. Representative early failures include `test_broadcast_op.py::test_broadcast_to[float32]`, the `test_cannonicalize_tl_where.py` family, `test_cat_dim.py::test_cat`, and `test_dot.py::*` with `ERROR`.
@@ -73,13 +73,16 @@
 - 2026-03-11: After the compiler fix, the same isolated repro surfaced a fake-NPU compatibility gap instead of a lowering failure: tensors produced through `permute` / `reshape` style methods were losing the fake-NPU marker and were rejected by the launcher as plain CPU tensors.
 - 2026-03-11: `python/tta-ut/torch_npu.py` now propagates fake-NPU markers through `Tensor.permute`, `Tensor.reshape`, `Tensor.transpose`, and `Tensor.view`, which is enough for the multi-input scan test's `permute(...).contiguous()` and `reshape(...)` flows to keep launcher-visible fake-NPU placement.
 - 2026-03-11: Validation for the multi-input checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-arith-to-linalg-scan.mlir` (`1 passed`), `bash python/tta-ut/pytest_one.sh` on `test_associative_scan_multi_input.py::test_multi_input_prefix_sum[False-shape0-0]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_associative_scan_multi_input.py` (`12 passed`).
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_copysign.py -k test_copysign[float32-shape0]` reproduced a two-stage compatibility/lowering gap: first `triton.runtime.jit.DependenciesFinder` failed because fake-NPU `triton.language.extra.xyz.libdevice` did not export `copysign`, and after patching the shim the same repro reached `build/bin/triton-xyz-opt --one-shot-bufferize`, which failed with `error: op was not bufferized` on `tt.extern_elementwise` for `__nv_copysignf`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now seeds fake-NPU `xyz.libdevice.copysign` from the active CUDA libdevice wrappers, and `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` now lowers `__nv_copysign[f]` externs to `math.copysign`, with `test/Conversion/triton-arith-to-linalg.mlir` locking that rewrite.
+- 2026-03-11: Validation for the `copysign` checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-arith-to-linalg.mlir` (`1 passed`), `bash python/tta-ut/pytest_one.sh` on `test_copysign.py::test_copysign[float32-shape0]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_copysign.py` (`1 passed`).
 
 # Next Options
 
-- Repoint `python/tta-ut/pytest_one.sh` to the next unresolved float32 pytest failure outside the now-cleared associative-scan files, using `debug/tmp-0/pytest.log` as the source list rather than rerunning the full suite.
-- Keep using repo-owned fake-NPU/runtime shims when a repro dies before lowering on unsupported launch kwargs, fake device APIs, or CPU-tensor pointer checks, because the latest multi-input scan pass exposed another high-yield marker-propagation gap after the compiler blocker was removed.
-- If the next blocker is compiler-side again, prefer adding tracked lit coverage near `test/Conversion/triton-arith-to-linalg-scan.mlir` or the closest pass-specific file before widening pytest coverage.
-- Use broader file-level reruns only after an isolated repro passes, since the full `python/tta-ut/pytest.sh` path is still noisy and can hang.
+- Repoint `python/tta-ut/pytest_one.sh` away from the now-passing `test_copysign.py` case to the next unresolved float32 pytest failure from `debug/tmp-0/pytest.log`, preferring a small standalone file rather than another broad family sweep.
+- When an isolated repro fails during JIT dependency discovery on `triton.language.extra.xyz.libdevice`, compare the requested symbol against both the fake-NPU export list in `python/tta-ut/torch_npu.py` and the tracked extern-op rewrites in `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp`, because `copysign` needed both layers.
+- If another extern op survives into `build/bin/triton-xyz-opt --one-shot-bufferize`, add the lowering in `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` and lock it in `test/Conversion/triton-arith-to-linalg.mlir` before widening pytest coverage.
+- Keep broader file-level reruns for after the isolated repro passes, since the full `python/tta-ut/pytest.sh` path remains noisy and can hang.
 
 # Blockers
 

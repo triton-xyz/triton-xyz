@@ -772,3 +772,23 @@ module {
     tt.return %res : tensor<4xf32>
   }
 }
+
+// -----
+
+module {
+// CHECK: #[[$ATTR_21:.+]] = affine_map<(d0) -> (d0)>
+// CHECK-LABEL:   func.func @extern_copysign(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_21]], #[[$ATTR_21]], #[[$ATTR_21]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
+// CHECK:             %[[COPYSIGN_0:.*]] = math.copysign %[[VAL_0]], %[[VAL_1]] : f32
+// CHECK:             linalg.yield %[[COPYSIGN_0]] : f32
+// CHECK:           } -> tensor<4xf32>
+// CHECK:           return %[[GENERIC_0]] : tensor<4xf32>
+// CHECK:         }
+  tt.func @extern_copysign(%x: tensor<4xf32>, %y: tensor<4xf32>) -> tensor<4xf32> {
+    %res = tt.extern_elementwise %x, %y {libname = "", libpath = "", pure = true, symbol = "__nv_copysignf"} : (tensor<4xf32>, tensor<4xf32>) -> tensor<4xf32>
+    tt.return %res : tensor<4xf32>
+  }
+}
