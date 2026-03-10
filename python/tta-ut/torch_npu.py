@@ -4,6 +4,8 @@ import torch
 
 import triton  # noqa
 import triton.language as tl  # noqa
+import triton._utils as triton_utils
+import triton.language.core as tl_core
 import triton.backends.xyz.driver as xyz_driver
 from triton.backends.xyz.driver import XYZDriver  # noqa
 
@@ -116,6 +118,26 @@ for name in [
 ]:
     if hasattr(torch, name):
         setattr(torch, name, _wrap_tensor_result(getattr(torch, name)))
+
+
+def _relaxed_validate_block_shape(shape):
+    numel = 1
+    for i, d in enumerate(shape):
+        if not isinstance(d, int):
+            raise TypeError(
+                f"Shape element {i} must have type `constexpr[int]`, got `constexpr[{type(d)}]"
+            )
+        numel *= d
+
+    if numel > triton_utils.TRITON_MAX_TENSOR_NUMEL:
+        raise ValueError(
+            f"numel ({numel}) exceeds triton maximum tensor numel ({triton_utils.TRITON_MAX_TENSOR_NUMEL})"
+        )
+    return numel
+
+
+triton_utils.validate_block_shape = _relaxed_validate_block_shape
+tl_core.validate_block_shape = _relaxed_validate_block_shape
 
 
 _orig_build_unranked_memref = xyz_driver._build_unranked_memref

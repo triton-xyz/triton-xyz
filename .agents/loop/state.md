@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- Keep `python/tta-ut/pytest_one.sh` pointed at the current isolated repro while validating small repo-owned shim fixes first, then inspect repo-owned Triton frontend or compiler behavior when the failure comes from compilation rather than pytest-side compatibility.
+- Keep `python/tta-ut/pytest_one.sh` pointed at the isolated `test_advance.py` repro, use repo-owned pytest shims to mirror Ascend frontend expectations when possible, and stop short of vendored edits until the remaining failure proves there is no repo-owned interception point before the upstream Triton verifier.
 
 # Evidence
 
@@ -32,16 +32,20 @@
 - 2026-03-11: `python/tta-ut/conftest.py` now imports `torch_npu` eagerly and patches Triton's `AsmDict.__getitem__` for `ttir` so function signature arguments are normalized back to `%argN` form in test-visible TTIR strings, matching the Ascend test corpus expectation without changing compiler IR generation globally.
 - 2026-03-11: Validation succeeded with `bash python/tta-ut/pytest_one.sh` for `test_annotations.py::test_int_annotation[False-8]` and `pytest -v third_party/ascend/unittest/pytest_ut/test_annotations.py` for the whole file (`10 passed`).
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_advance.py -k test_advance_with_boundary_check[shape0-float32]`, and the harness reproduces a compile-time blocker: `tl.make_block_ptr` rejects block shape `(33, 9, 2)` with `ValueError: Shape element 0 must be a power of 2` from `third_party/triton/python/triton/_utils.py:68`.
+- 2026-03-11: Comparing `third_party/triton/python/triton/_utils.py` against `third_party/triton-ascend/python/triton/language/_utils.py` showed the Ascend fork intentionally comments out the block-shape power-of-two check, so the active repro was failing in stricter upstream Triton frontend validation rather than in repo-owned TTA lowering.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now patches both `triton._utils.validate_block_shape` and `triton.language.core.validate_block_shape` to match the Ascend fork during fake-NPU pytest runs, which moves `test_advance.py` past the earlier `tl.make_block_ptr` frontend exception without editing vendored Triton sources.
+- 2026-03-11: After the shim patch, `bash python/tta-ut/pytest_one.sh` for `test_advance_with_boundary_check[shape0-float32]` still fails, but now at compiler verification with `Number of elements must be power-of-two` on `tt.load` from `tensor<33x9x2xf32>`, proving the next blocker is deeper than pytest compatibility.
+- 2026-03-11: `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_advance.py` selected 8 runnable cases and finished `3 passed, 5 failed, 16 skipped`; the remaining failures are the non-power-of-two `tt.load` verifier cases for shapes `(33, 9, 6)`, `(1, 3)`, `(3, 1)`, `(1, 13)`, and `(13, 1)`.
 
 # Next Options
 
-- Inspect whether the power-of-two restriction in `third_party/triton/python/triton/_utils.py::validate_block_shape` or the local frontend path around `tl.make_block_ptr` is stricter than the Ascend corpus expects for `test_advance.py`.
-- Check whether the `advance` family should be handled by a repo-owned compatibility shim, a frontend relaxation for the XYZ path, or by routing to a different lowering path before changing broader compiler semantics.
-- Watch for more `pytest_ut` files that omit `import torch_npu`; if they now pass automatically, keep the eager shim import in `python/tta-ut/conftest.py` and avoid expanding it further without concrete failures.
-- Continue avoiding `python/tta-ut/pytest.sh` until several neighboring isolated failures have been cleared.
+- Inspect whether the `test_advance.py` harness can be routed to the Ascend-flavored Triton frontend/runtime selection without vendored edits, since the current active path still loads the stricter upstream verifier from `third_party/triton`.
+- Compare the active verifier failure against `third_party/triton-ascend/lib/Dialect/Triton/IR/Traits.cpp`, where the relevant power-of-two checks are commented out, and determine whether there is a repo-owned build or package-selection hook that can reuse that behavior.
+- If there is no repo-owned interception point, decide whether this mission now justifies a scoped vendored change in the active Triton verifier path for block-pointer `tt.load`/`tt.store` with non-power-of-two tensor shapes.
+- Keep watching for more `pytest_ut` files that rely on the relaxed block-shape frontend behavior, because the new shim patch may unblock other cases even before the deeper verifier issue is solved.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
 - The remaining failure set is still large and heterogeneous, so the next round must keep choosing one narrow repro at a time rather than inferring a shared root cause from the noisy full-suite log.
-- The newly isolated `test_advance` blocker currently points into vendored Triton frontend validation (`third_party/triton/python/triton/_utils.py`), so the next round needs to decide whether there is a repo-owned interception point before considering any vendored change.
+- The active `test_advance` blocker has moved past pytest/frontend shims and now fails inside the upstream Triton verifier path loaded from `third_party/triton`, where non-power-of-two tensor element counts on `tt.load` are rejected before the repo's local lowering pipeline can help.
