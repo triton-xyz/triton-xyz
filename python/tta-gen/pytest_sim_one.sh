@@ -22,6 +22,16 @@ args=(
   third_party/ascend/unittest/generalization_cases/test_abs.py
   -k "test_abs.py"
   #
+  # tt.gater
+  # third_party/ascend/unittest/generalization_cases/test_general_gather.py
+  # -k "test_gather_4d_5d[src_shape0-indices_shape0-0]"
+  #
+  # api issue
+  # third_party/ascend/unittest/generalization_cases/test_broadcast.py
+  # -k "test_broadcast_alltype[float32]"
+  # third_party/ascend/unittest/generalization_cases/test_general_split.py
+  # -k "test_split[float32-shape4]"
+  #
 )
 pushd third_party/triton-ascend
 pytest "${args[@]}" 2>&1 | grep -v SKIPPED | tee $DIR/pytest.log
