@@ -672,6 +672,45 @@ def _libdevice_erfinv(x):  # ty:ignore
     return y
 
 
+@triton.jit
+def _lanczos_log_gamma_positive(x):  # ty:ignore
+    z = x - 1.0
+    acc = 0.9999999999998099
+    acc = acc + 676.5203681218851 / (z + 1.0)
+    acc = acc - 1259.1392167224028 / (z + 2.0)
+    acc = acc + 771.3234287776531 / (z + 3.0)
+    acc = acc - 176.6150291621406 / (z + 4.0)
+    acc = acc + 12.507343278686905 / (z + 5.0)
+    acc = acc - 0.13857109526572012 / (z + 6.0)
+    acc = acc + 9.984369578019572e-6 / (z + 7.0)
+    acc = acc + 1.5056327351493116e-7 / (z + 8.0)
+    t = z + 7.5
+    return 0.9189385332046727 + (z + 0.5) * tl.log(t) - t + tl.log(acc)
+
+
+@triton.jit
+def _libdevice_lgamma(x):  # ty:ignore
+    use_reflection = x < 0.5
+    base = tl.where(use_reflection, 1.0 - x, x)
+    base_lgamma = _lanczos_log_gamma_positive(base)
+    reflected = 1.1447298858494002 - tl.log(tl.abs(tl.sin(3.141592653589793 * x))) - base_lgamma
+    result = tl.where(use_reflection, reflected, base_lgamma)
+    pole = (x <= 0.0) & (x == tl.floor(x))
+    return tl.where(pole, float("inf"), result)
+
+
+@triton.jit
+def _libdevice_tgamma(x):  # ty:ignore
+    use_reflection = x < 0.5
+    base = tl.where(use_reflection, 1.0 - x, x)
+    base_lgamma = _lanczos_log_gamma_positive(base)
+    reflected = 3.141592653589793 / (tl.sin(3.141592653589793 * x) * tl.exp(base_lgamma))
+    result = tl.where(use_reflection, reflected, tl.exp(base_lgamma))
+    result = tl.where(x == 0.0, float("inf"), result)
+    pole = (x < 0.0) & (x == tl.floor(x))
+    return tl.where(pole, float("nan"), result)
+
+
 @tl_core.builtin
 def _libdevice_cyl_bessel_i0(arg0, _semantic=None):  # ty:ignore
     coeffs_a = [
@@ -774,6 +813,9 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "asinh": _libdevice_asinh,
     "atanh": _libdevice_atanh,
     "erfinv": _libdevice_erfinv,
+    "gamma": _libdevice_tgamma,
+    "lgamma": _libdevice_lgamma,
+    "tgamma": _libdevice_tgamma,
     "cyl_bessel_i0": _libdevice_cyl_bessel_i0,
 }
 
@@ -867,6 +909,19 @@ def _extension_sum_combine(a, b):  # ty:ignore
     return a + b
 
 
+@triton.jit
+def _gather_2d_simd(src_ptr, index_ptr, out_ptr, m_size, n_size, k_size, XBLOCK: tl.constexpr, XBLOCK_SUB: tl.constexpr):  # ty:ignore
+    del XBLOCK_SUB
+    row_offsets = tl.program_id(0) * XBLOCK + tl.arange(0, XBLOCK)[:, None]
+    col_offsets = tl.arange(0, k_size)[None, :]
+    row_mask = row_offsets < m_size
+    col_mask = col_offsets < k_size
+    mask = row_mask & col_mask
+    gathered_idx = tl.load(index_ptr + row_offsets * k_size + col_offsets, mask=mask, other=0)
+    gathered = tl.load(src_ptr + row_offsets * n_size + gathered_idx, mask=mask, other=0.0)
+    tl.store(out_ptr + row_offsets * k_size + col_offsets, gathered, mask=mask)
+
+
 def _extension_constexpr_value(value):
     return value.value if isinstance(value, tl_core.constexpr) else value
 
@@ -952,6 +1007,11 @@ _xyz_extension.__all__ = [
 ]
 setattr(triton.language.extra.xyz, "extension", _xyz_extension)
 
+_xyz_kernels = types.ModuleType("triton.language.extra.kernels")
+_xyz_kernels.gather_2d_simd = _gather_2d_simd
+_xyz_kernels.__all__ = ["gather_2d_simd"]
+setattr(triton.language.extra, "kernels", _xyz_kernels)
+
 
 _orig_build_unranked_memref = xyz_driver._build_unranked_memref
 
@@ -983,6 +1043,7 @@ sys.modules["triton.language.extra.cann.extension"] = _xyz_extension  # ty:ignor
 sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.ascend.libdevice"] = xyz_libdevice  # ty:ignore
 sys.modules["triton.language.extra.ascend.extension"] = _xyz_extension  # ty:ignore
+sys.modules["triton.language.extra.kernels"] = _xyz_kernels
 sys.modules["triton.language.extra.xyz.extension"] = _xyz_extension
 sys.modules["triton.extension"] = _extension_pkg
 sys.modules["triton.extension.buffer"] = _buffer_pkg
