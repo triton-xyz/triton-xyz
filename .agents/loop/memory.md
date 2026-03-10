@@ -8,17 +8,20 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `python/tta-ut/setup.sh` clones `third_party/triton-ascend` at commit `115f51f71917e6836c3138a8f0d52fb71caf1d63` and symlinks local `conftest.py` and `torch_npu.py` into the vendored pytest directory.
 - `python/tta-ut/conftest.py` filters and reshapes the upstream pytest matrix; skipped test files listed there are intentionally out of scope.
 - `python/tta-ut/torch_npu.py` provides the local compatibility shim so the Ascend-oriented tests can run on the current XYZ backend and CPU-based torch environment.
+- `third_party/triton/python/triton/backends/xyz` is a symlink to the repo-local `backend/` directory.
 
 ## Learnings
 
 - `python/tta-ut/pytest.sh` writes its artifacts to `debug/tmp/` and tees the main run log to `debug/tmp/pytest.log`.
 - `python/tta-ut/pytest_one.sh` is the intended single-test debug entry point; it enables MLIR dump env vars and currently writes both logs and pass dumps under `debug/tmp/`.
 - The repository currently contains prior debug logs in `debug/tmp/`: `pytest.log`, `pytest.co.log`, and `pytest_one.log`.
+- In this shell, TTA pytest runs need `PYTHONPATH=$PWD/third_party/triton/python`; without it, `import triton` fails.
+- `third_party/ascend/unittest/pytest_ut/test_linearize_mask.py` passes once `backend/compiler.py` accepts the `optimize_dynamic_offset` JIT kwarg via `CPUOptions`.
 
 ## Open Questions
 
-- Which specific non-skipped pytest case is the best first reproducer for the current compiler/runtime failure?
-- Does `python/tta-ut/pytest_one.sh` need to be updated to use an isolated output directory such as `debug/tmp-pytest_one`, or should the workflow standardize on `debug/tmp`?
+- After `test_linearize_mask.py`, what is the next highest-value failing non-skipped pytest case to narrow with the same env?
+- Does `python/tta-ut/pytest_one.sh` need a parameterized target instead of the current hardcoded `test_abs.py` entry?
 
 ## Avoid Repeating
 

@@ -117,6 +117,7 @@ class CPUOptions:
     allowed_dot_input_precisions: tuple[str] = ("ieee",)
     min_dot_size: int = 1
     use_tta: bool = True
+    optimize_dynamic_offset: bool = False
 
     def hash(self):
         hash_dict = dict(self.__dict__)
