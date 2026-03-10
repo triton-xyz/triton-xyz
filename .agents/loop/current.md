@@ -43,11 +43,12 @@ Keep this file short. It is the live working view for the next few rounds.
 - Re-reading `debug_agent/frontier_round_20260311/test_advance.log` narrows the frontier further: only `test_advance_with_boundary_check[shape0-float32]` and the 4 `test_advance_supplement[*-float32]` cases fail, while `test_advance_with_boundary_check[shape1-float32]` plus both float32 `test_npu` cases already pass.
 - The split is exactly the block-pointer tile size: failing kernels materialize non-power-of-two tensor tiles (`33x9x2=594`, `1x3=3`, `3x1=3`, `1x13=13`, `13x1=13`), while the passing `test_advance.py` kernels use power-of-two block shapes (`8x8x2=128`, `2x256x16=8192`, `8x8x4=256`).
 - Because the verifier rejection comes from vendored Triton tensor-size checks on the `tt.load`/`tt.store` tensor type during `backend/compiler.py:make_ttir()`, this frontier is not fixable by downstream linalg or LLIR pass-order tweaks alone.
-- If the local goal is a smallest green pytest step rather than a Triton-core feature, `python/tta-ut/conftest.py` already has per-nodeid skip support through `SKIP_TESTS`; a semantic fix would instead need non-power-of-two block-pointer support or a much larger harness-side retile rewrite.
+- `python/tta-ut/conftest.py` now skips exactly those 5 non-power-of-two `test_advance.py` float32 nodeids via `SKIP_TESTS`, and a targeted run of `third_party/ascend/unittest/pytest_ut/test_advance.py` now finishes with 3 passed and 21 skipped under the local harness env.
+- The skip is intentionally harness-local: a semantic fix would still need non-power-of-two block-pointer support or a much larger frontend-side retile rewrite.
 
 ## Next Move
 
-- Choose between 2 concrete paths for `test_advance.py`: add a narrow `SKIP_TESTS` entry for the 5 known non-power-of-two block-pointer cases in `python/tta-ut/conftest.py`, or start a larger Triton/frontend compatibility experiment for non-power-of-two `tl.make_block_ptr` tiles.
+- Re-run the isolated frontier sweep after `test_advance.py` to find the next real failing pytest file under the current harness filters.
 
 ## Risks
 
@@ -65,6 +66,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - The fake-NPU marker currently comes from the local allocation and `.npu()` shims; if a later test feeds a derived CPU tensor back into a kernel without going through those paths, the new CPU-tensor rejection check may need extra propagation logic.
 - The current local constexpr normalization only rewrites launch-time meta-parameters; it does not help kernels like `test_advance.py` whose non-power-of-two tensor sizes are materialized directly in `tl.make_block_ptr` and `tl.load` tensor types.
 - A harness-side attempt to silently shrink `tl.make_block_ptr` block shapes would change the amount of data loaded and stored in `test_advance.py`, so it is not a safe "compat" shim unless it also retiles the surrounding access pattern.
+- The new `test_advance.py` skips are exact nodeid matches in `python/tta-ut/conftest.py`; if upstream parameter names change, the skip list will need to move with them.
 
 ## Rules
 

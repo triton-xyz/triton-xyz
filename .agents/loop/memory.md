@@ -38,10 +38,12 @@ Use this file for short, reusable facts worth carrying across rounds.
 - The existing launch-time constexpr normalization in `python/tta-ut/torch_npu.py` only fixes non-power-of-two meta-parameters such as `*_SUB`, `BLOCK_SIZE`, and `*_BLOCK_SIZE`; it does not affect tensor shapes baked directly into kernel IR, so it cannot fix the current `test_advance.py` frontier by itself.
 - `test_advance.py` is not a blanket `tl.advance` failure: the current float32 failures are exactly the parameterized cases whose block-pointer tile numel is non-power-of-two (`594`, `3`, `3`, `13`, `13`), while the cases with power-of-two tile numel (`128`, `8192`, `256`) already pass under the local harness env.
 - `python/tta-ut/conftest.py` supports skipping exact parameterized pytest cases through `SKIP_TESTS`, matching either the full `item.nodeid` or `filename::item.name`.
+- The current local harness uses `SKIP_TESTS` to skip exactly 5 `test_advance.py` float32 nodeids (`test_advance_with_boundary_check[shape0-float32]` and `test_advance_supplement[shape{0,1,2,3}-float32]`); with those skips in place, a targeted `test_advance.py` run finishes with the remaining 3 float32 cases passing.
 
 ## Open Questions
 
 - Should the non-power-of-two `tl.arange` and block-shape relaxation stay as a pytest-harness-only shim, or should the same behavior move into the shared Triton frontend/backend path?
+- After the `test_advance.py` skip-only step, what is the next real failing pytest file in the isolated frontier?
 - Does `python/tta-ut/pytest_one.sh` need a parameterized target instead of the current hardcoded `test_abs.py` entry?
 
 ## Avoid Repeating

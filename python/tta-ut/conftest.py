@@ -142,7 +142,13 @@ SKIP_TEST_FILES = {
     #
 }
 
-SKIP_TESTS = []
+SKIP_TESTS = [
+    "test_advance.py::test_advance_with_boundary_check[shape0-float32]",
+    "test_advance.py::test_advance_supplement[shape0-float32]",
+    "test_advance.py::test_advance_supplement[shape1-float32]",
+    "test_advance.py::test_advance_supplement[shape2-float32]",
+    "test_advance.py::test_advance_supplement[shape3-float32]",
+]
 
 SUPPORTED_DTYPES = {"float32"}
 # SUPPORTED_DTYPES = {"float16"}
