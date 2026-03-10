@@ -22,8 +22,12 @@ args=(
   third_party/ascend/unittest/pytest_ut/test_abs.py
   -k "test_abs.py"
   #
+  # `Segmentation fault`
+  # third_party/ascend/unittest/pytest_ut/test_complex_mask.py
+  # -k "test_complex_mask_permute_copy"
+  #
 )
 pushd third_party/triton-ascend
-pytest "${args[@]}" 2>&1 | grep -v SKIPPED | tee $DIR/pytest.log
-# pytest "${args[@]}" 2>&1 | tee $DIR/pytest.log
+pytest "${args[@]}" 2>&1 | grep -v SKIPPED | tee $DIR/pytest_one.log
+# pytest "${args[@]}" 2>&1 | tee $DIR/pytest_one.log
 popd
