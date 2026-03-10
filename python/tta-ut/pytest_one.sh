@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_gelu.py
-  -k "test_elementwsie_common[3-32-dtype0-float32]"
+  third_party/ascend/unittest/pytest_ut/test_hypot.py
+  -k "test_hypot[param_list0]"
   #
 )
 pushd third_party/triton-ascend

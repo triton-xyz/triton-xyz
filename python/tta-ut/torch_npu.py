@@ -550,6 +550,28 @@ def _patch_debug_barrier():
 _patch_debug_barrier()
 
 
+def _patch_erf():
+    current_impl = triton_math.erf
+    if getattr(current_impl, "_ttx_erf_compat", False):
+        return
+
+    @tl_core.builtin
+    @triton_math._check_dtype(dtypes=["fp32", "fp64"])
+    @triton_math._add_math_1arg_docstr("error function")
+    @tl_core._tensor_member_fn
+    def _erf(x, _semantic=None):
+        if _is_interpreter_builder(_semantic.builder):
+            return current_impl(x, _semantic=_semantic)
+        return _approx_erf_semantic(x, _semantic)
+
+    _erf._ttx_erf_compat = True
+    triton_math.erf = _erf
+    tl.erf = _erf
+
+
+_patch_erf()
+
+
 def _patch_jit_run_device_print():
     current_impl = JITFunction.run
     if getattr(current_impl, "_ttx_device_print_runtime_compat", False):
@@ -652,6 +674,23 @@ def _approx_erf(x):  # ty:ignore
     poly = (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t)
     y = 1.0 - poly * tl.exp(-abs_x * abs_x)
     return tl.where(x < 0.0, -y, y)
+
+
+def _approx_erf_semantic(x, _semantic):
+    x = _semantic.to_tensor(x)
+    abs_x = _semantic.tensor(_semantic.builder.create_fabs(x.handle), x.type)
+    zero = _semantic.full(abs_x.shape, 0.0, abs_x.type.scalar)
+    one = _semantic.full(abs_x.shape, 1.0, abs_x.type.scalar)
+    t = _semantic.fdiv(one, _semantic.add(one, _semantic.mul(abs_x, 0.3275911, True), True), False)
+    poly = _semantic.sub(_semantic.mul(t, 1.061405429, True), 1.453152027, True)
+    poly = _semantic.add(_semantic.mul(poly, t, True), 1.421413741, True)
+    poly = _semantic.sub(_semantic.mul(poly, t, True), 0.284496736, True)
+    poly = _semantic.add(_semantic.mul(poly, t, True), 0.254829592, True)
+    poly = _semantic.mul(poly, t, True)
+    neg_abs_sq = _semantic.minus(_semantic.mul(abs_x, abs_x, True))
+    exp_neg_abs_sq = _semantic.tensor(_semantic.builder.create_exp(neg_abs_sq.handle), neg_abs_sq.type)
+    y = _semantic.sub(one, _semantic.mul(poly, exp_neg_abs_sq, True), True)
+    return _semantic.where(_semantic.less_than(x, zero), _semantic.minus(y), y)
 
 
 @triton.jit
