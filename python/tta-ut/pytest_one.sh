@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_if_tensor.py
-  -k "test_kernel"
+  third_party/ascend/unittest/pytest_ut/test_isfinited.py
+  -k "test_isfinited[1.0-37-float32]"
   #
 )
 pushd third_party/triton-ascend

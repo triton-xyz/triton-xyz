@@ -1178,6 +1178,11 @@ def _extension_sum_combine(a, b):  # ty:ignore
 
 
 @triton.jit
+def _extension_or_combine(a, b):  # ty:ignore
+    return a | b
+
+
+@triton.jit
 def _gather_2d_simd(src_ptr, index_ptr, out_ptr, m_size, n_size, k_size, XBLOCK: tl.constexpr, XBLOCK_SUB: tl.constexpr):  # ty:ignore
     del XBLOCK_SUB
     row_offsets = tl.program_id(0) * XBLOCK + tl.arange(0, XBLOCK)[:, None]
@@ -1247,11 +1252,8 @@ def _extension_insert_slice(full_tensor, sub_tensor, offsets, sizes, strides, _b
     data_zeros = tl_core.full((full_size, slice_size), 0, sub_tensor.type.scalar, _semantic=_semantic)
     inserted = tl_core.reduce(_semantic.where(selector, sub_vals, data_zeros), 1, _extension_sum_combine,
                               _semantic=_semantic, _generator=_generator)
-    match_zeros = tl_core.full((full_size, slice_size), 0, tl.int32, _semantic=_semantic)
-    match_ones = tl_core.full((full_size, slice_size), 1, tl.int32, _semantic=_semantic)
-    matched = tl_core.reduce(_semantic.where(selector, match_ones, match_zeros), 1, _extension_sum_combine,
-                             _semantic=_semantic, _generator=_generator)
-    return _semantic.where(_semantic.not_equal(matched, 0), inserted, full_tensor)
+    matched = tl_core.reduce(selector, 1, _extension_or_combine, _semantic=_semantic, _generator=_generator)
+    return _semantic.where(matched, inserted, full_tensor)
 
 
 _xyz_extension = types.ModuleType("triton.language.extra.xyz.extension")
@@ -1274,6 +1276,8 @@ _xyz_extension.__all__ = [
     "insert_slice",
 ]
 setattr(triton.language.extra.xyz, "extension", _xyz_extension)
+setattr(triton.language.extra, "cann", triton.language.extra.xyz)
+setattr(triton.language.extra, "ascend", triton.language.extra.xyz)
 
 _xyz_kernels = types.ModuleType("triton.language.extra.kernels")
 _xyz_kernels.gather_2d_simd = _gather_2d_simd
