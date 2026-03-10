@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_cdiv.py
-  -k "test_cdiv[param_list1]"
+  third_party/ascend/unittest/pytest_ut/test_atomic_cas.py
+  -k "test_atomic_cas_without_full[4096-256-dtype0-float32]"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py

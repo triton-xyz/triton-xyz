@@ -14,13 +14,13 @@
 
 # Current Strategy
 
-- The active float32 strategy stays the same: use `python/tta-ut/pytest_one.sh` on one fresh isolated repro at a time, but do not assume the old full-suite failure order is still current. The latest checkpoint cleared `test_cdiv.py` with fake-NPU frontend/runtime compatibility patches, so the next round should repoint the harness away from that now-passing file to another small unresolved float32 repro and only widen once the isolated case is green.
+- The active float32 strategy stays the same: keep `python/tta-ut/pytest_one.sh` on one fresh isolated repro at a time, widen only after the isolated case is green, and prefer nearby atomic files while the failure context is still warm. The latest checkpoint cleared `test_atomic_add.py`, so the harness is now repointed to `test_atomic_cas.py -k test_atomic_cas_without_full[4096-256-dtype0-float32]` for the next narrow repro.
 
 # Evidence
 
 - 2026-03-11: `python/tta-ut/setup.sh` clones `third_party/triton-ascend` and wires `python/tta-ut/conftest.py` plus `python/tta-ut/torch_npu.py` into `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/` via symlinks.
 - 2026-03-11: `python/tta-ut/pytest.sh` runs `pytest -v third_party/ascend/unittest/pytest_ut` from `third_party/triton-ascend` with `TRITON_ALWAYS_COMPILE=1`, `TRITON_HOME=debug/tmp`, and logs to `debug/tmp/pytest.log`.
-- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. Its target selection is edited per repro and is currently set to `test_cdiv.py -k test_cdiv[param_list1]`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. Its target selection is edited per repro and is currently set to `test_atomic_cas.py -k test_atomic_cas_without_full[4096-256-dtype0-float32]`.
 - 2026-03-11: `python/tta-ut/conftest.py` provides pytest-side filtering and compatibility policy, including `SKIP_TEST_FILES`, dtype normalization, and the current supported dtype default of `float32`.
 - 2026-03-11: `python/tta-ut/torch_npu.py` supplies the CPU-backed NPU shim by activating `XYZDriver`, remapping selected `torch` allocation APIs away from `npu`, and aliasing `triton.language.extra.cann` and `triton.language.extra.ascend` to `xyz`.
 - 2026-03-11: `debug/tmp-0/pytest.log` shows a prior full-suite run collecting 1544 items and then hitting many failures and errors during execution. Representative early failures include `test_broadcast_op.py::test_broadcast_to[float32]`, the `test_cannonicalize_tl_where.py` family, `test_cat_dim.py::test_cat`, and `test_dot.py::*` with `ERROR`.
@@ -84,14 +84,17 @@
 - 2026-03-11: Comparing active Triton against the Ascend fork showed two `cdiv` mismatches: the active frontend exported `tl.cdiv` from `triton.language.standard` with integer-only semantics, while the Ascend fork exported `triton.language.math.cdiv` with floating-point ceil-division support; and the Ascend JIT path also treats specialized integer scalar kernel args more like compile-time constants than the active runtime used in this repo.
 - 2026-03-11: `python/tta-ut/torch_npu.py` now patches fake-NPU Triton to export an Ascend-style builtin `tl.cdiv` / `triton.language.math.cdiv` that accepts float tensors and scalar constants, and it also monkeypatches `triton.runtime.jit.create_function_from_signature` so integer scalar kernel args are upgraded to compile-time constants during specialization in fake-NPU pytest runs.
 - 2026-03-11: Validation for the `cdiv` checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_cdiv.py::test_cdiv[param_list1]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -vv third_party/ascend/unittest/pytest_ut/test_cdiv.py` (`2 passed, 2 skipped`), and a regression sanity rerun of `pytest -vv third_party/ascend/unittest/pytest_ut/test_cat.py` (`2 passed`).
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_atomic_add.py -k test_atomic_add_2d_supply[float32-shape0]` reproduced a compiler-side ptr-lowering bug: after `tt.addptr` on a tensor-of-pointers, `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` left a scalar `tt.atomic_rmw` fed by `tensor.extract` from `tensor<1x!tt.ptr<f32>>`, so one-shot bufferization crashed on `invalid memref element type` while trying to bufferize a tensor of pointers.
+- 2026-03-11: `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` now traces direct `tt.addptr` chains when recovering scalar memref accesses from extracted pointer tensors, and it lowers simple scalar atomics through `memref.atomic_rmw` plus `scf.if` for masked cases instead of always materializing `memref.generic_atomic_rmw`, avoiding the unsupported float `cmpxchg` fallback in LLVM lowering.
+- 2026-03-11: Added `test/Conversion/triton-ptr-to-memref.mlir` coverage for `tensor.extract(tt.addptr(...))` feeding a masked scalar `tt.atomic_rmw`, locking the new ptr-to-memref rewrite shape.
+- 2026-03-11: Validation for the `atomic_add` checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-ptr-to-memref.mlir` (`1 passed`), `bash python/tta-ut/pytest_one.sh` on `test_atomic_add.py::test_atomic_add_2d_supply[float32-shape0]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_atomic_add.py` (`9 passed, 11 skipped`).
 
 # Next Options
 
-- Repoint `python/tta-ut/pytest_one.sh` away from the now-passing `test_cdiv.py` case to another small unresolved float32 file from the old suite log, and treat the old ordering as only a hint until the new target is reproduced.
-- Prefer another quick stale-check on a small untouched file before deep debugging, because `test_cat.py` joined `test_cosh.py` and `test_atan2.py` as old-log failures that no longer reproduce.
+- Use the already-repointed `python/tta-ut/pytest_one.sh` target on `test_atomic_cas.py::test_atomic_cas_without_full[4096-256-dtype0-float32]` to see whether the next live atomic blocker is another ptr-lowering gap or a distinct CAS issue.
+- If the `atomic_cas` repro reaches LLVM lowering, check whether scalar CAS should also bypass `memref.generic_atomic_rmw` for float cases, since this round proved the generic float path falls onto an invalid `llvm.cmpxchg`.
 - If the next repro fails during JIT dependency discovery on `triton.language.extra.xyz.libdevice`, prefer another repo-owned shim in `python/tta-ut/torch_npu.py` first, and only add C++ lowering when an extern survives into `build/bin/triton-xyz-opt`.
-- If the next repro fails because active Triton keeps a scalar kernel arg runtime-only where the Ascend corpus expects compile-time behavior, check whether the new fake-NPU integer-scalar specialization shim already covers it before editing C++ lowering.
-- Keep broader file-level reruns for after the isolated repro passes, since the full `python/tta-ut/pytest.sh` path remains noisy and can hang.
+- Prefer file-level reruns only after the isolated `atomic_cas` case is green, since the full `python/tta-ut/pytest.sh` path remains noisy and can hang.
 
 # Blockers
 

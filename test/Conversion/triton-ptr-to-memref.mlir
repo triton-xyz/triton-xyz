@@ -198,3 +198,37 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_addptr_atomic(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) -> f32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_0]]] : tensor<4xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[ARG0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32>
+// CHECK:           %[[IF_0:.*]] = scf.if %[[ARG2]] -> (f32) {
+// CHECK:             %[[ATOMIC_0:.*]] = memref.atomic_rmw addf %[[ARG3]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (f32, memref<?xf32>) -> f32
+// CHECK:             scf.yield %[[ATOMIC_0]] : f32
+// CHECK:           } else {
+// CHECK:             scf.yield %[[LOAD_0]] : f32
+// CHECK:           }
+// CHECK:           tt.return %[[IF_0]] : f32
+// CHECK:         }
+  tt.func @tensor_ptr_addptr_atomic(%arg0: !tt.ptr<f32>, %arg1: tensor<4xi32>, %arg2: i1, %arg3: f32) -> f32 {
+    %base = builtin.unrealized_conversion_cast %arg0 : !tt.ptr<f32> to memref<*xf32>
+    %base_ptr = builtin.unrealized_conversion_cast %base : memref<*xf32> to !tt.ptr<f32>
+    %empty = tensor.empty() : tensor<4x!tt.ptr<f32>>
+    %ptrs = linalg.fill ins(%base_ptr : !tt.ptr<f32>) outs(%empty : tensor<4x!tt.ptr<f32>>) -> tensor<4x!tt.ptr<f32>>
+    %offset_ptrs = tt.addptr %ptrs, %arg1 : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    %c0 = arith.constant 0 : index
+    %ptr = tensor.extract %offset_ptrs[%c0] : tensor<4x!tt.ptr<f32>>
+    %result = tt.atomic_rmw fadd, acq_rel, gpu, %ptr, %arg3, %arg2 : (!tt.ptr<f32>, f32, i1) -> f32
+    tt.return %result : f32
+  }
+}

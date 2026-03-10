@@ -179,6 +179,31 @@ getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
       return ScalarMemrefAccess{rank1Memref, totalOffset};
     }
 
+    if (auto addPtr = currentTensor.getDefiningOp<triton::AddPtrOp>()) {
+      auto tensorType = dyn_cast<RankedTensorType>(addPtr.getType());
+      if (!tensorType ||
+          !isa<triton::PointerType>(tensorType.getElementType())) {
+        return std::nullopt;
+      }
+
+      auto offsetTensor = addPtr.getOffset();
+      auto offsetElem =
+          tensor::ExtractOp::create(rewriter, loc, offsetTensor, indices);
+      Value offsetIndex = castToIndex(rewriter, loc, offsetElem);
+      if (!offsetIndex) {
+        return std::nullopt;
+      }
+
+      if (totalOffset) {
+        totalOffset =
+            arith::AddIOp::create(rewriter, loc, totalOffset, offsetIndex);
+      } else {
+        totalOffset = offsetIndex;
+      }
+      currentTensor = addPtr.getPtr();
+      continue;
+    }
+
     auto generic = currentTensor.getDefiningOp<linalg::GenericOp>();
     if (!generic || !isElementwiseIdentityGeneric(generic)) {
       return std::nullopt;
@@ -295,6 +320,36 @@ static std::optional<Value> buildAtomicRMWUpdate(PatternRewriter &rewriter,
   }
 
   return std::nullopt;
+}
+
+static std::optional<arith::AtomicRMWKind>
+getMemRefAtomicRMWKind(triton::RMWOp rmwOp, Type valueType) {
+  switch (rmwOp) {
+  case triton::RMWOp::FADD:
+    return arith::AtomicRMWKind::addf;
+  case triton::RMWOp::MAX:
+    return isa<FloatType>(valueType) ? arith::AtomicRMWKind::maximumf
+                                     : arith::AtomicRMWKind::maxs;
+  case triton::RMWOp::MIN:
+    return isa<FloatType>(valueType) ? arith::AtomicRMWKind::minimumf
+                                     : arith::AtomicRMWKind::mins;
+  case triton::RMWOp::ADD:
+    return arith::AtomicRMWKind::addi;
+  case triton::RMWOp::AND:
+    return arith::AtomicRMWKind::andi;
+  case triton::RMWOp::OR:
+    return arith::AtomicRMWKind::ori;
+  case triton::RMWOp::XOR:
+    return arith::AtomicRMWKind::xori;
+  case triton::RMWOp::UMAX:
+    return arith::AtomicRMWKind::maxu;
+  case triton::RMWOp::UMIN:
+    return arith::AtomicRMWKind::minu;
+  case triton::RMWOp::XCHG:
+    return arith::AtomicRMWKind::assign;
+  default:
+    return std::nullopt;
+  }
 }
 
 class TritonFunctionSignatureConverter : public TypeConverter {
@@ -499,6 +554,42 @@ struct TensorPtrAtomicRMWToMemref
     }
 
     auto loc = op.getLoc();
+    if (auto atomicKind =
+            getMemRefAtomicRMWKind(op.getAtomicRmwOp(), op.getVal().getType())) {
+      auto createAtomic = [&]() -> Value {
+        return memref::AtomicRMWOp::create(rewriter, loc, *atomicKind,
+                                           op.getVal(), memrefAccess->memref,
+                                           ValueRange{memrefAccess->index})
+            .getResult();
+      };
+
+      if (auto mask = op.getMask()) {
+        Value current = memref::LoadOp::create(
+                            rewriter, loc, memrefAccess->memref,
+                            ValueRange{memrefAccess->index})
+                            .getResult();
+        auto ifOp = scf::IfOp::create(rewriter, loc, op.getType(), mask,
+                                      /*withElseRegion=*/true);
+
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          scf::YieldOp::create(rewriter, loc, createAtomic());
+        }
+
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+          scf::YieldOp::create(rewriter, loc, current);
+        }
+
+        rewriter.replaceOp(op, ifOp.getResults());
+      } else {
+        rewriter.replaceOp(op, createAtomic());
+      }
+      return success();
+    }
+
     auto generic = memref::GenericAtomicRMWOp::create(
         rewriter, loc, memrefAccess->memref, memrefAccess->index);
     Block &body = generic.getRegion().front();
