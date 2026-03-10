@@ -77,67 +77,44 @@ _DTYPE_PARAM_NAMES = {
 
 SKIP_TEST_FILES = {
     #
-    # `triton.language.extra.cann.libdevice`
-    "test_pow.py",
+    "test_umulhi.py",
+    "test_not.py",
     #
-    # `triton.language.math`
-    "test_multi_return.py",
+    # atomic
+    "test_atomic_and.py",
+    "test_atomic_add.py",
+    "test_atomic_cas.py",
+    "test_atomic_xchg.py",
+    "test_atomic_or.py",
+    "test_atomic_xor.py",
     #
-    # `triton.language.extra.cann.extension`
-    "test_cat_help_func.py",
-    "test_gather.py",
-    "test_sub_vec_num.py",
-    "test_ascend_barrier.py",
-    "test_max_constancy.py",
-    "test_extract_slice.py",
-    "test_sync_block_all.py",
-    "test_parallel.py",
-    "test_bind_buffer.py",
-    "test_insert_slice.py",
-    "test_sub_vec_id.py",
-    "test_compile_hint.py",
-    "test_index_select.py",
-    "test_to_tensor.py",
-    "test_copy.py",
-    "test_scope.py",
-    "test_fixpipe.py",
-    "test_sync_block.py",
-    "test_custom.py",
-    "test_alloc.py",
-    "test_sort.py",
-    "test_subview.py",
-    "test_to_buffer.py",
-    "test_fusedattention.py",
+    # libdevice.py
+    "test_erf.py",
+    "test_tan.py",
+    "test_atan.py",
+    "test_log1p.py",
+    "test_relu.py",
+    "test_log1p.pytest_relu.py",
+    "test_general_log2.py",
     #
-    # `triton.extension.buffer.language`
-    "test_arch.py",
-    "test_alloc.py",
-    "test_bind_buffer.py",
-    "test_copy.py",
-    "test_fixpipe.py",
-    "test_subview.py",
-    "test_to_buffer.py",
-    "test_to_tensor.py",
+    # tensor_descriptor
+    "test_general_tensor_descriptor.py",
     #
-    # `triton.language.extra.kernels`
-    "test_gather_simd.py",
-    #
-    # `einops`
-    "test_scalarPointer.py",
-    "test_attn_cp.py",
+    # `tt.dot_scaled`
+    "test_dot_scaled.py",
     #
     # needs `triton.runtime.libentry`
     "test_cumsum.py",
+    "test_general_log.py",
     "test_cumprod.py",
-    "test_sum_vector.py",
-    "test_flip.py",
     #
     # ignored
-    "test_add_mindspore.py",
-    "test_softmax_mindspore.py",
-    "test_downgrade.py",
-    "test_index_select_inductor.py",
-    "test_matmul_mindspore.py",
+    "test_device_print.py",
+    "test_debug_barrier.py",
+    "test_associative_scan.py",
+    "test_broadcast_to.py",
+    "test_static_print_and_assert_op.py",
+    "test_umulhi.py",
     #
 }
 
@@ -167,9 +144,6 @@ SUPPORTED_SHAPES = {
 }
 SKIP_INVALID_TESTS = True
 _EXTRA_TEST_SHAPE5D = (2, 8, 4, 8, 8)
-
-# TODO: check shapes
-SUPPORTED_SHAPES = {}
 
 
 def _is_dtype_param(name):
@@ -319,9 +293,8 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]):
             item.add_marker(pytest.mark.timeout(GLOBAL_TIMEOUT))
 
 
-# skip for tta-ut
-# def pytest_configure(config):
-#     _patch_testutils_shape5d()
+def pytest_configure(config):
+    _patch_testutils_shape5d()
 
 
 def pytest_ignore_collect(collection_path, config):
