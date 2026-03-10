@@ -27,10 +27,13 @@ Keep this file short. It is the live working view for the next few rounds.
 - Bypassing `ast_to_ttir` verification was not enough because Triton still enforces power-of-two tensor sizes during TTIR pass-manager verification; the failing `tt.make_range` rule comes from `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp`.
 - `python/tta-ut/torch_npu.py` now normalizes non-power-of-two `*_SUB` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation, so `test_cosh.py::test_cosh_special[float32]` no longer builds `tensor<640x...>` TTIR directly.
 - Under the local harness env, isolated `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_tanh.py` now pass.
+- Probing neighboring `XBLOCK_SUB` files showed `test_log2.py`, `test_sigmoid.py`, and `test_precise_div.py` already pass under the same local harness env.
+- `third_party/ascend/unittest/pytest_ut/test_triton_eq.py::test_case[param_list0]` was the next real isolated failure: the CPU backend LLIR pipeline left a scalar `tt.bitcast` path from `memref<*xi1>` to `!tt.ptr<i1>` unresolved, and `mlir-translate` rejected the leftover `!tt.ptr<i1>` type.
+- Adding `--triton-to-ptr` before `--convert-xyz-to-llvm` in `backend/compiler.py:make_llir()` lowers that bool-output pointer bitcast path cleanly; isolated `test_triton_eq.py`, `test_log2.py`, `test_sigmoid.py`, and `test_precise_div.py` now pass together.
 
 ## Next Move
 
-- Use the same isolated harness env to probe neighboring non-power-of-two `XBLOCK_SUB` tests, then identify the next real failing pytest file under `python/tta-ut/` instead of revisiting the rejected `make_ttir()` verifier-bypass idea.
+- Use the same isolated harness env to probe the next still-failing math file after the bool-output pointer fix, starting from nearby entries in `debug/tmp/pytest.log` such as `test_copysign.py` or `test_cyl_bessel_i0.py`.
 
 ## Risks
 
@@ -40,6 +43,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - Reusing `pytest_one.sh` without changing its hardcoded target still debugs `test_abs.py`, not the current failing case.
 - The pytest import aliases in `python/tta-ut/torch_npu.py` do not affect Triton codegen's separate `module_map`; keep runtime import fixes and compiler module resolution fixes distinct.
 - The local `*_SUB` normalization only helps kernels that already chunk work through sub-block constexprs; tests that use a non-power-of-two bare `BLOCK_SIZE` or tensor shape directly in `tl.arange` may still need a different shim.
+- The bool-output fix depends on the LLIR pipeline order in `backend/compiler.py`; if a future edit drops `--triton-to-ptr` again, scalar bool stores can regress at `mlir-translate` time even when TTIR and linalg lowering succeed.
 
 ## Rules
 

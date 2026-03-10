@@ -240,6 +240,7 @@ class XYZBackend(BaseBackend):
                     "--convert-scf-to-cf",
                     "--memref-expand",
                     "--expand-strided-metadata",
+                    "--triton-to-ptr",
                     "--convert-xyz-to-llvm",
                     "--reconcile-unrealized-casts",
                     "--canonicalize",

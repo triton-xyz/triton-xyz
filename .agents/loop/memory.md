@@ -24,6 +24,8 @@ Use this file for short, reusable facts worth carrying across rounds.
 - A `backend/compiler.py:make_ttir()` verifier bypass is the wrong next move for this class of failure: Triton itself enforces power-of-two tensor sizes in `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp`, and the TTIR pass pipeline verifies that invariant.
 - `python/tta-ut/torch_npu.py` can normalize non-power-of-two `*_SUB` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation; that turns cases like `XBLOCK_SUB=640` into verifier-friendly chunks (`128` here) without editing vendored tests.
 - With that launch-time normalization in place, isolated `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_tanh.py` pass under the local harness env.
+- `backend/compiler.py:make_llir()` needs `--triton-to-ptr` before `--convert-xyz-to-llvm`; without it, bool-output kernels like `third_party/ascend/unittest/pytest_ut/test_triton_eq.py` can leave a `memref<*xi1> -> !tt.ptr<i1> -> tt.bitcast -> !tt.ptr<i8>` chain unresolved until `mlir-translate` rejects the leftover `!tt.ptr<i1>` type.
+- After adding that pass-order fix, isolated `third_party/ascend/unittest/pytest_ut/test_triton_eq.py`, `test_log2.py`, `test_sigmoid.py`, and `test_precise_div.py` pass together under the local harness env.
 
 ## Open Questions
 
