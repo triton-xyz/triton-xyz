@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_npu  # noqa: F401
 
 import numbers
 import os
@@ -15,6 +16,11 @@ _DTYPE_ALIAS = {
 _DTYPE_PATTERN = re.compile(r"^(u?int\d+|float\d+|bfloat16|bf16|fp\d+|bool)([a-z0-9_]*)$")
 _INVALID_TEST_PATTERN = re.compile(r"^test_invalid_[a-zA-Z0-9_]*$")
 _INVALID_DTYPE_TEST_PATTERN = re.compile(r"^test_[a-zA-Z0-9_]*_invalid_dtype_[a-zA-Z0-9_]*$")
+_TTIR_FUNC_ARGS_PATTERN = re.compile(
+    r"(tt\.func\s+(?:public\s+)?@[^()]+\()(.+?)(\)\s+attributes\s+\{)",
+    re.DOTALL,
+)
+_TTIR_ARG_PATTERN = re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)(\s*:\s*)")
 
 
 def _normalize_dtype(value):
@@ -66,6 +72,38 @@ def _normalize_shape(value):
         if all(isinstance(x, numbers.Integral) for x in value):
             return tuple(int(x) for x in value)
     return None
+
+
+def _normalize_ttir_arg_names(ttir):
+    def _rewrite_func(match):
+        index = 0
+
+        def _rewrite_arg(arg_match):
+            nonlocal index
+            replacement = f"%arg{index}{arg_match.group(2)}"
+            index += 1
+            return replacement
+
+        return f"{match.group(1)}{_TTIR_ARG_PATTERN.sub(_rewrite_arg, match.group(2))}{match.group(3)}"
+
+    return _TTIR_FUNC_ARGS_PATTERN.sub(_rewrite_func, ttir)
+
+
+def _patch_ttir_asm_compat():
+    from triton.compiler.compiler import AsmDict
+
+    current_getitem = AsmDict.__getitem__
+    if getattr(current_getitem, "_ttx_ttir_compat", False):
+        return
+
+    def _getitem(self, key):
+        value = current_getitem(self, key)
+        if key == "ttir" and isinstance(value, str):
+            return _normalize_ttir_arg_names(value)
+        return value
+
+    _getitem._ttx_ttir_compat = True
+    AsmDict.__getitem__ = _getitem
 
 
 _DTYPE_PARAM_NAMES = {
@@ -351,4 +389,5 @@ def pytest_runtest_call(item):
 def assign_npu():
     import torch.cpu
 
+    _patch_ttir_asm_compat()
     torch.cpu.set_device(0)
