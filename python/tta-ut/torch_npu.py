@@ -345,6 +345,31 @@ def _wrap_tensor_method_result(method):
     return wrapper
 
 
+def _promote_fake_npu_tensor_pair(args, kwargs, lhs_name, rhs_name):
+    lhs = rhs = None
+    if len(args) >= 2:
+        lhs, rhs = args[:2]
+    else:
+        lhs = kwargs.get(lhs_name)
+        rhs = kwargs.get(rhs_name)
+    if not isinstance(lhs, torch.Tensor) or not isinstance(rhs, torch.Tensor):
+        return args, kwargs
+    if not (_contains_fake_npu(lhs) or _contains_fake_npu(rhs)):
+        return args, kwargs
+    if lhs.dtype == rhs.dtype:
+        return args, kwargs
+    common_dtype = torch.promote_types(lhs.dtype, rhs.dtype)
+    lhs = lhs.to(common_dtype)
+    rhs = rhs.to(common_dtype)
+    if len(args) >= 2:
+        args = (lhs, rhs, *args[2:])
+    else:
+        kwargs = dict(kwargs)
+        kwargs[lhs_name] = lhs
+        kwargs[rhs_name] = rhs
+    return args, kwargs
+
+
 _orig_tensor_to = torch.Tensor.to
 _orig_tensor_getattribute = torch.Tensor.__getattribute__
 
@@ -469,6 +494,31 @@ for name in [
 ]:
     if hasattr(torch, name):
         setattr(torch, name, _wrap_tensor_result(getattr(torch, name)))
+
+
+_orig_torch_isclose = torch.isclose
+
+
+def _torch_isclose(*args, **kwargs):
+    args, kwargs = _promote_fake_npu_tensor_pair(args, kwargs, "input", "other")
+    result = _orig_torch_isclose(*args, **kwargs)
+    if _inherits_fake_npu(args, kwargs):
+        return _mark_fake_npu(result)
+    return result
+
+
+torch.isclose = _torch_isclose
+
+
+_orig_torch_allclose = torch.allclose
+
+
+def _torch_allclose(*args, **kwargs):
+    args, kwargs = _promote_fake_npu_tensor_pair(args, kwargs, "input", "other")
+    return _orig_torch_allclose(*args, **kwargs)
+
+
+torch.allclose = _torch_allclose
 
 
 def _relaxed_validate_block_shape(shape):

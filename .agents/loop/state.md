@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded float32 sweep is now green through `test_maximum.py`, and the active deterministic blocker is `test_mod.py::test_case[param_list0]`. The next round should stay on the repointed `python/tta-ut/pytest_one.sh` repro, inspect why `torch.isclose(y_cal, y_ref, ...)` now sees `Float did not match Double`, and decide whether the dtype drift comes from the fake-NPU shim or from repo-owned lowering/runtime behavior before widening again.
+- The bounded float32 sweep is now green through `test_multiple_of.py`. The next round should keep moving forward from the next `n*` files with the same single-repro-first approach, only repointing `python/tta-ut/pytest_one.sh` after a fresh deterministic failure is identified.
 
 # Evidence
 
@@ -200,18 +200,20 @@
 - 2026-03-11: Validation for the `max_propagate_nan` checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_max_propagate_nan.py::test_max_propagate_nan` (`1 passed` before repointing), and a widened float32 rerun over `test_makeblockptr_negative_padding.py`, `test_makeblockptr_permute.py`, `test_max_contiguous.py`, `test_max_dim0.py`, `test_max_dim1.py`, `test_max_propagate_nan.py`, `test_max_vector.py`, and `test_maximum.py` (`13 passed, 12 skipped`).
 - 2026-03-11: Continuing the bounded float32 sweep through `test_mean*.py`, `test_min*.py`, `test_minimum.py`, `test_mod.py`, `test_mul.py`, and `test_multiple_of.py` advanced the first live blocker to `test_mod.py::test_case[param_list0]`, where the kernel run itself completes but the test now fails in host-side validation with `RuntimeError: Float did not match Double` from `torch.isclose(y_cal, y_ref, ...)`.
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_mod.py -k test_case[param_list0]`, and `bash python/tta-ut/pytest_one.sh` reproduces that dtype-mismatch failure directly (`1 failed, 2 deselected`), so the next round can stay on this deterministic repro instead of rediscovering the green `max` checkpoint.
+- 2026-03-11: Inspecting the live `test_mod` path in a direct Python probe showed the mismatch was shim-side rather than lowering-side: `test_mod.torch_pointwise(...)` intentionally upcasts the float32 reference tensors to `torch.float64`, while the Triton kernel writes back into a float32 `y_cal`, so the fake-NPU path hit raw CPU `torch.isclose` dtype checks and failed before comparing values.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now promotes fake-NPU tensor pairs to a common dtype before calling top-level `torch.isclose` and `torch.allclose`, matching the mixed-dtype comparison behavior expected by the Ascend pytest corpus without changing kernel output dtypes or lowering.
+- 2026-03-11: Validation for the `test_mod` mixed-dtype comparison checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, a direct Python probe confirming `torch.isclose(y_cal, y_ref, ...)` no longer raises on fake-NPU float32 vs float64 tensors, `bash python/tta-ut/pytest_one.sh` on `test_mod.py::test_case[param_list0]` (`1 passed`), `pytest -v third_party/ascend/unittest/pytest_ut/test_mod.py` (`1 passed, 2 skipped` under the float32 filter), and a widened float32 rerun over `test_mean_dim0.py`, `test_mean_dim1.py`, `test_mean_vector.py`, `test_min_dim0.py`, `test_min_dim1.py`, `test_minimum.py`, `test_mod.py`, `test_mul.py`, and `test_multiple_of.py` (`20 passed, 43 skipped`).
 
 # Next Options
 
-- Inspect `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/test_mod.py` and the fake-NPU shim path to explain why `y_ref` and `y_cal` now disagree on dtype for the float32 case before changing runtime behavior.
-- If the dtype drift is shim-side, make the smallest repo-owned compatibility patch in `python/tta-ut/torch_npu.py` and validate it first with `bash python/tta-ut/pytest_one.sh`, then with the bounded `mean` -> `multiple_of` float32 slice.
-- If the dtype drift traces into lowering or runtime code instead, capture the smallest deterministic compiler/runtime repro and add a focused regression test before widening again.
-- After `test_mod.py` is green, continue the bounded float32 sweep from `test_mul.py` / `test_multiple_of.py` onward instead of re-running already-green `load` / `max` coverage.
+- Continue the bounded float32 sweep into the next `n*` files (`test_ne.py`, `test_nearbyint.py`, `test_nearest.py`, `test_neg.py`, `test_nextafter.py`, `test_not.py`, `test_npu_indexing*.py`) and stop at the first fresh deterministic failure.
+- Repoint `python/tta-ut/pytest_one.sh` only after that next failure is identified, so the single-test harness stays aligned with the current blocker instead of the now-green `test_mod` repro.
+- If the next failure is another host-side fake-NPU compatibility gap, keep the fix in `python/tta-ut/torch_npu.py` or `python/tta-ut/conftest.py` and validate with one targeted rerun before widening again.
+- If the next failure reaches lowering or runtime code, capture the smallest deterministic compiler repro and add focused regression coverage before continuing the alphabetical sweep.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The active next blocker is host-side dtype drift in `test_mod.py::test_case[param_list0]`, but its root cause is still unknown; more edits before inspecting whether the mismatch comes from `torch_pointwise(...)`, fake-NPU tensor wrappers, or kernel result dtype would be low-confidence.
 - The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under a fresh single-test repro.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
