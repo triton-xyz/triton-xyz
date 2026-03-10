@@ -8,6 +8,7 @@ import triton.runtime.jit as triton_jit  # noqa
 import triton._utils as triton_utils  # noqa
 import triton.language as tl  # noqa
 import triton.language.core as tl_core  # noqa
+import triton.language.extra.cuda.libdevice as cuda_libdevice  # noqa
 import triton.language.extra.libdevice as extra_libdevice  # noqa
 import triton.language.semantic as tl_semantic  # noqa
 from triton.backends.xyz.driver import XYZDriver  # noqa
@@ -221,6 +222,54 @@ if hasattr(tl, "randint4x"):
         _randint4x_compat._ttxt_randint4x_compat = True  # ty:ignore
         setattr(tl, "randint4x", _randint4x_compat)
 
+@triton.jit
+def _libdevice_cyl_bessel_i0_compat(arg0):
+    x = arg0.to(tl.float32)
+    ax = tl.abs(x)
+
+    y_small = ax / 3.75
+    y_small = y_small * y_small
+    small = 1.0 + y_small * (
+        3.5156229
+        + y_small
+        * (
+            3.0899424
+            + y_small
+            * (1.2067492 + y_small * (0.2659732 + y_small * (0.0360768 + y_small * 0.0045813)))
+        )
+    )
+
+    safe_ax = tl.where(ax < 3.75, 3.75, ax)
+    y_large = 3.75 / safe_ax
+    large = tl.exp(safe_ax) / tl.sqrt(safe_ax) * (
+        0.39894228
+        + y_large
+        * (
+            0.01328592
+            + y_large
+            * (
+                0.00225319
+                + y_large
+                * (
+                    -0.00157565
+                    + y_large
+                    * (
+                        0.00916281
+                        + y_large
+                        * (
+                            -0.02057706
+                            + y_large * (0.02635537 + y_large * (-0.01647633 + y_large * 0.00392377))
+                        )
+                    )
+                )
+            )
+        )
+    )
+
+    return tl.where(ax < 3.75, small, large).to(arg0.dtype)
+
+extra_libdevice.cyl_bessel_i0 = _libdevice_cyl_bessel_i0_compat
+cuda_libdevice.cyl_bessel_i0 = _libdevice_cyl_bessel_i0_compat
 triton.language.extra.xyz.libdevice = extra_libdevice  # ty:ignore[attr-defined]
 sys.modules["triton.language.extra.cann"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.cann.libdevice"] = extra_libdevice

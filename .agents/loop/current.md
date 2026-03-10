@@ -33,11 +33,12 @@ Keep this file short. It is the live working view for the next few rounds.
 - `python/tta-ut/torch_npu.py` now also normalizes bare non-power-of-two `BLOCK_SIZE` and `*_BLOCK_SIZE` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation, so isolated `test_copysign.py::test_copysign[float32-shape0]` gets past the TTIR `tt.make_range` power-of-two verifier failure.
 - `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` now lowers `__nv_copysignf` and `__nv_copysign` to `math.copysign`, and `test/Conversion/triton-arith-to-linalg.mlir` covers that mapping.
 - With the new extern-elementwise lowering in place, isolated `third_party/ascend/unittest/pytest_ut/test_copysign.py::test_copysign[float32-shape0]` now passes under the local harness env.
-- Isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` is now the next real libdevice blocker: LLIR lowering still stops at `one-shot-bufferize` because `tt.extern_elementwise` with symbol `__nv_cyl_bessel_i0f` is left unbufferized.
+- `python/tta-ut/torch_npu.py` now patches both `triton.language.extra.libdevice` and `triton.language.extra.cuda.libdevice` with a local `@triton.jit` `cyl_bessel_i0` approximation for the CPU harness, so isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` no longer reaches the LLIR `tt.extern_elementwise` bufferization failure.
+- After the new local `cyl_bessel_i0` shim, isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]`, `test_copysign.py::test_copysign[float32-shape0]`, and `test_cosh.py::test_cosh_special[float32]` all pass under the local harness env.
 
 ## Next Move
 
-- Investigate how the local LLIR path should lower or bufferize `tt.extern_elementwise` for `__nv_cyl_bessel_i0f`, starting from the isolated `test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` failure now that `copysign` is covered.
+- Refresh the failing frontier after the `cyl_bessel_i0` harness fix by isolating the next unresolved pytest case from `debug/tmp/pytest.log`, starting with the earliest still-failing non-skipped test rather than assuming the old libdevice blocker remains.
 
 ## Risks
 
@@ -46,10 +47,11 @@ Keep this file short. It is the live working view for the next few rounds.
 - Re-running setup can overwrite or distract from the current debug state without adding value.
 - Reusing `pytest_one.sh` without changing its hardcoded target still debugs `test_abs.py`, not the current failing case.
 - The pytest import aliases in `python/tta-ut/torch_npu.py` do not affect Triton codegen's separate `module_map`; keep runtime import fixes and compiler module resolution fixes distinct.
+- The backend `module_map` still resolves libdevice imports through `triton.language.extra.cuda.libdevice`, so runtime-only aliases under `triton.language.extra.libdevice` are not enough to change codegen behavior by themselves.
 - The local constexpr normalization now covers `*_SUB`, `BLOCK_SIZE`, and `*_BLOCK_SIZE`, but tests that bake a non-power-of-two tensor shape directly into `tl.arange` can still need a different shim.
 - The bool-output fix depends on the LLIR pipeline order in `backend/compiler.py`; if a future edit drops `--triton-to-ptr` again, scalar bool stores can regress at `mlir-translate` time even when TTIR and linalg lowering succeed.
 - The new bare `BLOCK_SIZE` normalization only removes the front-end verifier blocker; libdevice-heavy kernels can still stop later when `tt.extern_elementwise` reaches `one-shot-bufferize` unchanged in the LLIR path.
-- `copysign` now has an explicit TritonArithToLinalg lowering, but other libdevice symbols without MLIR math equivalents, such as `__nv_cyl_bessel_i0f`, still need a different lowering strategy.
+- `copysign` now has an explicit TritonArithToLinalg lowering, but other libdevice symbols without MLIR math equivalents may still need either a core lowering or a harness-side compatibility implementation.
 
 ## Rules
 
