@@ -21,7 +21,9 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `python/tta-ut/torch_npu.py` must alias `triton.language.extra.cann.libdevice` and `triton.language.extra.ascend.libdevice` to `third_party/triton/python/triton/language/extra/libdevice.py`, not the placeholder `extra/xyz/libdevice.py`.
 - `backend/compiler.py:get_module_map()` can point the generic, `cann`, `ascend`, and `xyz` libdevice names at `triton.language.extra.cuda.libdevice`; that makes `libdevice.cosh` lower to `tt.extern_elementwise` with symbol `__nv_coshf`.
 - `python/tta-ut/torch_npu.py` can patch `triton.compiler.code_generator.ast_to_ttir` for the local CPU harness to skip the first TTIR `module.verify()` gate and expose later failures.
-- After that bypass, the same isolated `test_cosh.py::test_cosh_special[float32]` still fails in `backend/compiler.py:make_ttir()` because the TTIR pass manager verifies the 640-element `tt.make_range` during `pm.run(...)`.
+- A `backend/compiler.py:make_ttir()` verifier bypass is the wrong next move for this class of failure: Triton itself enforces power-of-two tensor sizes in `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp`, and the TTIR pass pipeline verifies that invariant.
+- `python/tta-ut/torch_npu.py` can normalize non-power-of-two `*_SUB` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation; that turns cases like `XBLOCK_SUB=640` into verifier-friendly chunks (`128` here) without editing vendored tests.
+- With that launch-time normalization in place, isolated `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_tanh.py` pass under the local harness env.
 
 ## Open Questions
 
@@ -37,7 +39,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 
 - Historical note said an interrupted full-suite log lived at `debug/tmp-0/pytest.log`; current repo state has `debug/tmp/pytest.log` instead.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
-- Historical note said `test_cosh.py` still stopped inside `ast_to_ttir`; the latest isolated repro gets past that local check and now fails later in `backend/compiler.py:make_ttir()`.
+- Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
 
 ## Rules
 

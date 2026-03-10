@@ -24,11 +24,13 @@ Keep this file short. It is the live working view for the next few rounds.
 - Isolated `cann.libdevice` tests were blocked because `test_cosh.py` imports `triton.language.extra.cann.libdevice` before `torch_npu` runs; local harness now preloads `torch_npu` in `python/tta-ut/conftest.py`, and `python/tta-ut/torch_npu.py` aliases the `cann` and `ascend` libdevice imports to the shared local `triton.language.extra.libdevice` module.
 - `backend/compiler.py:get_module_map()` now maps the generic, `cann`, `ascend`, and `xyz` libdevice names to `triton.language.extra.cuda.libdevice`, so isolated `test_cosh.py::test_cosh_special[float32]` emits `tt.extern_elementwise` with symbol `__nv_coshf` instead of failing on `libdevice.cosh is None`.
 - `python/tta-ut/torch_npu.py` now patches `triton.compiler.code_generator.ast_to_ttir` for the local CPU harness so isolated `test_cosh.py::test_cosh_special[float32]` can build TTIR even when `tl.arange(0, 640)` lowers to `tt.make_range` with 640 elements.
-- The latest isolated repro moved forward to `backend/compiler.py:make_ttir()`: the TTIR pass manager still runs verifier checks, and the same non-power-of-two `tt.make_range` now fails there during `pm.run(...)` instead of in `ast_to_ttir`.
+- Bypassing `ast_to_ttir` verification was not enough because Triton still enforces power-of-two tensor sizes during TTIR pass-manager verification; the failing `tt.make_range` rule comes from `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp`.
+- `python/tta-ut/torch_npu.py` now normalizes non-power-of-two `*_SUB` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation, so `test_cosh.py::test_cosh_special[float32]` no longer builds `tensor<640x...>` TTIR directly.
+- Under the local harness env, isolated `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_tanh.py` now pass.
 
 ## Next Move
 
-- Decide whether the local CPU/TTA path should temporarily bypass TTIR verifier checks in `backend/compiler.py:make_ttir()` or whether `python/tta-ut/torch_npu.py` should rewrite non-power-of-two `tl.arange` into verifier-friendly IR before `pm.run(...)`, then rerun `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]`.
+- Use the same isolated harness env to probe neighboring non-power-of-two `XBLOCK_SUB` tests, then identify the next real failing pytest file under `python/tta-ut/` instead of revisiting the rejected `make_ttir()` verifier-bypass idea.
 
 ## Risks
 
@@ -37,7 +39,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - Re-running setup can overwrite or distract from the current debug state without adding value.
 - Reusing `pytest_one.sh` without changing its hardcoded target still debugs `test_abs.py`, not the current failing case.
 - The pytest import aliases in `python/tta-ut/torch_npu.py` do not affect Triton codegen's separate `module_map`; keep runtime import fixes and compiler module resolution fixes distinct.
-- The local `ast_to_ttir` verify bypass does not fix the underlying TTIR verifier rule; `backend/compiler.py:make_ttir()` still fails on the same 640-element `tt.make_range`.
+- The local `*_SUB` normalization only helps kernels that already chunk work through sub-block constexprs; tests that use a non-power-of-two bare `BLOCK_SIZE` or tensor shape directly in `tl.arange` may still need a different shim.
 
 ## Rules
 

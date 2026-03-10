@@ -4,6 +4,7 @@ import torch
 
 import triton  # noqa
 import triton.compiler.code_generator as triton_codegen  # noqa
+import triton.runtime.jit as triton_jit  # noqa
 import triton._utils as triton_utils  # noqa
 import triton.language as tl  # noqa
 import triton.language.core as tl_core  # noqa
@@ -51,6 +52,56 @@ def _builder_allows_non_power_of_two_arange(builder):
     if options is None:
         return False
     return getattr(options, "backend_name", "") == "cpu"
+
+
+def _is_power_of_two(value):
+    return isinstance(value, int) and value > 0 and (value & (value - 1)) == 0
+
+
+def _normalize_constexpr_subblocks(jit_fn, args, kwargs):
+    param_names = tuple(jit_fn.signature.parameters.keys())
+    kernel_kwargs = {name: value for name, value in kwargs.items() if name in param_names}
+    bound = jit_fn.signature.bind_partial(*args, **kernel_kwargs)
+    updates = {}
+    for name, value in bound.arguments.items():
+        if not name.endswith("_SUB") or not isinstance(value, int) or value <= 0 or _is_power_of_two(value):
+            continue
+        base_name = name[:-4]
+        base_value = bound.arguments.get(base_name)
+        if not isinstance(base_value, int) or base_value <= 0:
+            continue
+        new_value = value & -value
+        if new_value <= 0 or new_value == value:
+            continue
+        updates[name] = new_value
+
+    if not updates:
+        return args, kwargs
+
+    new_args = list(args)
+    for index, name in enumerate(param_names[: len(new_args)]):
+        if name in updates:
+            new_args[index] = updates[name]
+
+    new_kwargs = dict(kwargs)
+    for name, value in updates.items():
+        if name in new_kwargs:
+            new_kwargs[name] = value
+
+    return tuple(new_args), new_kwargs
+
+
+_orig_jit_run = triton_jit.JITFunction.run
+if not getattr(_orig_jit_run, "_ttx_normalize_subblocks_compat", False):
+
+    def _jit_run_compat(self, *args, grid, warmup, **kwargs):
+        target = triton.runtime.driver.active.get_current_target()
+        if getattr(target, "backend", "") == "cpu":
+            args, kwargs = _normalize_constexpr_subblocks(self, args, kwargs)
+        return _orig_jit_run(self, *args, grid=grid, warmup=warmup, **kwargs)
+
+    _jit_run_compat._ttx_normalize_subblocks_compat = True
+    triton_jit.JITFunction.run = _jit_run_compat
 
 
 _orig_triton_semantic_arange = tl_semantic.TritonSemantic.arange
