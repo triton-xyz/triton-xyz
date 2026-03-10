@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The `test_linearize_jump_load_with_offset[5-15-dtype0-float32]` blocker is cleared in repo-owned lowering code. The next round should repoint `python/tta-ut/pytest_one.sh` away from that now-green repro and continue the bounded float32 discovery slice from `test_load*.py` through `test_log.py`, using the same targeted single-test workflow to find the next deterministic failure.
+- The bounded float32 sweep is now green through `test_maximum.py`, and the active deterministic blocker is `test_mod.py::test_case[param_list0]`. The next round should stay on the repointed `python/tta-ut/pytest_one.sh` repro, inspect why `torch.isclose(y_cal, y_ref, ...)` now sees `Float did not match Double`, and decide whether the dtype drift comes from the fake-NPU shim or from repo-owned lowering/runtime behavior before widening again.
 
 # Evidence
 
@@ -194,16 +194,24 @@
 - 2026-03-11: `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` now lets tensor-pointer recovery reuse scalar pointer recovery for `linalg.fill` bases, folding scalar `tt.addptr` chains into the memref base plus accumulated index before the tensor `tt.addptr` offsets are applied. `test/Conversion/triton-ptr-to-memref.mlir` now locks the `tensor_ptr_fill_from_scalar_addptr` case.
 - 2026-03-11: Validation for the linearize-offset ptr-to-memref checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-ptr-to-memref.mlir` (`1 passed`), a fresh isolated rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_linearize.py -k 'test_linearize_jump_load_with_offset[5-15-dtype0-float32]'` (`1 passed, 7 deselected`), and a widened float32 file rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_linearize.py` (`8 passed`).
 
+- 2026-03-11: Advancing the bounded float32 discovery window past `test_linearize.py` with `pytest -v third_party/ascend/unittest/pytest_ut/test_load.py third_party/ascend/unittest/pytest_ut/test_load_store.py third_party/ascend/unittest/pytest_ut/test_log.py` finished cleanly as `19 passed, 34 skipped`, so the earlier mission slice through `test_load*.py` and `test_log.py` is now clear.
+- 2026-03-11: Extending the next bounded `m*` slice exposed the first new deterministic failure at `test_max_propagate_nan.py::test_max_propagate_nan`, where fake-NPU startup reached frontend compilation but active `triton.language.standard.max` rejected the Ascend-style reduction kwarg with `TypeError("got an unexpected keyword argument 'propagate_nan'")`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now monkeypatches `triton.language.standard.max` / `tl.max` during fake-NPU pytest startup so reduction-form `tl.max(..., propagate_nan=True)` uses a repo-owned propagate-NaN combine function backed by active `tl.maximum(..., propagate_nan=tl.PropagateNan.ALL)` instead of failing in the frontend.
+- 2026-03-11: Validation for the `max_propagate_nan` checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_max_propagate_nan.py::test_max_propagate_nan` (`1 passed` before repointing), and a widened float32 rerun over `test_makeblockptr_negative_padding.py`, `test_makeblockptr_permute.py`, `test_max_contiguous.py`, `test_max_dim0.py`, `test_max_dim1.py`, `test_max_propagate_nan.py`, `test_max_vector.py`, and `test_maximum.py` (`13 passed, 12 skipped`).
+- 2026-03-11: Continuing the bounded float32 sweep through `test_mean*.py`, `test_min*.py`, `test_minimum.py`, `test_mod.py`, `test_mul.py`, and `test_multiple_of.py` advanced the first live blocker to `test_mod.py::test_case[param_list0]`, where the kernel run itself completes but the test now fails in host-side validation with `RuntimeError: Float did not match Double` from `torch.isclose(y_cal, y_ref, ...)`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_mod.py -k test_case[param_list0]`, and `bash python/tta-ut/pytest_one.sh` reproduces that dtype-mismatch failure directly (`1 failed, 2 deselected`), so the next round can stay on this deterministic repro instead of rediscovering the green `max` checkpoint.
+
 # Next Options
 
-- Repoint `python/tta-ut/pytest_one.sh` to the first failing file in the bounded float32 `test_load*.py` / `test_log.py` slice and capture a fresh deterministic repro.
-- After the next single-test fix attempt, rerun the bounded float32 slice starting after `test_linearize.py` instead of restarting from already-green `i*` / `l*` coverage.
-- If the next blocker still comes from TTA lowering, add the smallest focused `lit` regression alongside the pytest validation before widening again.
+- Inspect `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/test_mod.py` and the fake-NPU shim path to explain why `y_ref` and `y_cal` now disagree on dtype for the float32 case before changing runtime behavior.
+- If the dtype drift is shim-side, make the smallest repo-owned compatibility patch in `python/tta-ut/torch_npu.py` and validate it first with `bash python/tta-ut/pytest_one.sh`, then with the bounded `mean` -> `multiple_of` float32 slice.
+- If the dtype drift traces into lowering or runtime code instead, capture the smallest deterministic compiler/runtime repro and add a focused regression test before widening again.
+- After `test_mod.py` is green, continue the bounded float32 sweep from `test_mul.py` / `test_multiple_of.py` onward instead of re-running already-green `load` / `max` coverage.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- There is no newly established post-`test_linearize.py` blocker yet; the next deterministic failure still needs to be discovered by advancing the bounded float32 slice into `test_load*.py` and `test_log.py`.
+- The active next blocker is host-side dtype drift in `test_mod.py::test_case[param_list0]`, but its root cause is still unknown; more edits before inspecting whether the mismatch comes from `torch_pointwise(...)`, fake-NPU tensor wrappers, or kernel result dtype would be low-confidence.
 - The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under a fresh single-test repro.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.

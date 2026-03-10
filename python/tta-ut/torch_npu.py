@@ -660,6 +660,57 @@ def _patch_cdiv():
 _patch_cdiv()
 
 
+def _patch_reduce_max_propagate_nan():
+    current_impl = triton_standard.max
+    if getattr(current_impl, "_ttx_reduce_max_propagate_nan_compat", False):
+        return
+
+    @triton.jit
+    def _elementwise_max_propagate_nan(a, b):
+        return tl_core.maximum(a, b, propagate_nan=tl_core.PropagateNan.ALL)
+
+    @tl_core._tensor_member_fn
+    @triton.jit
+    @tl_core._add_reduction_docstr("maximum", return_indices_arg="return_indices",
+                                   tie_break_arg="return_indices_tie_break_left")
+    def _max(input, axis=None, return_indices=False, return_indices_tie_break_left=True, keep_dims=False,
+             propagate_nan=False):
+        input = tl_core._promote_bfloat16_to_float32(input)
+        if return_indices:
+            if return_indices_tie_break_left:
+                return tl_core._reduce_with_indices(
+                    input,
+                    axis,
+                    triton_standard._argmax_combine_tie_break_left,
+                    keep_dims=keep_dims,
+                )
+            return tl_core._reduce_with_indices(
+                input,
+                axis,
+                triton_standard._argmax_combine_tie_break_fast,
+                keep_dims=keep_dims,
+            )
+
+        if tl_core.constexpr(input.dtype.primitive_bitwidth) < tl_core.constexpr(32):
+            if tl_core.constexpr(input.dtype.is_floating()):
+                input = input.to(tl_core.float32)
+            else:
+                assert input.dtype.is_int(), "Expecting input to be integer type"
+                input = input.to(tl_core.int32)
+
+        if propagate_nan:
+            return tl_core.reduce(input, axis, _elementwise_max_propagate_nan, keep_dims=keep_dims)
+        return tl_core.reduce(input, axis, triton_standard._elementwise_max, keep_dims=keep_dims)
+
+    _max._ttx_reduce_max_propagate_nan_compat = True
+    triton_standard.max = _max
+    tl.max = _max
+    triton.language.max = _max  # ty:ignore[attr-defined]
+
+
+_patch_reduce_max_propagate_nan()
+
+
 def _patch_int_scalar_specialization():
     current_impl = triton_jit.create_function_from_signature
     if getattr(current_impl, "_ttx_int_scalar_constexpr_compat", False):
