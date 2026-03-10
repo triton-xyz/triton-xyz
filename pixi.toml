@@ -22,6 +22,8 @@ pytorch = ">=2.9.1,<3"
 pybind11 = ">=3.0.1,<4"
 pybind11-global = ">=3.0.1,<4"
 
+scipy = ">=1.17.1,<2"
+
 [activation.env]
 # needs llvm-triton
 PATH = "${PIXI_PROJECT_ROOT}/build/bin:${PIXI_PROJECT_ROOT}/llvm-triton/llvm-project/build/bin:${PATH}"
