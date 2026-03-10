@@ -1,3 +1,4 @@
+import numbers
 import sys
 import types
 import numpy as np
@@ -7,8 +8,11 @@ import triton  # noqa
 import triton.language as tl  # noqa
 import triton._utils as triton_utils
 import triton.language.core as tl_core
+import triton.language.math as triton_math
 import triton.language.semantic as triton_semantic
+import triton.language.standard as triton_standard
 import triton.compiler.code_generator as triton_codegen
+import triton.runtime.jit as triton_jit
 import triton.language.extra.cuda.libdevice as cuda_libdevice
 import triton.language.extra.xyz.libdevice as xyz_libdevice
 import triton.backends.xyz.driver as xyz_driver
@@ -312,6 +316,81 @@ def _patch_constexpr_global_annotations():
 
 
 _patch_constexpr_global_annotations()
+
+
+def _patch_cdiv():
+    if getattr(getattr(tl, "cdiv", None), "_ttx_cdiv_compat", False):
+        return
+
+    @tl_core.builtin
+    @tl_core._tensor_member_fn
+    def _cdiv(x, div, _semantic=None):
+        if isinstance(x, tl_core.constexpr):
+            x = x.value
+        if isinstance(div, tl_core.constexpr):
+            div = div.value
+
+        if isinstance(x, numbers.Number) and isinstance(div, numbers.Number):
+            if isinstance(x, bool) or isinstance(div, bool):
+                raise ValueError("cdiv does not support boolean type")
+            if isinstance(x, int) and isinstance(div, int):
+                res = x // div
+                rem = x % div
+                return res + (1 if rem != 0 else 0)
+            return int(np.ceil(x / div))
+
+        x = _semantic.to_tensor(x)
+        div = _semantic.to_tensor(div)
+        x_scalar_type = x.type.scalar
+        div_scalar_type = div.type.scalar
+        if x_scalar_type.is_bool() or div_scalar_type.is_bool():
+            raise ValueError("cdiv does not support boolean type")
+        if x_scalar_type.is_int() and div_scalar_type.is_int():
+            return _semantic.floordiv(
+                _semantic.add(x, _semantic.sub(div, 1, True), True),
+                div,
+            )
+
+        div_res = _semantic.truediv(x, div)
+        cdiv_res = tl_core.tensor(_semantic.builder.create_ceil(div_res.handle), div_res.type)
+        return _semantic.cast(cdiv_res, x_scalar_type)
+
+    _cdiv._ttx_cdiv_compat = True
+    tl.cdiv = _cdiv
+    triton.language.cdiv = _cdiv  # ty:ignore[attr-defined]
+    triton_math.cdiv = _cdiv
+    triton_standard.cdiv = _cdiv
+
+
+_patch_cdiv()
+
+
+def _patch_int_scalar_specialization():
+    current_impl = triton_jit.create_function_from_signature
+    if getattr(current_impl, "_ttx_int_scalar_constexpr_compat", False):
+        return
+
+    def _create_function_from_signature(sig, kparams, backend):
+        binder = current_impl(sig, kparams, backend)
+
+        def _dynamic_func(*args, **kwargs):
+            params, specialization, options = binder(*args, **kwargs)
+            for i, kp in enumerate(kparams):
+                if kp.is_constexpr:
+                    continue
+                value = params[kp.name]
+                if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+                    continue
+                specialization[i] = ("constexpr", value)
+            return params, specialization, options
+
+        return _dynamic_func
+
+    _create_function_from_signature._ttx_int_scalar_constexpr_compat = True
+    triton_jit.create_function_from_signature = _create_function_from_signature
+
+
+_patch_int_scalar_specialization()
 
 
 _ASCEND_RUNTIME_KWARGS = {
