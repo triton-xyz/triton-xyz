@@ -264,6 +264,29 @@ npu = types.SimpleNamespace(
 _FAKE_NPU_ATTR = "_ttx_fake_npu"
 
 
+class _FakeNPUDevice:
+
+    type = "npu"
+    index = 0
+
+    def __str__(self):
+        return "npu:0"
+
+    __repr__ = __str__
+
+    def __eq__(self, other):
+        if other is None:
+            return False
+        other_str = str(other)
+        return "npu" in other_str or other_str == "cpu"
+
+    def __hash__(self):
+        return hash(("npu", self.index))
+
+
+_FAKE_NPU_DEVICE = _FakeNPUDevice()
+
+
 def _is_npu_device(device):
     return device is not None and "npu" in str(device)
 
@@ -323,6 +346,17 @@ def _wrap_tensor_method_result(method):
 
 
 _orig_tensor_to = torch.Tensor.to
+_orig_tensor_getattribute = torch.Tensor.__getattribute__
+
+
+def _tensor_getattribute(self, name):
+    if name == "device":
+        try:
+            if _orig_tensor_getattribute(self, _FAKE_NPU_ATTR):
+                return _FAKE_NPU_DEVICE
+        except AttributeError:
+            pass
+    return _orig_tensor_getattribute(self, name)
 
 
 def _tensor_to(self, *args, **kwargs):
@@ -348,6 +382,7 @@ def _tensor_cpu(self, *args, **kwargs):
 
 
 torch.Tensor.npu = _tensor_npu  # ty:ignore
+torch.Tensor.__getattribute__ = _tensor_getattribute  # ty:ignore
 torch.Tensor.to = _tensor_to  # ty:ignore
 torch.Tensor.cpu = _tensor_cpu  # ty:ignore
 
@@ -895,6 +930,37 @@ def _libdevice_hypot(x, y):  # ty:ignore
     return result
 
 
+def _require_libdevice_fp16_fp32_bf16(arg0, _semantic):
+    arg0 = _semantic.to_tensor(arg0)
+    scalar_ty = arg0.type.scalar
+    if scalar_ty.is_fp16() or scalar_ty.is_fp32() or scalar_ty.is_bf16():
+        return arg0
+    raise ValueError(f"Expected dtype fp16/fp32/bf16, but got {scalar_ty}")
+
+
+def _libdevice_isfinite_impl(arg0, _semantic):
+    arg0 = _require_libdevice_fp16_fp32_bf16(arg0, _semantic)
+    abs_arg0 = tl_core.tensor(_semantic.builder.create_fabs(arg0.handle), arg0.type)
+    inf = _semantic.full(arg0.shape, float("inf"), arg0.type.scalar)
+    return _semantic.and_(_semantic.equal(arg0, arg0), _semantic.not_equal(abs_arg0, inf))
+
+
+@tl_core.builtin
+def _libdevice_finitef(arg0, _semantic=None):  # ty:ignore
+    return _libdevice_isfinite_impl(arg0, _semantic)
+
+
+@tl_core.builtin
+def _libdevice_isfinited(arg0, _semantic=None):  # ty:ignore
+    return _libdevice_isfinite_impl(arg0, _semantic)
+
+
+@tl_core.builtin
+def _libdevice_isnan(arg0, _semantic=None):  # ty:ignore
+    arg0 = _require_libdevice_fp16_fp32_bf16(arg0, _semantic)
+    return _semantic.not_equal(arg0, arg0)
+
+
 @triton.jit
 def _approx_erf(x):  # ty:ignore
     abs_x = tl.abs(x)
@@ -1079,9 +1145,12 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "acosh": _libdevice_acosh,
     "asinh": _libdevice_asinh,
     "atanh": _libdevice_atanh,
+    "finitef": _libdevice_finitef,
     "hypot": _libdevice_hypot,
     "erfinv": _libdevice_erfinv,
     "gamma": _libdevice_tgamma,
+    "isfinited": _libdevice_isfinited,
+    "isnan": _libdevice_isnan,
     "lgamma": _libdevice_lgamma,
     "tgamma": _libdevice_tgamma,
     "cyl_bessel_i0": _libdevice_cyl_bessel_i0,

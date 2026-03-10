@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_isfinited.py
-  -k "test_isfinited[1.0-37-float32]"
+  third_party/ascend/unittest/pytest_ut/test_linearize.py
+  -k "test_linearize_jump_load_with_offset[5-15-dtype0-float32]"
   #
 )
 pushd third_party/triton-ascend
