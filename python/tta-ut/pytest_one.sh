@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_atomic_max.py
-  -k "test_atomic_max_2d_supply[float32-shape0]"
+  third_party/ascend/unittest/pytest_ut/test_debug_barrier.py
+  -k "test_case[param_list0]"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py

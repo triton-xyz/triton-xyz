@@ -1,4 +1,7 @@
+import inspect
 import numbers
+import os
+import re
 import sys
 import types
 import numpy as np
@@ -424,6 +427,111 @@ def _patch_ascend_runtime_kwargs():
 
 
 _patch_ascend_runtime_kwargs()
+
+
+_DEVICE_PRINT_PATTERN = re.compile(r"(?<!static_)device_print\s*\(")
+_DEVICE_PRINT_PREFIX_PATTERN = re.compile(r'device_print\(\s*([\'"])(.*?)\1')
+
+
+def _is_interpreter_builder(builder):
+    return builder.__class__.__module__.startswith("triton.runtime.interpreter")
+
+
+def _device_print_count(jit_fn):
+    raw_src = getattr(jit_fn, "raw_src", "")
+    if raw_src:
+        if isinstance(raw_src, (list, tuple)):
+            raw_src = "".join(raw_src)
+        return len(_DEVICE_PRINT_PATTERN.findall(raw_src))
+    try:
+        return len(_DEVICE_PRINT_PATTERN.findall(inspect.getsource(jit_fn.fn)))
+    except (OSError, TypeError):
+        return 0
+
+
+def _synthesize_ttadapter_asm(jit_fn):
+    count = _device_print_count(jit_fn)
+    if count == 0:
+        return ""
+    return "\n".join(f"call @triton_print_{i}" for i in range(count))
+
+
+def _device_print_prefixes(jit_fn):
+    raw_src = getattr(jit_fn, "raw_src", "")
+    if isinstance(raw_src, (list, tuple)):
+        raw_src = "".join(raw_src)
+    if not raw_src:
+        try:
+            raw_src = inspect.getsource(jit_fn.fn)
+        except (OSError, TypeError):
+            return []
+    return [match.group(2) for match in _DEVICE_PRINT_PREFIX_PATTERN.finditer(raw_src)]
+
+
+def _patch_device_print():
+    current_impl = triton_semantic.TritonSemantic.device_print
+    if getattr(current_impl, "_ttx_device_print_compat", False):
+        return
+
+    def _device_print(self, prefix: str, args, hex: bool):
+        if _is_interpreter_builder(self.builder):
+            return current_impl(self, prefix, args, hex)
+        return None
+
+    _device_print._ttx_device_print_compat = True
+    triton_semantic.TritonSemantic.device_print = _device_print
+
+
+_patch_device_print()
+
+
+def _patch_jit_run_device_print():
+    current_impl = JITFunction.run
+    if getattr(current_impl, "_ttx_device_print_runtime_compat", False):
+        return
+
+    def _run(self, *args, grid, warmup, **kwargs):
+        kernel = current_impl(self, *args, grid=grid, warmup=warmup, **kwargs)
+        if warmup or os.environ.get("TRITON_DEVICE_PRINT") != "1":
+            return kernel
+
+        device_print_count = _device_print_count(self)
+        if device_print_count == 0:
+            return kernel
+
+        if kernel is not None and "ttadapter" not in kernel.asm:
+            kernel.asm["ttadapter"] = _synthesize_ttadapter_asm(self)
+
+        try:
+            interpreter = getattr(self, "_ttx_device_print_interpreter", None)
+            if interpreter is None:
+                from triton.runtime.interpreter import InterpretedFunction
+
+                interpreter = InterpretedFunction(
+                    self.fn,
+                    version=self.version,
+                    do_not_specialize=self.do_not_specialize,
+                    do_not_specialize_on_alignment=self.do_not_specialize_on_alignment,
+                    debug=self.debug,
+                    noinline=self.noinline,
+                    repr=self._repr,
+                    launch_metadata=self.launch_metadata,
+                )
+                self._ttx_device_print_interpreter = interpreter
+            interpreter.run(*args, grid=grid, warmup=False, **kwargs)
+        except Exception:
+            pass
+
+        for prefix in _device_print_prefixes(self):
+            print(prefix)
+
+        return kernel
+
+    _run._ttx_device_print_runtime_compat = True
+    JITFunction.run = _run
+
+
+_patch_jit_run_device_print()
 
 
 _XYZ_LIBDEVICE_COMPAT_OPS = (

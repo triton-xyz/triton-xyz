@@ -5,6 +5,7 @@ import torch_npu  # noqa: F401
 import numbers
 import os
 import re
+import sys
 
 
 _DTYPE_ALIAS = {
@@ -21,6 +22,20 @@ _TTIR_FUNC_ARGS_PATTERN = re.compile(
     re.DOTALL,
 )
 _TTIR_ARG_PATTERN = re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)(\s*:\s*)")
+
+
+def _prepend_pythonpath(path):
+    if not path:
+        return
+    if path not in sys.path:
+        sys.path.insert(0, path)
+    current = os.environ.get("PYTHONPATH", "")
+    entries = [entry for entry in current.split(os.pathsep) if entry]
+    if path not in entries:
+        os.environ["PYTHONPATH"] = os.pathsep.join([path, *entries]) if entries else path
+
+
+_prepend_pythonpath(os.path.dirname(__file__))
 
 
 def _normalize_dtype(value):
