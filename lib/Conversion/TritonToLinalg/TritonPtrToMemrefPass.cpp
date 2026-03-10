@@ -188,6 +188,10 @@ static Value castToIndex(OpBuilder &b, Location loc, Value value) {
 }
 
 static std::optional<ScalarMemrefAccess>
+getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter,
+                             Type targetElementType = Type());
+
+static std::optional<ScalarMemrefAccess>
 getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
                                    PatternRewriter &rewriter,
                                    Type targetElementType = Type()) {
@@ -206,10 +210,27 @@ getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
   while (true) {
     if (auto fillOp = currentTensor.getDefiningOp<linalg::FillOp>()) {
       Value basePtr = fillOp.getInputs().front();
-      auto maybeRank1Memref = materializePtrBaseAsRank1Memref(
-          basePtr,
-          targetElementType ? targetElementType : ptrElemType.getPointeeType(),
-          rewriter, loc);
+      Type elementType =
+          targetElementType ? targetElementType : ptrElemType.getPointeeType();
+      if (auto baseAccess =
+              getScalarMemrefAccessFromPtr(basePtr, rewriter, elementType)) {
+        if (totalOffset) {
+          totalOffset = arith::AddIOp::create(rewriter, loc, totalOffset,
+                                              baseAccess->index);
+        } else {
+          totalOffset = baseAccess->index;
+        }
+        if (!totalOffset) {
+          totalOffset =
+              arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0))
+                  .getResult();
+        }
+        return ScalarMemrefAccess{baseAccess->memref, totalOffset,
+                                  baseAccess->basePtr};
+      }
+
+      auto maybeRank1Memref =
+          materializePtrBaseAsRank1Memref(basePtr, elementType, rewriter, loc);
       if (failed(maybeRank1Memref)) {
         return std::nullopt;
       }
@@ -303,7 +324,7 @@ getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
 
 static std::optional<ScalarMemrefAccess>
 getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter,
-                             Type targetElementType = Type()) {
+                             Type targetElementType) {
   auto extractOp = ptr.getDefiningOp<tensor::ExtractOp>();
   if (extractOp) {
     auto tensor = extractOp.getTensor();

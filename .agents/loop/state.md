@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The fake-NPU `finitef` / `isfinited` / `isnan` libdevice gap is cleared, and the widened float32 slice now runs cleanly through `test_le.py`. The next round should stay on the repointed single-test harness for `test_linearize_jump_load_with_offset[5-15-dtype0-float32]` and inspect why `triton-xyz-opt --triton-to-linalg-tta` exits on that offset-linearize kernel, with the current dumps pointing at a likely TTA overflow-assert / offset-materialization lowering gap.
+- The `test_linearize_jump_load_with_offset[5-15-dtype0-float32]` blocker is cleared in repo-owned lowering code. The next round should repoint `python/tta-ut/pytest_one.sh` away from that now-green repro and continue the bounded float32 discovery slice from `test_load*.py` through `test_log.py`, using the same targeted single-test workflow to find the next deterministic failure.
 
 # Evidence
 
@@ -190,18 +190,20 @@
 - 2026-03-11: Re-running the bounded float32 slice over `test_isfinited.py`, `test_isnan.py`, `test_join.py`, `test_lanzcos.py`, `test_launcher_empty_signature.py`, `test_layernorm.py`, `test_ldst.py`, and `test_le.py` now finishes cleanly as `29 passed, 41 skipped`.
 - 2026-03-11: Advancing the next bounded float32 slice into `test_linearize*.py`, `test_load*.py`, and `test_log.py` finds the next deterministic blocker at `test_linearize.py::test_linearize_jump_load_with_offset[5-15-dtype0-float32]`, where `triton-xyz-opt --triton-to-linalg-tta` exits non-zero during TTIR-to-linalg lowering.
 - 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_linearize.py -k test_linearize_jump_load_with_offset[5-15-dtype0-float32]` reproduces the same failure in the single-test harness. Inspecting `debug/tmp-pytest_one/_pass_dump__3_ttir_to_linalg/` shows many surviving `tt.assert "int32 overflow detected ..."` ops in `triton-to-tta-*` / `tta-address-normalize` dumps before `TritonPtrToMemrefPass`; this is an inference, but it currently makes a TTA overflow-assert lowering gap the strongest suspect.
+- 2026-03-11: Re-running the isolated `test_linearize.py::test_linearize_jump_load_with_offset[5-15-dtype0-float32]` repro with a fresh dump root under `debug_agent/linearize_round/` showed the real TTIR-to-linalg failure point: `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` left a scalar `tt.addptr` rooted at a memref-backed pointer cast inside `linalg.fill`, so the odd-offset branch still contained `tt.addptr` and `tt.load` after `triton-ptr-to-memref`.
+- 2026-03-11: `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` now lets tensor-pointer recovery reuse scalar pointer recovery for `linalg.fill` bases, folding scalar `tt.addptr` chains into the memref base plus accumulated index before the tensor `tt.addptr` offsets are applied. `test/Conversion/triton-ptr-to-memref.mlir` now locks the `tensor_ptr_fill_from_scalar_addptr` case.
+- 2026-03-11: Validation for the linearize-offset ptr-to-memref checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-ptr-to-memref.mlir` (`1 passed`), a fresh isolated rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_linearize.py -k 'test_linearize_jump_load_with_offset[5-15-dtype0-float32]'` (`1 passed, 7 deselected`), and a widened float32 file rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_linearize.py` (`8 passed`).
 
 # Next Options
 
-- Inspect the repointed `test_linearize_jump_load_with_offset[5-15-dtype0-float32]` dumps under `debug/tmp-pytest_one/_pass_dump__3_ttir_to_linalg/`, comparing them against nearby passing `test_linearize_jump_load[...]` to isolate the first offset-specific op that `triton-xyz-opt` cannot lower.
-- Re-run the exact failing `triton-xyz-opt --triton-to-linalg-tta` command outside pytest, capture the first concrete compiler error, and add a focused regression once the offending op/pass is identified.
-- If the surviving `tt.assert "int32 overflow detected ..."` ops are the culprit, decide whether they should lower in the TTA bridge itself or be removed/rewritten earlier in `tta-address-normalize` for this offset pattern.
-- After the next fix attempt, rerun the bounded float32 slice from `test_linearize*.py` through `test_log.py` instead of restarting from already-green `i*` / `l*` coverage.
+- Repoint `python/tta-ut/pytest_one.sh` to the first failing file in the bounded float32 `test_load*.py` / `test_log.py` slice and capture a fresh deterministic repro.
+- After the next single-test fix attempt, rerun the bounded float32 slice starting after `test_linearize.py` instead of restarting from already-green `i*` / `l*` coverage.
+- If the next blocker still comes from TTA lowering, add the smallest focused `lit` regression alongside the pytest validation before widening again.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The live deterministic blocker is now `test_linearize.py::test_linearize_jump_load_with_offset[5-15-dtype0-float32]`, where `triton-xyz-opt --triton-to-linalg-tta` exits during TTIR-to-linalg lowering. Current pass dumps strongly suggest, but do not yet prove, that offset-specific surviving `tt.assert` overflow checks are involved.
-- The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under the now-repointed single-test harness.
+- There is no newly established post-`test_linearize.py` blocker yet; the next deterministic failure still needs to be discovered by advancing the bounded float32 slice into `test_load*.py` and `test_log.py`.
+- The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under a fresh single-test repro.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.

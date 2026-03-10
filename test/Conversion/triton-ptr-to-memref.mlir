@@ -273,6 +273,34 @@ module {
 // -----
 
 module {
+// CHECK-LABEL:   tt.func @tensor_ptr_fill_from_scalar_addptr(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) -> f32 {
+// CHECK:           %[[C5:.*]] = arith.constant 5 : index
+// CHECK:           %[[C0:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[C0]]] : tensor<4xi32>
+// CHECK:           %[[OFFSET_IDX:.*]] = arith.index_cast %[[EXTRACT]] : i32 to index
+// CHECK:           %[[CAST:.*]] = memref.cast %[[ARG0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[LOAD_IDX:.*]] = arith.addi %[[OFFSET_IDX]], %[[C5]] : index
+// CHECK:           %[[VAL:.*]] = memref.load %[[CAST]]{{\[}}%[[LOAD_IDX]]] : memref<?xf32>
+// CHECK:           tt.return %[[VAL]] : f32
+// CHECK:         }
+  tt.func @tensor_ptr_fill_from_scalar_addptr(%arg0: !tt.ptr<f32>, %arg1: tensor<4xi32>) -> f32 {
+    %c5_i32 = arith.constant 5 : i32
+    %base = tt.addptr %arg0, %c5_i32 : !tt.ptr<f32>, i32
+    %empty = tensor.empty() : tensor<4x!tt.ptr<f32>>
+    %ptrs = linalg.fill ins(%base : !tt.ptr<f32>) outs(%empty : tensor<4x!tt.ptr<f32>>) -> tensor<4x!tt.ptr<f32>>
+    %offset_ptrs = tt.addptr %ptrs, %arg1 : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    %c0 = arith.constant 0 : index
+    %ptr = tensor.extract %offset_ptrs[%c0] : tensor<4x!tt.ptr<f32>>
+    %val = tt.load %ptr : !tt.ptr<f32>
+    tt.return %val : f32
+  }
+}
+
+// -----
+
+module {
 // CHECK-LABEL:   tt.func @tensor_ptr_addptr_atomic_cas_float(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
