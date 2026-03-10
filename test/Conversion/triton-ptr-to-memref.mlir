@@ -42,15 +42,52 @@ module {
 module {
 // CHECK-LABEL:   tt.func @tt_ptr_arg(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf16>) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f16
-// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : memref<*xf16> to !tt.ptr<f16>
-// CHECK:           tt.store %[[UNREALIZED_CONVERSION_CAST_0]], %[[CONSTANT_0]] : !tt.ptr<f16>
+// CHECK:           %[[C0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CST:.*]] = arith.constant 1.000000e+00 : f16
+// CHECK:           %[[CAST:.*]] = memref.cast %[[ARG0]] : memref<*xf16> to memref<?xf16>
+// CHECK:           memref.store %[[CST]], %[[CAST]]{{\[}}%[[C0]]] : memref<?xf16>
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @tt_ptr_arg(%arg0: !tt.ptr<f16>) {
     %cst = arith.constant 1.000000e+00 : f16
     tt.store %arg0, %cst : !tt.ptr<f16>
     tt.return
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   func.func @scalar_ptr_if(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[C0_I64:.*]] = arith.constant 0 : i64
+// CHECK:           %[[SRC_CAST0:.*]] = memref.cast %[[ARG0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[BASE:.*]] = memref.extract_aligned_pointer_as_index %[[SRC_CAST0]] : memref<?xf32> -> index
+// CHECK:           %[[ADDR:.*]] = arith.index_cast %[[BASE]] : index to i64
+// CHECK:           %[[COND:.*]] = arith.cmpi ne, %[[ADDR]], %[[C0_I64]] : i64
+// CHECK:           scf.if %[[COND]] {
+// CHECK:             %[[IDX:.*]] = arith.index_cast %[[ARG2]] : i32 to index
+// CHECK:             %[[SRC:.*]] = memref.cast %[[ARG0]] : memref<*xf32> to memref<?xf32>
+// CHECK:             %[[VAL:.*]] = memref.load %[[SRC]]{{\[}}%[[IDX]]] : memref<?xf32>
+// CHECK:             %[[IDX2:.*]] = arith.index_cast %[[ARG2]] : i32 to index
+// CHECK:             %[[DST:.*]] = memref.cast %[[ARG1]] : memref<*xf32> to memref<?xf32>
+// CHECK:             memref.store %[[VAL]], %[[DST]]{{\[}}%[[IDX2]]] : memref<?xf32>
+// CHECK:           }
+// CHECK:           return
+// CHECK:         }
+  func.func @scalar_ptr_if(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
+    %c0_i64 = arith.constant 0 : i64
+    %0 = tt.ptr_to_int %arg0 : !tt.ptr<f32> -> i64
+    %1 = arith.cmpi ne, %0, %c0_i64 : i64
+    scf.if %1 {
+      %2 = tt.addptr %arg0, %arg2 : !tt.ptr<f32>, i32
+      %3 = tt.load %2 : !tt.ptr<f32>
+      %4 = tt.addptr %arg1, %arg2 : !tt.ptr<f32>, i32
+      tt.store %4, %3 : !tt.ptr<f32>
+    }
+    return
   }
 }
 

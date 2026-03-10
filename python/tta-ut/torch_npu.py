@@ -354,6 +354,7 @@ torch.Tensor.cpu = _tensor_cpu  # ty:ignore
 for name in [
     "__abs__",
     "__add__",
+    "__getitem__",
     "__mul__",
     "__neg__",
     "__radd__",
