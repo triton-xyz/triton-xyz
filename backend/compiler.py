@@ -169,8 +169,14 @@ class XYZBackend(BaseBackend):
         return {"min_dot_size": lambda lhs, rhs: (1, 1, 1)}
 
     def get_module_map(self) -> Dict[str, ModuleType]:
-        # TODO
-        return {"triton.language.extra.libdevice": None}
+        from triton.language.extra.cuda import libdevice
+
+        return {
+            "triton.language.extra.libdevice": libdevice,
+            "triton.language.extra.ascend.libdevice": libdevice,
+            "triton.language.extra.cann.libdevice": libdevice,
+            "triton.language.extra.xyz.libdevice": libdevice,
+        }
 
     def load_dialects(self, ctx):
         # TODO

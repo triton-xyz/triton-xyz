@@ -19,9 +19,8 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `third_party/ascend/unittest/pytest_ut/test_linearize_mask.py` passes once `backend/compiler.py` accepts the `optimize_dynamic_offset` JIT kwarg via `CPUOptions`.
 - Isolated `cann.libdevice` pytest cases need `torch_npu` loaded during collection; importing it from `python/tta-ut/conftest.py` installs the local module aliases early enough for `import triton.language.extra.cann.libdevice`.
 - `python/tta-ut/torch_npu.py` must alias `triton.language.extra.cann.libdevice` and `triton.language.extra.ascend.libdevice` to `third_party/triton/python/triton/language/extra/libdevice.py`, not the placeholder `extra/xyz/libdevice.py`.
-- `third_party/triton-ascend/python/triton/language/semantic.py` only enforces power-of-two `tl.arange` spans in SIMT mode, and `third_party/triton-ascend/python/triton/language/_utils.py` also relaxes the block-shape power-of-two check.
-- Mirroring that behavior in the local `python/tta-ut/torch_npu.py` harness lets `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` compile past `tl.arange(0, 640)`.
-- The next `test_cosh.py::test_cosh_special[float32]` blocker is `AttributeError(\"'NoneType' object has no attribute 'cosh'\")` because `backend/compiler.py:get_module_map()` currently returns `{\"triton.language.extra.libdevice\": None}` during codegen.
+- `backend/compiler.py:get_module_map()` can point the generic, `cann`, `ascend`, and `xyz` libdevice names at `triton.language.extra.cuda.libdevice`; that makes `libdevice.cosh` lower to `tt.extern_elementwise` with symbol `__nv_coshf`.
+- The current isolated command for `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` still fails in AST to TTIR parsing because `tl.arange(0, 640)` becomes a 640-element `tt.make_range`, and the active frontend path still requires power-of-two spans.
 
 ## Open Questions
 
@@ -37,6 +36,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 
 - Historical note said an interrupted full-suite log lived at `debug/tmp-0/pytest.log`; current repo state has `debug/tmp/pytest.log` instead.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
+- Historical note said the local `torch_npu.py` shim already let `test_cosh.py` compile past `tl.arange(0, 640)`; the latest isolated `pytest` run still hits the non-power-of-two `tt.make_range` parser error.
 
 ## Rules
 
