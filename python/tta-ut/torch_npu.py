@@ -27,21 +27,89 @@ np.random.seed(SEED)
 
 # fake apis
 
-torch.Tensor.npu = torch.Tensor.cpu  # ty:ignore
+_FAKE_NPU_ATTR = "_ttx_fake_npu"
+_orig_tensor_cpu = torch.Tensor.cpu
+
+
+def _mark_fake_npu_tensor(value):
+    if isinstance(value, torch.Tensor):
+        setattr(value, _FAKE_NPU_ATTR, True)
+    return value
+
+
+def _clear_fake_npu_tensor(value):
+    if isinstance(value, torch.Tensor) and hasattr(value, _FAKE_NPU_ATTR):
+        delattr(value, _FAKE_NPU_ATTR)
+    return value
+
+
+def _is_fake_npu_tensor(value):
+    return isinstance(value, torch.Tensor) and bool(getattr(value, _FAKE_NPU_ATTR, False))
+
+
+def _tensor_cpu(self, *args, **kwargs):
+    return _clear_fake_npu_tensor(_orig_tensor_cpu(self, *args, **kwargs))
+
+
+def _tensor_npu(self, *args, **kwargs):
+    return _mark_fake_npu_tensor(_orig_tensor_cpu(self, *args, **kwargs))
+
+
+torch.Tensor.cpu = _tensor_cpu  # ty:ignore
+torch.Tensor.npu = _tensor_npu  # ty:ignore
 
 
 def _wrap_api(func):
     def wrapper(*args, **kwargs):
         if "device" in kwargs and "npu" in str(kwargs["device"]):
             kwargs["device"] = "cpu"
-        return func(*args, **kwargs)
+            return _mark_fake_npu_tensor(func(*args, **kwargs))
+        return _clear_fake_npu_tensor(func(*args, **kwargs))
 
     return wrapper
 
 
-for name in ["full", "empty", "rand", "randn", "randint", "zeros", "arange"]:
+for name in [
+    "arange",
+    "empty",
+    "empty_like",
+    "full",
+    "full_like",
+    "ones",
+    "ones_like",
+    "rand",
+    "rand_like",
+    "randint",
+    "randn",
+    "randn_like",
+    "tensor",
+    "zeros",
+    "zeros_like",
+]:
     if hasattr(torch, name):
         setattr(torch, name, _wrap_api(getattr(torch, name)))
+
+
+def _iter_tensors(value):
+    if isinstance(value, torch.Tensor):
+        yield value
+        return
+    if isinstance(value, (list, tuple)):
+        for element in value:
+            yield from _iter_tensors(element)
+        return
+    if isinstance(value, dict):
+        for element in value.values():
+            yield from _iter_tensors(element)
+
+
+def _raise_on_cpu_tensor_args(args, kwargs):
+    for index, arg in enumerate(args):
+        if any(not _is_fake_npu_tensor(tensor) for tensor in _iter_tensors(arg)):
+            raise ValueError(f"Pointer argument (at {index}) cannot be accessed from Triton (cpu tensor?)")
+    for name, arg in kwargs.items():
+        if any(not _is_fake_npu_tensor(tensor) for tensor in _iter_tensors(arg)):
+            raise ValueError(f"Pointer argument ({name}) cannot be accessed from Triton (cpu tensor?)")
 
 
 def _builder_allows_non_power_of_two_arange(builder):
@@ -104,6 +172,7 @@ if not getattr(_orig_jit_run, "_ttx_normalize_subblocks_compat", False):
     def _jit_run_compat(self, *args, grid, warmup, **kwargs):
         target = triton.runtime.driver.active.get_current_target()
         if getattr(target, "backend", "") == "cpu":
+            _raise_on_cpu_tensor_args(args, kwargs)
             args, kwargs = _normalize_constexpr_blocks(self, args, kwargs)
         return _orig_jit_run(self, *args, grid=grid, warmup=warmup, **kwargs)
 
