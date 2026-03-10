@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_copysign.py
-  -k "test_copysign[float32-shape0]"
+  third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py
+  -k "test_modified_bessel_i0[param_list0]"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py
