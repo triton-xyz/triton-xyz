@@ -1,9 +1,13 @@
 import inspect
+import hashlib
 import numbers
 import os
+import subprocess
 import re
 import sys
+import tempfile
 import types
+from pathlib import Path
 import numpy as np
 import torch
 
@@ -20,6 +24,7 @@ import triton.language.extra.cuda.libdevice as cuda_libdevice
 import triton.language.extra.xyz.libdevice as xyz_libdevice
 from triton._C import libtriton as triton_libtriton
 import triton.backends.xyz.driver as xyz_driver
+import triton.backends.xyz.compiler as xyz_compiler
 from triton.backends.xyz.driver import XYZDriver  # noqa
 from triton.runtime.jit import JITFunction, _normalize_ty
 
@@ -33,6 +38,209 @@ torch.cpu.set_device(DEVICE)
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
+
+
+class _CompatAttrsDescriptor:
+    __slots__ = (
+        "arg_properties",
+        "property_values",
+        "constant_properties",
+        "divisibility_16",
+        "equal_to_1",
+    )
+
+    def __init__(self, params=None, values=None):
+        self.arg_properties = {}
+        self.property_values = {
+            "tt.divisibility": 16,
+            "tt.equal_to": 1,
+        }
+        self.constant_properties = {"tt.equal_to"}
+        self._add_common_properties(params, values)
+        self._init_slots()
+
+    def _add_common_properties(self, params, values):
+        if params is None or values is None:
+            return
+
+        assert len(params) == len(values)
+        self.arg_properties["tt.divisibility"] = [
+            param.num
+            for param, arg in zip(params, values)
+            if self.is_divisible_by_16(arg)
+            and not param.do_not_specialize
+            and not getattr(param, "do_not_specialize_on_alignment", False)
+        ]
+        self.arg_properties["tt.equal_to"] = [
+            param.num
+            for param, arg in zip(params, values)
+            if self.is_equal_to_1(arg) and not param.do_not_specialize
+        ]
+
+    def _init_slots(self):
+        for prop_name, prop_val in self.property_values.items():
+            values = list(self.arg_properties.get(prop_name, ()))
+            setattr(self, prop_name.removeprefix("tt.") + "_" + str(prop_val), values)
+
+    def get_fn_attrs(self):
+        attrs = {}
+        for prop_name, arg_set in self.arg_properties.items():
+            prop_val = self.property_values[prop_name]
+            for arg in arg_set:
+                attrs[arg] = attrs.get(arg, []) + [(prop_name, prop_val)]
+        return attrs
+
+    def get_constants(self):
+        constants = {}
+        for prop_name in self.constant_properties:
+            for arg in self.arg_properties.get(prop_name, ()):
+                constants[arg] = self.property_values[prop_name]
+        return constants
+
+    def filter_out_constants(self):
+        filtered = type(self)()
+        filtered.arg_properties = {
+            prop_name: list(arg_set)
+            for prop_name, arg_set in self.arg_properties.items()
+            if prop_name not in self.constant_properties
+        }
+        filtered.property_values = {
+            prop_name: prop_val
+            for prop_name, prop_val in self.property_values.items()
+            if prop_name not in self.constant_properties
+        }
+        filtered.constant_properties = set()
+        filtered._init_slots()
+        return filtered
+
+    def hash(self):
+        key = repr(
+            (
+                sorted((name, tuple(values)) for name, values in self.arg_properties.items()),
+                sorted(self.property_values.items()),
+                sorted(self.constant_properties),
+            )
+        )
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+    def to_dict(self):
+        return {
+            "arg_properties": {name: list(values) for name, values in self.arg_properties.items()},
+            "cls": "AttrsDescriptor",
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        descriptor = cls()
+        descriptor.arg_properties = {
+            name: list(values) for name, values in data.get("arg_properties", {}).items()
+        }
+        descriptor._init_slots()
+        return descriptor
+
+    @classmethod
+    def from_hints(cls, hints):
+        descriptor = cls()
+        items = list(hints.items() if hasattr(hints, "items") else hints)
+        for prop_name, prop_val in descriptor.property_values.items():
+            descriptor.arg_properties[prop_name] = [index for index, value in items if value == prop_val]
+        descriptor._init_slots()
+        return descriptor
+
+    @staticmethod
+    def is_divisible_by_16(arg):
+        if hasattr(arg, "data_ptr"):
+            return arg.data_ptr() % 16 == 0
+        if isinstance(arg, int):
+            return arg % 16 == 0
+        return arg is None
+
+    @staticmethod
+    def is_equal_to_1(arg):
+        return isinstance(arg, int) and not isinstance(arg, bool) and arg == 1
+
+    @staticmethod
+    def get_property_key(value, align):
+        if align and _CompatAttrsDescriptor.is_divisible_by_16(value):
+            return "D"
+        if _CompatAttrsDescriptor.is_equal_to_1(value):
+            return "1"
+        return "N"
+
+    def __repr__(self):
+        return f"AttrsDescriptor.from_dict({self.to_dict()!r})"
+
+
+def _patch_attrs_descriptor():
+    import triton.backends.compiler as triton_backends_compiler
+    import triton.compiler as triton_compiler_pkg
+    import triton.compiler.compiler as triton_compiler
+
+    if hasattr(triton_compiler, "AttrsDescriptor"):
+        return
+
+    triton_backends_compiler.AttrsDescriptor = _CompatAttrsDescriptor
+    triton_compiler.AttrsDescriptor = _CompatAttrsDescriptor
+    triton_compiler_pkg.AttrsDescriptor = _CompatAttrsDescriptor
+
+    exported = list(getattr(triton_compiler_pkg, "__all__", ()))
+    if "AttrsDescriptor" not in exported:
+        triton_compiler_pkg.__all__ = [*exported, "AttrsDescriptor"]
+
+
+_patch_attrs_descriptor()
+
+
+def _patch_xyz_make_llir():
+    current_impl = xyz_compiler.XYZBackend.make_llir
+    if getattr(current_impl, "_ttx_xyz_make_llir_affine_compat", False):
+        return
+
+    def _make_llir(src, metadata, options):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            linalg_path = os.path.join(tmpdir, "linalg.mlir")
+            llvm_path = os.path.join(tmpdir, "llvm.mlir")
+            llir_path = os.path.join(tmpdir, "ll.ir")
+            Path(linalg_path).write_text(src)
+            cmd = [xyz_compiler._find_tool("triton-xyz-opt")]
+            cmd.extend(xyz_compiler._mlir_debug_args("xyz_to_llvm"))
+            cmd.extend(
+                [
+                    linalg_path,
+                    "--one-shot-bufferize",
+                    "--convert-linalg-to-loops",
+                    "--lower-affine",
+                    "--convert-scf-to-cf",
+                    "--memref-expand",
+                    "--expand-strided-metadata",
+                    "--convert-xyz-to-llvm",
+                    "--lower-affine",
+                    "--convert-arith-to-llvm",
+                    "--reconcile-unrealized-casts",
+                    "--canonicalize",
+                    "--cse",
+                    "-o",
+                    llvm_path,
+                ]
+            )
+            subprocess.check_call(cmd)
+            subprocess.check_call(
+                [
+                    xyz_compiler._find_tool("mlir-translate"),
+                    llvm_path,
+                    "--mlir-to-llvmir",
+                    "-o",
+                    llir_path,
+                ]
+            )
+            metadata["shared"] = 1
+            return Path(llir_path).read_text()
+
+    _make_llir._ttx_xyz_make_llir_affine_compat = True
+    xyz_compiler.XYZBackend.make_llir = staticmethod(_make_llir)
+
+
+_patch_xyz_make_llir()
 
 
 class _FakeNPUUtils:

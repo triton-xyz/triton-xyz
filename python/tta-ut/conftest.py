@@ -185,7 +185,6 @@ SKIP_TEST_FILES = {
     "test_add_mindspore.py",
     "test_softmax_mindspore.py",
     "test_downgrade.py",
-    "test_index_select_inductor.py",
     "test_matmul_mindspore.py",
     #
 }

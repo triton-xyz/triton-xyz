@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_hypot.py
-  -k "test_hypot[param_list0]"
+  third_party/ascend/unittest/pytest_ut/test_if_tensor.py
+  -k "test_kernel"
   #
 )
 pushd third_party/triton-ascend
