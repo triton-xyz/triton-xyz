@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_abs.py
-  -k "test_abs.py"
+  third_party/ascend/unittest/pytest_ut/test_address_check.py
+  -k "test_cpu_tensor_should_fail"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py

@@ -4,6 +4,7 @@ import torch
 
 import triton  # noqa
 import triton.language as tl  # noqa
+import triton.backends.xyz.driver as xyz_driver
 from triton.backends.xyz.driver import XYZDriver  # noqa
 
 # set device
@@ -20,21 +21,113 @@ np.random.seed(SEED)
 
 # fake apis
 
-torch.Tensor.npu = torch.Tensor.cpu  # ty:ignore
+_FAKE_NPU_ATTR = "_ttx_fake_npu"
 
 
-def _wrap_api(func):
+def _is_npu_device(device):
+    return device is not None and "npu" in str(device)
+
+
+def _mark_fake_npu(value):
+    if isinstance(value, torch.Tensor):
+        value._ttx_fake_npu = True
+    return value
+
+
+def _clear_fake_npu(value):
+    if isinstance(value, torch.Tensor) and hasattr(value, _FAKE_NPU_ATTR):
+        value._ttx_fake_npu = False
+    return value
+
+
+def _inherits_fake_npu(args, kwargs):
+    if _is_npu_device(kwargs.get("device")):
+        return False
+    if kwargs.get("device") is not None:
+        return False
+    for arg in args:
+        if isinstance(arg, torch.Tensor) and getattr(arg, _FAKE_NPU_ATTR, False):
+            return True
+    return False
+
+
+def _wrap_tensor_result(func):
     def wrapper(*args, **kwargs):
-        if "device" in kwargs and "npu" in str(kwargs["device"]):
+        requested_npu = _is_npu_device(kwargs.get("device"))
+        inherited_npu = _inherits_fake_npu(args, kwargs)
+        if requested_npu:
             kwargs["device"] = "cpu"
-        return func(*args, **kwargs)
+        result = func(*args, **kwargs)
+        if requested_npu or inherited_npu:
+            return _mark_fake_npu(result)
+        return result
 
     return wrapper
 
 
-for name in ["full", "empty", "rand", "randn", "randint", "zeros", "arange"]:
+_orig_tensor_to = torch.Tensor.to
+
+
+def _tensor_to(self, *args, **kwargs):
+    requested_npu = False
+    if args and _is_npu_device(args[0]):
+        args = ("cpu", *args[1:])
+        requested_npu = True
+    if _is_npu_device(kwargs.get("device")):
+        kwargs["device"] = "cpu"
+        requested_npu = True
+    result = _orig_tensor_to(self, *args, **kwargs)
+    if requested_npu or getattr(self, _FAKE_NPU_ATTR, False):
+        return _mark_fake_npu(result)
+    return _clear_fake_npu(result)
+
+
+def _tensor_npu(self, *args, **kwargs):
+    return _mark_fake_npu(_orig_tensor_to(self, "cpu", *args, **kwargs))
+
+
+def _tensor_cpu(self, *args, **kwargs):
+    return _clear_fake_npu(_orig_tensor_to(self, "cpu", *args, **kwargs))
+
+
+torch.Tensor.npu = _tensor_npu  # ty:ignore
+torch.Tensor.to = _tensor_to  # ty:ignore
+torch.Tensor.cpu = _tensor_cpu  # ty:ignore
+
+
+for name in [
+    "arange",
+    "as_tensor",
+    "empty",
+    "empty_like",
+    "empty_strided",
+    "full",
+    "full_like",
+    "ones",
+    "ones_like",
+    "rand",
+    "rand_like",
+    "randint",
+    "randn",
+    "randn_like",
+    "tensor",
+    "zeros",
+    "zeros_like",
+]:
     if hasattr(torch, name):
-        setattr(torch, name, _wrap_api(getattr(torch, name)))
+        setattr(torch, name, _wrap_tensor_result(getattr(torch, name)))
+
+
+_orig_build_unranked_memref = xyz_driver._build_unranked_memref
+
+
+def _build_unranked_memref(arg, keepalive):
+    if isinstance(arg, torch.Tensor) and not getattr(arg, _FAKE_NPU_ATTR, False):
+        raise ValueError("Pointer argument cannot be accessed from Triton (cpu tensor?)")
+    return _orig_build_unranked_memref(arg, keepalive)
+
+
+xyz_driver._build_unranked_memref = _build_unranked_memref
 
 if hasattr(tl, "randint4x"):
     randint4x = getattr(tl, "randint4x")
