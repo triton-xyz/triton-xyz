@@ -1,0 +1,4 @@
+interface:
+  display_name: "loop-core"
+  short_description: "Run one minimal autonomous loop round"
+  default_prompt: "Read `.agents/loop/current.md` and `.agents/loop/memory.md`, inspect the repository as the first source of truth, choose whether this round should act or reflect, execute one useful step, validate when behavior changes, compress the result back into shared state, and call `loop-git` if files changed."

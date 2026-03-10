@@ -1,4 +1,0 @@
-interface:
-  display_name: "loop-start"
-  short_description: "Select and dispatch one autonomous round focus"
-  default_prompt: "Inspect `.agents/loop/todo.md`, compute deterministic startup metrics from valid todo entries, select exactly one focus between `loop-arch` and `loop-build` without skipping priority, delegate the round, and return one merged report in the loop output order."

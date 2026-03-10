@@ -1,4 +1,0 @@
-interface:
-  display_name: "loop-build"
-  short_description: "Implement one validated code slice"
-  default_prompt: "Read `.agents/loop/todo.md`, execute the highest-priority implementation-ready pending todo without expanding scope, validate with real commands, mark it done, keep backlog edits minimal, and call `loop-git` for round finalization if files changed."

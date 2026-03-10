@@ -1,4 +1,4 @@
 interface:
   display_name: "loop-git"
-  short_description: "Stage, commit, and push one round slice"
-  default_prompt: "Inspect git state, stage only files for the current round slice, create one commit, push safely to the current branch upstream or `origin` without force, and report exact commit and push results with exception handling."
+  short_description: "Stage, commit, and push one autonomous loop slice"
+  default_prompt: "Inspect git state, stage only files for the current autonomous loop slice, create one commit with the `loop: <slice summary>` format, push safely to the current branch upstream or `origin` without force, and report exact commit and push results with exception handling."

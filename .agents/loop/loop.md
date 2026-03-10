@@ -1,31 +1,35 @@
-Run one Codex autonomous development round for this repository.
+Run one Codex autonomous loop round for this repository.
 
 Startup:
 
-- Invoke `loop-start` as the primary skill.
-- Read `AGENTS.md` and `.agents/loop/todo.md` before any action.
-- Treat `.agents/loop/todo.md` as the shared state and human intervention channel.
+- Invoke `loop-core` as the primary skill.
+- Read `AGENTS.md` before any action.
+- Read `.agents/loop/current.md` and `.agents/loop/memory.md` if they exist.
+- Treat repository state as the first source of truth.
 
 Human intervention contract:
 
-- The user may edit `Goals` and todo entries in `.agents/loop/todo.md` at any time.
-- Always treat the latest user edits in `.agents/loop/todo.md` as authoritative.
-- Do not overwrite or reorder user-authored intent unless required to finish the current round.
+- The user may edit `current.md` and `memory.md` at any time.
+- Always treat the latest user edits as authoritative intent.
+- Do not preserve stale notes when code or tests prove them wrong.
 
-Execution constraints:
+Execution contract:
 
-- Compute startup metrics from valid todo entries, then select exactly one focus skill: `loop-arch` or `loop-build`.
-- Delegate execution to the selected focus skill and follow its workflow.
-- Run relevant validation commands and report real outputs.
+- Re-ground on the current goal and repository reality at the start of every round.
+- Choose one action: `act` or `reflect`.
+- `act` means do the smallest useful validated step.
+- `reflect` means update understanding, state, or direction when acting would be wasteful or blind.
+- Keep one round focused on one main step.
+- Distill only reusable notes back into shared state.
 - If files changed, finalize with `loop-git` for stage, commit, and push.
 
 Return sections in this order:
 
-1. Focus Selected
-2. Selection Reason
-3. Todo Metrics (`total_count`, `done_count`, `pending_count`)
+1. Current Snapshot
+2. Selected Action
+3. Selection Reason
 4. Changes Made
 5. Checks Run
-6. Todo Updates
+6. State Updates
 7. Git Finalization
-8. Next Step
+8. Next Move

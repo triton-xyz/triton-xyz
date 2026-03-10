@@ -1,6 +1,6 @@
 ---
 name: loop-git
-description: "Git finalization skill for this repository. Use when `loop-arch`, `loop-build`, or another round action produced intended file changes and the round must deterministically scope staged files, create one commit, push safely to the current branch upstream or `origin`, and report the exact outcome without force or destructive recovery."
+description: "Git finalization skill for this repository. Use when `loop-core` or another round action produced intended file changes and the round must scope staged files, create one commit, push safely to the current branch upstream or `origin`, and report the exact outcome without force or destructive recovery."
 ---
 
 # Loop Git Skill
@@ -9,7 +9,7 @@ description: "Git finalization skill for this repository. Use when `loop-arch`, 
 
 - The current round produced repository changes.
 - `git status --short` is not empty for the intended scope.
-- `loop-arch` or `loop-build` is closing a round.
+- `loop-core` or another round action is closing a slice.
 
 ## Workflow
 
@@ -36,9 +36,9 @@ description: "Git finalization skill for this repository. Use when `loop-arch`, 
 ### Step 4, Commit
 
 - Commit once per round slice.
-- Message format: `<skill>: <slice summary>`.
-- Example: `loop-arch: refresh todo backlog for parser split`.
-- Example: `loop-build: implement T004 cli validation`.
+- Message format: `loop: <slice summary>`.
+- Example: `loop: stabilize ptr analysis checks`.
+- Example: `loop: refresh current state after reflection`.
 
 ### Step 5, Push
 
