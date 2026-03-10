@@ -3,6 +3,7 @@ import numpy as np
 import torch
 
 import triton  # noqa
+import triton.compiler.code_generator as triton_codegen  # noqa
 import triton._utils as triton_utils  # noqa
 import triton.language as tl  # noqa
 import triton.language.core as tl_core  # noqa
@@ -93,6 +94,62 @@ def _validate_block_shape_compat(shape):
 if getattr(tl_core.validate_block_shape, "__name__", "") != "_validate_block_shape_compat":
     tl_core.validate_block_shape = _validate_block_shape_compat
     triton_utils.validate_block_shape = _validate_block_shape_compat
+
+
+_orig_ast_to_ttir = triton_codegen.ast_to_ttir
+if not getattr(_orig_ast_to_ttir, "_ttx_skip_verify_compat", False):
+
+    def _ast_to_ttir_compat(fn, src, context, options, codegen_fns, module_map, module=None):
+        if getattr(options, "backend_name", "") != "cpu":
+            return _orig_ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=module)
+
+        arg_types = [None] * len(fn.arg_names)
+        for key, value in src.signature.items():
+            index = fn.arg_names.index(key)
+            arg_types[index] = triton_codegen.str_to_ty(value, None)
+
+        def _apply_constexpr_types(argument, indices, value):
+            index = indices.pop()
+            if len(indices) == 0:
+                if isinstance(argument, list):
+                    argument[index] = triton_codegen.constexpr(value).type
+                else:
+                    argument.types[index] = triton_codegen.constexpr(value).type
+            else:
+                _apply_constexpr_types(argument[index], indices, value)
+
+        for path, value in src.constants.items():
+            _apply_constexpr_types(arg_types, list(path)[::-1], value)
+
+        prototype = triton_codegen.ASTFunction([], arg_types, src.attrs)
+        file_name, begin_line = triton_codegen.get_jit_fn_file_line(fn)
+        from collections import namedtuple
+
+        leaves = filter(lambda value: len(value) == 1, src.constants)
+        constants = {fn.arg_names[index[0]]: src.constants[index] for index in leaves}
+        proxy = namedtuple("SpecializationProxy", ["constants", "signature"])(constants, src.signature)
+        generator = triton_codegen.CodeGenerator(
+            context,
+            prototype,
+            gscope=fn.get_capture_scope(),
+            function_name=fn.repr(proxy),
+            jit_fn=fn,
+            is_kernel=True,
+            file_name=file_name,
+            begin_line=begin_line,
+            options=options,
+            codegen_fns=codegen_fns,
+            module_map=module_map,
+            module=module,
+            is_gluon=fn.is_gluon(),
+        )
+        generator.visit(fn.parse())
+        module = generator.module
+        module.context = context
+        return module
+
+    _ast_to_ttir_compat._ttx_skip_verify_compat = True
+    triton_codegen.ast_to_ttir = _ast_to_ttir_compat
 
 if hasattr(tl, "randint4x"):
     randint4x = getattr(tl, "randint4x")
