@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded alphabetical float32 discovery flow is still paying off. This round cleared the rank-1 `cann.extension` slice repros by teaching the fake-NPU shim to expose a repo-owned `triton.language.extra.cann.extension` module with 1D `extract_slice` / `insert_slice` helpers built from active Triton core ops, and by unskipping the now-green `test_extract_slice.py` / `test_insert_slice.py` files in `python/tta-ut/conftest.py`. The next round should stay on the newly exposed `test_fixpipe.py::test_fixpipe` repro in `python/tta-ut/pytest_one.sh`, inspect how much of `triton.extension.buffer.language` can be faked in repo-owned Python shims, and decide whether a narrow import-level compatibility layer is enough before touching deeper compiler support.
+- The bounded alphabetical float32 discovery flow is still paying off. This round cleared the `test_fixpipe.py::test_fixpipe` import/AST-compile blocker by extending the repo-owned fake-NPU shim with a minimal `triton.extension.buffer.language` package, a fake `triton._C.libtriton.ascend.ir.load_dialects(...)` entrypoint, and a no-op `al.fixpipe(...)` path that is just rich enough for the Ascend compile-only test corpus. The same round also had to make the `ast_to_ttir` options compatibility patch non-mutating so normal runtime compilation stayed intact for already-green files like `test_extract_slice.py`. The next round should stay on the newly exposed `test_gamma.py::test_gamma_case[param_list0]` repro in the next alphabetical slice and decide whether `xyz.libdevice.gamma` can be covered safely from repo-owned shims or needs a deeper lowering/backend change.
 
 # Evidence
 
@@ -134,17 +134,26 @@
 - 2026-03-11: Re-running the same bounded `extract_slice` -> `full` discovery slice after the shim fix advanced to a new import-level compatibility gap instead of a slice failure: `test_fixpipe.py` now stops during collection with `ModuleNotFoundError: No module named 'triton.extension'`.
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_fixpipe.py -k test_fixpipe`, and `bash python/tta-ut/pytest_one.sh` reproduces the same missing-`triton.extension.buffer.language` import error directly in the single-test harness.
 
+
+- 2026-03-11: `python/tta-ut/torch_npu.py` now installs a minimal repo-owned `triton.extension.buffer.language` package plus `core` module, backed by a fake builtin `alloc(...)` that materializes an active Triton tensor via `tl.full(...)`, and it also injects a fake `triton._C.libtriton.ascend.ir` module with no-op `load_dialects(...)` so Ascend compile-only tests can import their expected APIs without editing vendored sources.
+- 2026-03-11: The first `fixpipe` shim attempt got collection past the missing-package error but exposed a second import hole: `test_fixpipe.py` also imports `from triton._C.libtriton.ascend import ir as ascend_ir`, which the active runtime does not ship. Adding the fake `ascend.ir` module closed that gap.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now extends the repo-owned `triton.language.extra.xyz.extension` shim with fake `ascend_address_space`, `Fixpipe*Mode` enums, and a no-op builtin `fixpipe(...)`. Together with removing `test_fixpipe.py` from the buffer/extension skip buckets in `python/tta-ut/conftest.py`, that is enough for the Ascend compile-only `fixpipe` test to build TTIR without requiring real buffer-builder support.
+- 2026-03-11: Getting `test_fixpipe.py` past imports exposed a frontend drift issue instead of another buffer gap: its local `Options` class only defines Ascend-era fields, while active Triton frontend code now expects extra options like `sanitize_overflow`. `python/tta-ut/torch_npu.py` now wraps `triton.compiler.code_generator.ast_to_ttir` so missing option fields are supplied through a compatibility proxy when needed, without mutating frozen runtime backend option dataclasses.
+- 2026-03-11: Validation for the `fixpipe` checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_fixpipe.py::test_fixpipe` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_fixpipe.py` (`1 passed`), and regression reruns of `pytest -v third_party/ascend/unittest/pytest_ut/test_extract_slice.py` (`1 passed`) plus the bounded non-skipped `extract_slice` -> `full` slice (`24 passed, 15 skipped` after excluding already-ignored `test_flip.py`).
+- 2026-03-11: Advancing the bounded alphabetical float32 discovery window to non-skipped `gamma` -> `hypot` files exposed the next live blocker immediately in `test_gamma.py::test_gamma_case[param_list0]`: JIT dependency discovery fails before lowering with `AttributeError: module 'triton.language.extra.xyz.libdevice' has no attribute 'gamma'`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_gamma.py -k test_gamma_case[param_list0]`, and `bash python/tta-ut/pytest_one.sh` reproduces the same missing-`xyz.libdevice.gamma` `AttributeError` directly in the single-test harness (`1 failed, 1 deselected`).
+
 # Next Options
 
-- Inspect how the Ascend fork wires `triton.extension.buffer.language` and related buffer helpers, then add the smallest repo-owned fake-NPU shim needed to make `test_fixpipe.py` import and compile.
-- Reproduce the live blocker through `bash python/tta-ut/pytest_one.sh` on `test_fixpipe.py::test_fixpipe`, patch the import/module gap first, and rerun the isolated case before touching broader coverage.
-- If `test_fixpipe.py` gets past import and exposes deeper IR generation failures, inspect whether the active builder already has any buffer-allocation hooks that can be surfaced from repo-owned Python shims.
-- After the `fixpipe` repro is understood, resume the bounded alphabetical float32 discovery flow from the same `extract_slice` -> `full` slice to find the next live blocker.
+- Stay on the repointed `python/tta-ut/pytest_one.sh` target (`test_gamma.py -k test_gamma_case[param_list0]`), confirm the missing-`xyz.libdevice.gamma` repro in isolation, and inspect the Ascend fork's gamma implementation path before choosing a shim.
+- Compare active Triton and Ascend fork handling of `libdevice.gamma` / `lgamma` to decide whether a repo-owned JIT helper is enough or whether the active lowering stack would need a new extern rewrite.
+- Keep the buffer-language checkpoint stable by rerunning the small regression set (`test_extract_slice.py`, `test_fixpipe.py`) after any gamma-side shim work, because the new `ast_to_ttir` options proxy now sits on both compile-only and runtime compile paths.
+- After the `gamma` blocker is understood or fixed, continue the bounded alphabetical float32 discovery flow from the same non-skipped `gamma` -> `hypot` slice.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The live next blocker is now `test_fixpipe.py::test_fixpipe`, which currently fails during collection because fake-NPU pytest runs do not expose `triton.extension.buffer.language`.
-- The Ascend-side `fixpipe` test imports both `triton.extension.buffer.language` and `triton.language.extra.cann.extension`, so the next fix may need coordinated buffer-language and extension shims rather than a single alias.
+- The live next blocker is now `test_gamma.py::test_gamma_case[param_list0]`, which currently fails during JIT dependency discovery because fake-NPU pytest runs do not expose `triton.language.extra.xyz.libdevice.gamma`.
+- `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
 - Compiler stderr is still terse for live lowering failures, so the pass dumps under `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/` remain the best source of truth when a new isolated repro reaches `--triton-to-linalg-tta`.

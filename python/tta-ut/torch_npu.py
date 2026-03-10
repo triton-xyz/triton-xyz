@@ -18,6 +18,7 @@ import triton.compiler.code_generator as triton_codegen
 import triton.runtime.jit as triton_jit
 import triton.language.extra.cuda.libdevice as cuda_libdevice
 import triton.language.extra.xyz.libdevice as xyz_libdevice
+from triton._C import libtriton as triton_libtriton
 import triton.backends.xyz.driver as xyz_driver
 from triton.backends.xyz.driver import XYZDriver  # noqa
 from triton.runtime.jit import JITFunction, _normalize_ty
@@ -319,6 +320,53 @@ def _patch_constexpr_global_annotations():
 
 
 _patch_constexpr_global_annotations()
+
+
+_AST_TO_TTIR_OPTION_DEFAULTS = {
+    "allowed_dot_input_precisions": ("ieee",),
+    "backend_name": "xyz",
+    "default_dot_input_precision": "ieee",
+    "deprecated_fp8_dot_operand_dtypes": (),
+    "extern_libs": None,
+    "launch_cooperative_grid": False,
+    "max_num_imprecise_acc_default": 0,
+    "sanitize_overflow": True,
+    "supported_fp8_dtypes": (),
+}
+
+
+def _patch_ast_to_ttir_options():
+    current_impl = triton_codegen.ast_to_ttir
+    if getattr(current_impl, "_ttx_ast_to_ttir_options_compat", False):
+        return
+
+    def _options_with_defaults(options):
+        missing = {name: value for name, value in _AST_TO_TTIR_OPTION_DEFAULTS.items() if not hasattr(options, name)}
+        if not missing:
+            return options
+        try:
+            for name, value in missing.items():
+                setattr(options, name, value)
+            return options
+        except (AttributeError, TypeError):
+            option_values = {}
+            try:
+                option_values.update(vars(options))
+            except TypeError:
+                pass
+            proxy = types.SimpleNamespace(**option_values)
+            for name, value in missing.items():
+                setattr(proxy, name, value)
+            return proxy
+
+    def _ast_to_ttir(fn, src, context, options, codegen_fns, module_map, *args, **kwargs):
+        return current_impl(fn, src, context, _options_with_defaults(options), codegen_fns, module_map, *args, **kwargs)
+
+    _ast_to_ttir._ttx_ast_to_ttir_options_compat = True
+    triton_codegen.ast_to_ttir = _ast_to_ttir
+
+
+_patch_ast_to_ttir_options()
 
 
 def _patch_cdiv():
@@ -749,6 +797,71 @@ def _patch_xyz_libdevice():
 _patch_xyz_libdevice()
 
 
+class _FakeAddressSpace:
+
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+
+
+def _fake_enum_group(*names):
+    return types.SimpleNamespace(**{name: _FakeAddressSpace(name) for name in names})
+
+
+_fake_ascend_address_space = _fake_enum_group("GM", "L1", "L0A", "L0B", "L0C", "UB")
+_fake_fixpipe_dma_mode = _fake_enum_group("NZ2DN", "NZ2ND", "NZ2NZ")
+_fake_fixpipe_dual_dst_mode = _fake_enum_group("NO_DUAL", "COLUMN_SPLIT", "ROW_SPLIT")
+_fake_fixpipe_pre_quant_mode = _fake_enum_group("NO_QUANT", "F322BF16", "F322F16", "S322I8")
+_fake_fixpipe_pre_relu_mode = _fake_enum_group("LEAKY_RELU", "NO_RELU", "NORMAL_RELU", "P_RELU")
+
+
+@tl_core.builtin
+def _buffer_alloc(etype, shape, _address_space=None, is_mem_unique=False, _builder=None, _semantic=None):
+    del _address_space, is_mem_unique, _builder
+    return tl_core.full(shape, 0, etype, _semantic=_semantic)
+
+
+@tl_core.builtin
+def _extension_fixpipe(src, dst, dma_mode=None, dual_dst_mode=None, _builder=None, _semantic=None):
+    del dst, dma_mode, dual_dst_mode, _builder, _semantic
+    return None
+
+
+_buffer_language_core = types.ModuleType("triton.extension.buffer.language.core")
+_buffer_language_core.address_space = _FakeAddressSpace
+_buffer_language_core.buffer = tl_core.tensor
+_buffer_language_core.alloc = _buffer_alloc
+_buffer_language_core.__all__ = ["address_space", "buffer", "alloc"]
+
+_buffer_language = types.ModuleType("triton.extension.buffer.language")
+_buffer_language.__path__ = []
+_buffer_language.core = _buffer_language_core
+_buffer_language.address_space = _FakeAddressSpace
+_buffer_language.buffer = tl_core.tensor
+_buffer_language.alloc = _buffer_alloc
+_buffer_language.__all__ = ["core", "address_space", "buffer", "alloc"]
+
+_buffer_pkg = types.ModuleType("triton.extension.buffer")
+_buffer_pkg.__path__ = []
+_buffer_pkg.language = _buffer_language
+
+_extension_pkg = types.ModuleType("triton.extension")
+_extension_pkg.__path__ = []
+_extension_pkg.buffer = _buffer_pkg
+
+setattr(triton, "extension", _extension_pkg)
+
+_fake_ascend_ir = types.ModuleType("triton._C.libtriton.ascend.ir")
+_fake_ascend_ir.load_dialects = lambda context: None
+
+_fake_ascend_pkg = types.ModuleType("triton._C.libtriton.ascend")
+_fake_ascend_pkg.ir = _fake_ascend_ir
+
+setattr(triton_libtriton, "ascend", _fake_ascend_pkg)
+
+
 @triton.jit
 def _extension_sum_combine(a, b):  # ty:ignore
     return a + b
@@ -819,9 +932,24 @@ def _extension_insert_slice(full_tensor, sub_tensor, offsets, sizes, strides, _b
 
 
 _xyz_extension = types.ModuleType("triton.language.extra.xyz.extension")
+_xyz_extension.ascend_address_space = _fake_ascend_address_space
+_xyz_extension.FixpipeDMAMode = _fake_fixpipe_dma_mode
+_xyz_extension.FixpipeDualDstMode = _fake_fixpipe_dual_dst_mode
+_xyz_extension.FixpipePreQuantMode = _fake_fixpipe_pre_quant_mode
+_xyz_extension.FixpipePreReluMode = _fake_fixpipe_pre_relu_mode
 _xyz_extension.extract_slice = _extension_extract_slice
+_xyz_extension.fixpipe = _extension_fixpipe
 _xyz_extension.insert_slice = _extension_insert_slice
-_xyz_extension.__all__ = ["extract_slice", "insert_slice"]
+_xyz_extension.__all__ = [
+    "ascend_address_space",
+    "FixpipeDMAMode",
+    "FixpipeDualDstMode",
+    "FixpipePreQuantMode",
+    "FixpipePreReluMode",
+    "extract_slice",
+    "fixpipe",
+    "insert_slice",
+]
 setattr(triton.language.extra.xyz, "extension", _xyz_extension)
 
 
@@ -856,3 +984,9 @@ sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ig
 sys.modules["triton.language.extra.ascend.libdevice"] = xyz_libdevice  # ty:ignore
 sys.modules["triton.language.extra.ascend.extension"] = _xyz_extension  # ty:ignore
 sys.modules["triton.language.extra.xyz.extension"] = _xyz_extension
+sys.modules["triton.extension"] = _extension_pkg
+sys.modules["triton.extension.buffer"] = _buffer_pkg
+sys.modules["triton.extension.buffer.language"] = _buffer_language
+sys.modules["triton.extension.buffer.language.core"] = _buffer_language_core
+sys.modules["triton._C.libtriton.ascend"] = _fake_ascend_pkg
+sys.modules["triton._C.libtriton.ascend.ir"] = _fake_ascend_ir
