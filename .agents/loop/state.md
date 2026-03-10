@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- Keep the float32 loop on one fresh isolated repro at a time, but prefer repo-owned fake-NPU compatibility shims when the failing op is debug-only and not required for observable results. The `test_debug_barrier.py` blocker is now cleared by treating compiled-path `tl.debug_barrier()` like the existing device-print shim: interpreter mode still sees the barrier, while compiled XYZ pytest runs erase it to a void no-op so `gpu.barrier` never reaches LLVM translation. The next round should repoint `python/tta-ut/pytest_one.sh` away from the now-green barrier target and stale-check the next untouched float32 failure family from `debug/tmp-0/pytest.log`.
+- The old `debug/tmp-0/pytest.log` fail list is now effectively exhausted: after the `debug_barrier` fix, the remaining previously untouched float32 families from that log, `test_elementwise_clip.py`, `test_elementwise_f2i.py`, `test_elementwise_floor.py`, and `test_elementwise_round.py`, all prove stale on fresh reruns. The next round should stop mining that old log for untouched failures and instead do bounded discovery for the next live float32 blocker, for example by running a small alphabetical pytest slice with `--maxfail=1` and then repointing `python/tta-ut/pytest_one.sh` only once a real failure is found.
 
 # Evidence
 
@@ -111,17 +111,19 @@
 - 2026-03-11: `python/tta-ut/torch_npu.py` now monkeypatches `triton.language.semantic.TritonSemantic.debug_barrier` during fake-NPU pytest runs so interpreter mode keeps the real barrier semantics, while compiled XYZ runs erase `tl.debug_barrier()` to `self.tensor(None, tl.void)`, matching the earlier repo-owned `device_print` compatibility strategy.
 - 2026-03-11: Validation for the `debug_barrier` checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_debug_barrier.py::test_case[param_list0]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_debug_barrier.py` (`1 passed`), and a regression sanity rerun of `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_device_print.py` (`1 passed, 6 skipped`).
 - 2026-03-11: A quick stale-check probe of `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -vv third_party/ascend/unittest/pytest_ut/test_advance_ptr.py -k 'test_advance_with_boundary_check[shape0-float32]'` now passes (`1 passed, 5 deselected`), so that old full-suite failure is stale and should not be the next `pytest_one.sh` target.
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` away from the now-green barrier target to representative cases in `test_elementwise_clip.py`, `test_elementwise_f2i.py`, `test_elementwise_floor.py`, and `test_elementwise_round.py` showed all four old float32 failures were stale under the current shim/lowering stack; each fresh single-test rerun passed (`1 passed`).
+- 2026-03-11: Widening that stale-check cluster with `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_elementwise_clip.py third_party/ascend/unittest/pytest_ut/test_elementwise_f2i.py third_party/ascend/unittest/pytest_ut/test_elementwise_floor.py third_party/ascend/unittest/pytest_ut/test_elementwise_round.py` finished `19 passed, 28 skipped`, confirming the old untouched float32 failures from `debug/tmp-0/pytest.log` are cleared file-wide rather than only at one shape.
 
 # Next Options
 
-- Repoint `python/tta-ut/pytest_one.sh` to the next untouched float32 failure family from `debug/tmp-0/pytest.log` instead of the now-green barrier test, and prefer a stale-check before editing anything.
-- Probe another old failure that has not yet been widened file-wide, then keep it only if the isolated repro is still live under the current shim stack.
-- If the next live blocker is another debug-only Triton semantic such as a synchronization or instrumentation helper, prefer the same repo-owned fake-NPU shim pattern before considering compiler-side edits.
-- Keep avoiding `python/tta-ut/pytest.sh` as an inner-loop command unless the isolated target list is exhausted or a broader confirmation becomes necessary.
+- Run a bounded float32 discovery slice beyond the exhausted old fail list, for example a small alphabetical group of `third_party/ascend/unittest/pytest_ut/test_*.py` files with `--maxfail=1`, to surface one new live blocker without falling back to the unstable full-suite harness.
+- Once that bounded slice finds a real failure, repoint `python/tta-ut/pytest_one.sh` to the exact failing test case and return to the normal single-repro loop.
+- If the discovered blocker is another fake-NPU API mismatch rather than a lowering bug, prefer a repo-owned compatibility shim in `python/tta-ut/conftest.py` or `python/tta-ut/torch_npu.py` before editing compiler passes.
+- Keep avoiding `python/tta-ut/pytest.sh` as an inner-loop command unless bounded discovery stops finding new failures or a broader confirmation becomes necessary.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The remaining failure set is still large and heterogeneous, so the next round must keep choosing one narrow repro at a time rather than inferring a shared root cause from the noisy full-suite log.
+- The old `debug/tmp-0/pytest.log` fail list is no longer a reliable source of untouched work, because its last previously untracked float32 families now pass on fresh reruns; the next blocker needs a new bounded discovery pass rather than more stale-checks from that log.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
 - Compiler stderr is still terse for live lowering failures, so the pass dumps under `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/` remain the best source of truth when a new isolated repro reaches `--triton-to-linalg-tta`.

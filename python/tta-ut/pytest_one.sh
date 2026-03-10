@@ -22,12 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_debug_barrier.py
-  -k "test_case[param_list0]"
-  #
-  # `Segmentation fault`
-  # third_party/ascend/unittest/pytest_ut/test_complex_mask.py
-  # -k "test_complex_mask_permute_copy"
+  third_party/ascend/unittest/pytest_ut/test_elementwise_round.py
+  -k "test_elementwise_common[3-32-dtype0-float32-round-triton_round-standard_round]"
   #
 )
 pushd third_party/triton-ascend
