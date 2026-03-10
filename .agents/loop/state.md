@@ -14,13 +14,13 @@
 
 # Current Strategy
 
-- Keep the float32 loop on one fresh isolated repro at a time, but aggressively stale-check old full-suite failures before editing code. The latest checkpoint cleared the fake-NPU `device_print` path without touching vendored Triton sources by making compiled XYZ runs treat `tl.device_print` as a shimmed debug feature: compile-time `tt.print` is suppressed on the active lowering path, while fake-NPU pytest runs replay device-print side effects through a Python-side interpreter fallback and synthetic `ttadapter` metadata. The next round should stay on the newly live `test_debug_barrier.py` repro and decide whether `gpu.barrier` should be lowered away or shimmed similarly.
+- Keep the float32 loop on one fresh isolated repro at a time, but prefer repo-owned fake-NPU compatibility shims when the failing op is debug-only and not required for observable results. The `test_debug_barrier.py` blocker is now cleared by treating compiled-path `tl.debug_barrier()` like the existing device-print shim: interpreter mode still sees the barrier, while compiled XYZ pytest runs erase it to a void no-op so `gpu.barrier` never reaches LLVM translation. The next round should repoint `python/tta-ut/pytest_one.sh` away from the now-green barrier target and stale-check the next untouched float32 failure family from `debug/tmp-0/pytest.log`.
 
 # Evidence
 
 - 2026-03-11: `python/tta-ut/setup.sh` clones `third_party/triton-ascend` and wires `python/tta-ut/conftest.py` plus `python/tta-ut/torch_npu.py` into `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/` via symlinks.
 - 2026-03-11: `python/tta-ut/pytest.sh` runs `pytest -v third_party/ascend/unittest/pytest_ut` from `third_party/triton-ascend` with `TRITON_ALWAYS_COMPILE=1`, `TRITON_HOME=debug/tmp`, and logs to `debug/tmp/pytest.log`.
-- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. Its target selection is edited per repro and is currently set to `test_atomic_max.py -k test_atomic_max_2d_supply[float32-shape0]`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. Its target selection is edited per repro and should be treated as mutable mission state rather than a fixed default.
 - 2026-03-11: `python/tta-ut/conftest.py` provides pytest-side filtering and compatibility policy, including `SKIP_TEST_FILES`, dtype normalization, and the current supported dtype default of `float32`.
 - 2026-03-11: `python/tta-ut/torch_npu.py` supplies the CPU-backed NPU shim by activating `XYZDriver`, remapping selected `torch` allocation APIs away from `npu`, and aliasing `triton.language.extra.cann` and `triton.language.extra.ascend` to `xyz`.
 - 2026-03-11: `debug/tmp-0/pytest.log` shows a prior full-suite run collecting 1544 items and then hitting many failures and errors during execution. Representative early failures include `test_broadcast_op.py::test_broadcast_to[float32]`, the `test_cannonicalize_tl_where.py` family, `test_cat_dim.py::test_cat`, and `test_dot.py::*` with `ERROR`.
@@ -107,12 +107,17 @@
 - 2026-03-11: Validation for the `device_print` checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_device_print.py::test_device_print_fp32[float32]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_device_print.py` (`1 passed, 6 skipped`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_device_print_comprehensive.py` (`1 passed`).
 - 2026-03-11: After the device-print checkpoint, `python/tta-ut/pytest_one.sh` is now repointed to `test_debug_barrier.py -k test_case[param_list0]`. That repro is live and compiler-side: `mlir-translate` now rejects a surviving `gpu.barrier` in the translated LLVM-stage MLIR with `unsupported GPU operation: gpu.barrier`, so the next blocker is barrier lowering rather than another fake-NPU import/runtime mismatch.
 
+- 2026-03-11: Re-running `bash python/tta-ut/pytest_one.sh` on the live `test_debug_barrier.py::test_case[param_list0]` repro confirmed the failure was still current before editing: `mlir-translate` rejected a surviving `gpu.barrier` in LLVM-stage MLIR with `unsupported GPU operation: gpu.barrier`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now monkeypatches `triton.language.semantic.TritonSemantic.debug_barrier` during fake-NPU pytest runs so interpreter mode keeps the real barrier semantics, while compiled XYZ runs erase `tl.debug_barrier()` to `self.tensor(None, tl.void)`, matching the earlier repo-owned `device_print` compatibility strategy.
+- 2026-03-11: Validation for the `debug_barrier` checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_debug_barrier.py::test_case[param_list0]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_debug_barrier.py` (`1 passed`), and a regression sanity rerun of `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_device_print.py` (`1 passed, 6 skipped`).
+- 2026-03-11: A quick stale-check probe of `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -vv third_party/ascend/unittest/pytest_ut/test_advance_ptr.py -k 'test_advance_with_boundary_check[shape0-float32]'` now passes (`1 passed, 5 deselected`), so that old full-suite failure is stale and should not be the next `pytest_one.sh` target.
+
 # Next Options
 
-- Inspect the live `test_debug_barrier.py::test_case[param_list0]` failure and decide whether the surviving `gpu.barrier` should be erased, lowered to a CPU-safe synchronization no-op, or handled earlier in the TTA/XYZ lowering stack.
-- Check the LLVM-stage dump for the `test_debug_barrier.py` repro to confirm which pass leaves `gpu.barrier` behind before editing either the compiler or the fake-NPU shim.
-- If `gpu.barrier` turns out to be another debug-only fake-NPU feature, prefer a repo-owned shim or erasure strategy like the new `device_print` path instead of editing vendored Triton sources.
-- Keep using `python/tta-ut/pytest_one.sh` plus widened file reruns once a target flips green; the stale-checks on `atomic_rmw_useanalysis.py` and `atomic_xchg.py` saved a full round of unnecessary edits.
+- Repoint `python/tta-ut/pytest_one.sh` to the next untouched float32 failure family from `debug/tmp-0/pytest.log` instead of the now-green barrier test, and prefer a stale-check before editing anything.
+- Probe another old failure that has not yet been widened file-wide, then keep it only if the isolated repro is still live under the current shim stack.
+- If the next live blocker is another debug-only Triton semantic such as a synchronization or instrumentation helper, prefer the same repo-owned fake-NPU shim pattern before considering compiler-side edits.
+- Keep avoiding `python/tta-ut/pytest.sh` as an inner-loop command unless the isolated target list is exhausted or a broader confirmation becomes necessary.
 
 # Blockers
 

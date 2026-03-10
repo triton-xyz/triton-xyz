@@ -485,6 +485,23 @@ def _patch_device_print():
 _patch_device_print()
 
 
+def _patch_debug_barrier():
+    current_impl = triton_semantic.TritonSemantic.debug_barrier
+    if getattr(current_impl, "_ttx_debug_barrier_compat", False):
+        return
+
+    def _debug_barrier(self):
+        if _is_interpreter_builder(self.builder):
+            return current_impl(self)
+        return self.tensor(None, tl.void)
+
+    _debug_barrier._ttx_debug_barrier_compat = True
+    triton_semantic.TritonSemantic.debug_barrier = _debug_barrier
+
+
+_patch_debug_barrier()
+
+
 def _patch_jit_run_device_print():
     current_impl = JITFunction.run
     if getattr(current_impl, "_ttx_device_print_runtime_compat", False):
