@@ -6,6 +6,17 @@ import os
 import re
 
 
+def _patch_triton_error_compat():
+    import triton
+
+    errors = triton.compiler.errors
+    if not hasattr(errors, "MLIRCompilationError") and hasattr(errors, "CompilationError"):
+        setattr(errors, "MLIRCompilationError", errors.CompilationError)
+
+
+_patch_triton_error_compat()
+
+
 _DTYPE_ALIAS = {
     "fp16": "float16",
     "bf16": "bfloat16",

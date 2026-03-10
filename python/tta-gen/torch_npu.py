@@ -53,3 +53,6 @@ sys.modules["triton.language.extra.cann"] = triton.language.extra.xyz  # ty:igno
 sys.modules["triton.language.extra.cann.libdevice"] = triton.language.extra.xyz.libdevice  # ty:ignore
 sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.ascend.libdevice"] = triton.language.extra.xyz.libdevice  # ty:ignore
+
+if not hasattr(triton.compiler.errors, "MLIRCompilationError") and hasattr(triton.compiler.errors, "CompilationError"):
+    triton.compiler.errors.MLIRCompilationError = triton.compiler.errors.CompilationError  # ty:ignore

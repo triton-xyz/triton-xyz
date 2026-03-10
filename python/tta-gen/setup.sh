@@ -6,9 +6,9 @@ popd
 popd
 
 rm -f $PWD/third_party/triton-ascend/third_party/ascend/unittest/generalization_cases/conftest.py
-ln -s $PWD/python/tta-ut/conftest.py \
+ln -s $PWD/python/tta-gen/conftest.py \
   $PWD/third_party/triton-ascend/third_party/ascend/unittest/generalization_cases/conftest.py
 
 rm -f $PWD/third_party/triton-ascend/third_party/ascend/unittest/generalization_cases/torch_npu.py
-ln -s $PWD/python/tta-ut/torch_npu.py \
+ln -s $PWD/python/tta-gen/torch_npu.py \
   $PWD/third_party/triton-ascend/third_party/ascend/unittest/generalization_cases/torch_npu.py
