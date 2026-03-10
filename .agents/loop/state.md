@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, and prefer repo-owned Python compatibility shims first when a failure is caused by frontend behavior differences between active `third_party/triton` and the Ascend test corpus. Keep `python/tta-ut/patch_active_triton_verifier.sh` available for the separate verifier-path mismatch already proven by `test_advance.py`.
+- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, and keep using repo-owned fake-NPU compatibility shims first when failures come from frontend/runtime mismatches between active `third_party/triton` and the Ascend corpus. The next active blocker is no longer libdevice coverage for the early unary math files; it is the stricter upstream `tl.arange` power-of-two range check now reproduced by `test_asinh.py`.
 
 # Evidence
 
@@ -45,13 +45,19 @@
 - 2026-03-11: Comparing active Triton against `third_party/triton-ascend/python/triton/compiler/code_generator.py` showed the Ascend fork treats `__annotations__[name] == tl.constexpr` as constexpr-global metadata, while the active frontend only accepts `triton.language.constexpr(...)` values.
 - 2026-03-11: `python/tta-ut/torch_npu.py` now patches `triton.compiler.code_generator.CodeGenerator._is_constexpr_global` to honor module-level `tl.constexpr` annotations during fake-NPU pytest runs, matching the Ascend corpus expectation without editing the active vendored Triton Python sources.
 - 2026-03-11: Validation succeeded with `bash python/tta-ut/pytest_one.sh` for `test_broadcast_op.py::test_broadcast_to[float32]`, `pytest -v third_party/ascend/unittest/pytest_ut/test_broadcast_op.py` for the whole file (`1 passed`), and a second annotated-constexpr sanity probe `pytest -v third_party/ascend/unittest/pytest_ut/test_template.py` (`1 passed`).
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_acos.py::test_asinh_special[float32]` reproduced a fake-NPU compatibility gap rather than a lowering failure: `triton.language.extra.cann.libdevice` was aliased to the empty active `xyz.libdevice`, so `libdevice.acos` was missing during JIT dependency discovery.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now patches fake-NPU Torch result propagation more broadly, so tensors derived from tagged fake-NPU tensors through common top-level ops (`torch.acos`, `torch.acosh`, `torch.asinh`, `torch.cat`, etc.) and matching tensor methods/operators (`abs`, unary math methods, `+`, `-`, `*`, `/`, negation, clone, contiguous) keep the fake-NPU marker instead of regressing to plain CPU tensors.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now seeds `triton.language.extra.xyz.libdevice` from the active CUDA libdevice wrappers for the unary/binary extern symbols that `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` already knows how to rewrite, avoiding direct edits to vendored Triton Python sources.
+- 2026-03-11: The first broad re-export exposed a second compatibility gap for hyperbolic inverse ops: `__nv_acosh*` and friends rewrote to `math.acosh` / `math.asinh`, but the XYZ LLVM path left those ops in `llvm.mlir`, where `mlir-translate` rejected the unregistered `math` dialect. Replacing fake-NPU `libdevice.acosh` / `libdevice.asinh` / `libdevice.atanh` with repo-owned `@triton.jit` formula helpers in `python/tta-ut/torch_npu.py` avoided that backend-stage mismatch.
+- 2026-03-11: Validation succeeded with `bash python/tta-ut/pytest_one.sh` for `test_acos.py::test_asinh_special[float32]`, `pytest -v third_party/ascend/unittest/pytest_ut/test_acos.py` (`1 passed, 2 skipped` under the float32 filter), `pytest -v third_party/ascend/unittest/pytest_ut/test_acosh.py` (`2 passed, 4 skipped`), and a regression sanity rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_address_check.py` (`2 passed`).
+- 2026-03-11: After the `acos` / `acosh` checkpoint, `python/tta-ut/pytest_one.sh` is now repointed to `test_asinh.py -k test_asinh_special[float32]`. That repro fails earlier in frontend semantic validation with `ValueError: arange's range must be a power of 2` for `tl.arange(0, 805)`, so the next round should investigate whether the Ascend fork intentionally relaxes this `tl.arange` restriction and whether the active verifier / lowering stack can tolerate that relaxation.
 
 # Next Options
 
-- Retarget `python/tta-ut/pytest_one.sh` to the next earliest reproducible non-skipped failure from the saved full-suite evidence, likely one of the early elementwise files such as `test_acos.py` or `test_acosh.py`, and keep the inner loop narrow.
-- Watch for other `pytest_ut` files that now pass automatically under the new annotated-constexpr shim, especially kernels that use module-level `X_SIZE : tl.constexpr = ...` style globals inside `@triton.jit` bodies.
-- Watch for files that now pass automatically under the relaxed active Triton verifier, especially tests that rely on non-power-of-two block-pointer shapes or tensor pointer rewrites.
-- When a new failure looks compiler-specific rather than pytest-shim-specific, confirm first whether it reproduces after rerunning `python/tta-ut/patch_active_triton_verifier.sh` to eliminate stale local binaries.
+- Compare active `third_party/triton/python/triton/language/semantic.py` against the Ascend fork for the `tl.arange` power-of-two range check now blocking `test_asinh.py::test_asinh_special[float32]`, and confirm whether relaxing that frontend guard is enough or only exposes a deeper verifier blocker.
+- After any `tl.arange`-related change, rerun `bash python/tta-ut/pytest_one.sh` for `test_asinh.py::test_asinh_special[float32]` first, then widen to `pytest -v third_party/ascend/unittest/pytest_ut/test_asinh.py`.
+- Watch for other unary math `pytest_ut` files that now pass automatically under the new fake-NPU libdevice and tag-propagation shims, especially tests using `torch.acos`, `torch.acosh`, `torch.asinh`, or `triton.language.extra.cann.libdevice.*`.
+- If a new frontend relaxation requires changing active vendored Triton behavior again, preserve it through a tracked repo-owned helper or patch script when possible, because the local `third_party/triton/` checkout used by pytest is still outside git tracking here.
 
 # Blockers
 

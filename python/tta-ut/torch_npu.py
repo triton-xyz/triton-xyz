@@ -7,6 +7,8 @@ import triton.language as tl  # noqa
 import triton._utils as triton_utils
 import triton.language.core as tl_core
 import triton.compiler.code_generator as triton_codegen
+import triton.language.extra.cuda.libdevice as cuda_libdevice
+import triton.language.extra.xyz.libdevice as xyz_libdevice
 import triton.backends.xyz.driver as xyz_driver
 from triton.backends.xyz.driver import XYZDriver  # noqa
 from triton.runtime.jit import _normalize_ty
@@ -44,15 +46,22 @@ def _clear_fake_npu(value):
     return value
 
 
+def _contains_fake_npu(value):
+    if isinstance(value, torch.Tensor):
+        return getattr(value, _FAKE_NPU_ATTR, False)
+    if isinstance(value, (list, tuple, set)):
+        return any(_contains_fake_npu(elem) for elem in value)
+    if isinstance(value, dict):
+        return any(_contains_fake_npu(elem) for elem in value.values())
+    return False
+
+
 def _inherits_fake_npu(args, kwargs):
     if _is_npu_device(kwargs.get("device")):
         return False
     if kwargs.get("device") is not None:
         return False
-    for arg in args:
-        if isinstance(arg, torch.Tensor) and getattr(arg, _FAKE_NPU_ATTR, False):
-            return True
-    return False
+    return _contains_fake_npu(args) or _contains_fake_npu(kwargs)
 
 
 def _wrap_tensor_result(func):
@@ -65,6 +74,16 @@ def _wrap_tensor_result(func):
         if requested_npu or inherited_npu:
             return _mark_fake_npu(result)
         return result
+
+    return wrapper
+
+
+def _wrap_tensor_method_result(method):
+    def wrapper(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+        if getattr(self, _FAKE_NPU_ATTR, False) or _inherits_fake_npu(args, kwargs):
+            return _mark_fake_npu(result)
+        return _clear_fake_npu(result)
 
     return wrapper
 
@@ -98,25 +117,80 @@ torch.Tensor.npu = _tensor_npu  # ty:ignore
 torch.Tensor.to = _tensor_to  # ty:ignore
 torch.Tensor.cpu = _tensor_cpu  # ty:ignore
 
+for name in [
+    "__abs__",
+    "__add__",
+    "__mul__",
+    "__neg__",
+    "__radd__",
+    "__rmul__",
+    "__rsub__",
+    "__rtruediv__",
+    "__sub__",
+    "__truediv__",
+    "abs",
+    "acos",
+    "acosh",
+    "asin",
+    "asinh",
+    "atan",
+    "clone",
+    "contiguous",
+    "cos",
+    "cosh",
+    "exp",
+    "log",
+    "log10",
+    "log1p",
+    "sin",
+    "sinh",
+    "sqrt",
+    "tan",
+    "tanh",
+]:
+    if hasattr(torch.Tensor, name):
+        setattr(torch.Tensor, name, _wrap_tensor_method_result(getattr(torch.Tensor, name)))
+
 
 for name in [
     "arange",
     "as_tensor",
+    "atan2",
+    "cat",
+    "clamp",
     "empty",
     "empty_like",
     "empty_strided",
+    "exp",
     "full",
     "full_like",
+    "log",
+    "log10",
+    "log1p",
     "ones",
     "ones_like",
+    "pow",
     "rand",
     "rand_like",
     "randint",
     "randn",
     "randn_like",
+    "sin",
+    "stack",
+    "sqrt",
     "tensor",
+    "where",
     "zeros",
     "zeros_like",
+    "acos",
+    "acosh",
+    "asin",
+    "asinh",
+    "atan",
+    "cos",
+    "cosh",
+    "tan",
+    "tanh",
 ]:
     if hasattr(torch, name):
         setattr(torch, name, _wrap_tensor_result(getattr(torch, name)))
@@ -169,6 +243,77 @@ def _patch_constexpr_global_annotations():
 _patch_constexpr_global_annotations()
 
 
+_XYZ_LIBDEVICE_COMPAT_OPS = (
+    "abs",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "atan2",
+    "sinh",
+    "cosh",
+    "tanh",
+    "acosh",
+    "asinh",
+    "atanh",
+    "log",
+    "log10",
+    "log1p",
+    "exp",
+    "exp2",
+    "erf",
+    "sqrt",
+    "rsqrt",
+    "ceil",
+    "floor",
+    "trunc",
+    "pow",
+)
+
+
+@triton.jit
+def _libdevice_acosh(x):  # ty:ignore
+    return tl.log(x + tl.sqrt((x - 1.0) * (x + 1.0)))
+
+
+@triton.jit
+def _libdevice_asinh(x):  # ty:ignore
+    return tl.log(x + tl.sqrt(x * x + 1.0))
+
+
+@triton.jit
+def _libdevice_atanh(x):  # ty:ignore
+    return 0.5 * tl.log((1.0 + x) / (1.0 - x))
+
+
+_XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
+    "acosh": _libdevice_acosh,
+    "asinh": _libdevice_asinh,
+    "atanh": _libdevice_atanh,
+}
+
+
+def _patch_xyz_libdevice():
+    if getattr(xyz_libdevice, "_ttx_libdevice_compat", False):
+        return
+
+    for name, func in _XYZ_LIBDEVICE_JIT_COMPAT_OPS.items():
+        setattr(xyz_libdevice, name, func)
+
+    for name in _XYZ_LIBDEVICE_COMPAT_OPS:
+        if hasattr(xyz_libdevice, name):
+            continue
+        if hasattr(cuda_libdevice, name):
+            setattr(xyz_libdevice, name, getattr(cuda_libdevice, name))
+
+    xyz_libdevice._ttx_libdevice_compat = True
+
+
+_patch_xyz_libdevice()
+
+
 _orig_build_unranked_memref = xyz_driver._build_unranked_memref
 
 
@@ -194,6 +339,6 @@ if hasattr(tl, "randint4x"):
         setattr(tl, "randint4x", _randint4x_compat)
 
 sys.modules["triton.language.extra.cann"] = triton.language.extra.xyz  # ty:ignore
-sys.modules["triton.language.extra.cann.libdevice"] = triton.language.extra.xyz.libdevice  # ty:ignore
+sys.modules["triton.language.extra.cann.libdevice"] = xyz_libdevice  # ty:ignore
 sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ignore
-sys.modules["triton.language.extra.ascend.libdevice"] = triton.language.extra.xyz.libdevice  # ty:ignore
+sys.modules["triton.language.extra.ascend.libdevice"] = xyz_libdevice  # ty:ignore
