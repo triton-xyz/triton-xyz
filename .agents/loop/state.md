@@ -14,7 +14,8 @@
 
 # Current Strategy
 
-- The bounded alphabetical float32 discovery flow is still paying off. This round cleared `test_gelu.py` by monkeypatching compiled fake-NPU `tl.erf` in `python/tta-ut/torch_npu.py` to use a repo-owned semantic polynomial approximation, while leaving interpreter-mode `create_erf` behavior unchanged. That avoids emitting unsupported `math.erf` in LLVM-stage MLIR without touching vendored Triton sources and keeps the earlier `erfinv` / `gamma` helpers green. The same discovery slice now gets through `test_gamma.py`, skipped `gather*`, `test_ge*.py`, `test_gelu.py`, `test_gt.py`, `test_hd_permute.py`, and the float32 `test_hoistbroadcast.py` case; the next round should stay on the newly repointed `test_hypot.py::test_hypot[param_list0]` repro and decide whether the missing `xyz.libdevice.hypot` is best fixed with a repo-owned JIT helper or by expanding the fake-NPU libdevice export surface.
+- The bounded alphabetical float32 discovery flow stays productive. This round cleared `test_hypot.py` by adding a repo-owned fake-NPU `xyz.libdevice.hypot` JIT helper in `python/tta-ut/torch_npu.py`, using a scaled `sqrt(1 + (lo/hi)^2)` formulation plus `inf` / `nan` handling so the fix stays in the shim layer instead of depending on unsupported extern lowering. With `test_hypot.py` now green and nearby transcendental regressions still passing, the next round should stay on the newly exposed `test_index_select_inductor.py` collection failure and decide whether the missing `triton.compiler.compiler.AttrsDescriptor` expectation is best solved by a repo-owned compatibility alias or by adapting the fake-NPU import surface more selectively.
+
 
 # Evidence
 
@@ -153,16 +154,22 @@
 - 2026-03-11: Continuing the bounded `gamma` -> `hypot` float32 discovery slice over `test_gamma.py`, skipped `test_gather*.py`, `test_ge.py`, `test_ge_2.py`, `test_gelu.py`, `test_gt.py`, `test_hd_permute.py`, `test_histogram.py`, `test_hoistbroadcast.py`, and `test_hypot.py` now finishes `16 passed, 37 skipped, 1 failed`, advancing the first live blocker to `test_hypot.py::test_hypot[param_list0]`.
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_hypot.py -k test_hypot[param_list0]`, and `bash python/tta-ut/pytest_one.sh` reproduces the new isolated blocker directly in the single-test harness: JIT dependency discovery fails with `AttributeError: module 'triton.language.extra.xyz.libdevice' has no attribute 'hypot'`.
 
+- 2026-03-11: Re-running `bash python/tta-ut/pytest_one.sh` on the live `test_hypot.py::test_hypot[param_list0]` repro confirmed the failure was still current before editing, with JIT dependency discovery stopping immediately on `AttributeError: module 'triton.language.extra.xyz.libdevice' has no attribute 'hypot'`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now installs a repo-owned fake-NPU `xyz.libdevice.hypot` JIT helper that uses a scaled `sqrt(1 + (lo/hi)^2)` formulation plus explicit zero / `inf` / `nan` handling, keeping the fix in the shim layer instead of depending on unsupported extern lowering.
+- 2026-03-11: Validation for the `hypot` checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_hypot.py::test_hypot[param_list0]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_hypot.py` (`1 passed, 2 skipped`), and a nearby transcendental regression rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_gelu.py third_party/ascend/unittest/pytest_ut/test_erfinv.py third_party/ascend/unittest/pytest_ut/test_gamma.py third_party/ascend/unittest/pytest_ut/test_lgamma.py` (`11 passed`).
+- 2026-03-11: Advancing the bounded float32 discovery window from `hypot` into the next `i*` files exposed the next live blocker during collection rather than lowering: `test_index_select_inductor.py` now stops with `ImportError: cannot import name 'AttrsDescriptor' from 'triton.compiler.compiler'`.
+
 # Next Options
 
-- Stay on the repointed `python/tta-ut/pytest_one.sh` target (`test_hypot.py -k test_hypot[param_list0]`) and decide whether fake-NPU `xyz.libdevice.hypot` should be a repo-owned JIT helper or a broader libdevice export alias.
-- If a `hypot` shim lands, validate first with `bash python/tta-ut/pytest_one.sh` and `pytest -v third_party/ascend/unittest/pytest_ut/test_hypot.py`, then rerun a focused regression set around the nearby transcendental helpers (`test_gelu.py`, `test_erfinv.py`, `test_gamma.py`, `test_lgamma.py`).
-- After the `hypot` blocker is cleared, continue the bounded alphabetical float32 discovery flow from the same `gamma` -> `hypot` window and advance to the next live file instead of restarting broad suite runs.
+- Stay on the newly exposed `test_index_select_inductor.py` blocker and inspect how the Ascend corpus expects `triton.compiler.compiler.AttrsDescriptor` to behave relative to the active Triton compiler API.
+- If an `AttrsDescriptor` compatibility shim lands, validate first with a targeted `pytest -v third_party/ascend/unittest/pytest_ut/test_index_select_inductor.py` run, then rerun the same bounded `hypot` -> `isnan` float32 discovery slice to find the next live blocker.
+- Keep using `python/tta-ut/pytest_one.sh` or similarly narrow pytest file slices for inner-loop validation instead of falling back to `python/tta-ut/pytest.sh`.
+
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The live next blocker is now `test_hypot.py::test_hypot[param_list0]`, which fails during JIT dependency discovery because fake-NPU `triton.language.extra.xyz.libdevice` still lacks `hypot`.
+- The live next blocker is now `test_index_select_inductor.py`, which fails during collection because the active runtime does not export `triton.compiler.compiler.AttrsDescriptor`.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
-- Because the live `hypot` failure happens before lowering, pass dumps are not yet the source of truth; the local test file plus fake-NPU libdevice shim surface are the right inspection points until the import gap is closed.
+- The newly exposed `AttrsDescriptor` failure happens at import time before any kernel compilation, so the right inspection points are the local test file plus active Triton compiler Python API surface, not MLIR pass dumps yet.

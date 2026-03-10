@@ -668,6 +668,25 @@ def _libdevice_atanh(x):  # ty:ignore
 
 
 @triton.jit
+def _libdevice_hypot(x, y):  # ty:ignore
+    abs_x = tl.abs(x)
+    abs_y = tl.abs(y)
+    hi = tl.maximum(abs_x, abs_y)
+    lo = tl.minimum(abs_x, abs_y)
+    safe_hi = tl.where(hi == 0.0, 1.0, hi)
+    ratio = lo / safe_hi
+    result = hi * tl.sqrt(1.0 + ratio * ratio)
+    inf = float("inf")
+    nan = float("nan")
+    has_inf = (abs_x == inf) | (abs_y == inf)
+    has_nan = (x != x) | (y != y)
+    result = tl.where(hi == 0.0, 0.0, result)
+    result = tl.where(has_inf, inf, result)
+    result = tl.where(has_nan & (~has_inf), nan, result)
+    return result
+
+
+@triton.jit
 def _approx_erf(x):  # ty:ignore
     abs_x = tl.abs(x)
     t = 1.0 / (1.0 + 0.3275911 * abs_x)
@@ -851,6 +870,7 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "acosh": _libdevice_acosh,
     "asinh": _libdevice_asinh,
     "atanh": _libdevice_atanh,
+    "hypot": _libdevice_hypot,
     "erfinv": _libdevice_erfinv,
     "gamma": _libdevice_tgamma,
     "lgamma": _libdevice_lgamma,
