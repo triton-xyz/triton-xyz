@@ -3,8 +3,11 @@ import numpy as np
 import torch
 
 import triton  # noqa
+import triton._utils as triton_utils  # noqa
 import triton.language as tl  # noqa
+import triton.language.core as tl_core  # noqa
 import triton.language.extra.libdevice as extra_libdevice  # noqa
+import triton.language.semantic as tl_semantic  # noqa
 from triton.backends.xyz.driver import XYZDriver  # noqa
 
 # set device
@@ -36,6 +39,60 @@ def _wrap_api(func):
 for name in ["full", "empty", "rand", "randn", "randint", "zeros", "arange"]:
     if hasattr(torch, name):
         setattr(torch, name, _wrap_api(getattr(torch, name)))
+
+
+def _builder_allows_non_power_of_two_arange(builder):
+    is_simt_mode = getattr(builder, "is_simt_mode", None)
+    if callable(is_simt_mode):
+        return not is_simt_mode()
+
+    options = getattr(builder, "options", None)
+    if options is None:
+        return False
+    return getattr(options, "backend_name", "") == "cpu"
+
+
+_orig_triton_semantic_arange = tl_semantic.TritonSemantic.arange
+if not getattr(_orig_triton_semantic_arange, "_ttx_non_power_of_two_compat", False):
+
+    def _arange_compat(self, start, end, *, ret_ty=None):
+        if not isinstance(start, int) or not isinstance(end, int):
+            raise ValueError("arange's arguments must be of type tl.constexpr")
+        is_start_int64 = bool(start >> 32)
+        is_end_int64 = bool(end >> 32)
+        if is_start_int64 or is_end_int64:
+            raise ValueError("arange must fit in int32")
+        if end <= start:
+            raise ValueError("arange's end argument must be greater than the start argument")
+        range_ = end - start
+        if not _builder_allows_non_power_of_two_arange(self.builder) and (range_ & (range_ - 1)) != 0:
+            raise ValueError("arange's range must be a power of 2")
+        shape = [range_]
+        if ret_ty is None:
+            ret_ty = tl.block_type(tl.int32, shape)
+        ret_ty_ir = ret_ty.to_ir(self.builder)
+        return self.tensor(self.builder.create_make_range(ret_ty_ir, start, end), ret_ty)
+
+    _arange_compat._ttx_non_power_of_two_compat = True
+    tl_semantic.TritonSemantic.arange = _arange_compat
+
+
+def _validate_block_shape_compat(shape):
+    numel = 1
+    for i, d in enumerate(shape):
+        if not isinstance(d, int):
+            raise TypeError(f"Shape element {i} must have type `constexpr[int]`, got `constexpr[{type(d)}]`")
+        numel *= d
+    if numel > triton_utils.TRITON_MAX_TENSOR_NUMEL:
+        raise ValueError(
+            f"numel ({numel}) exceeds triton maximum tensor numel ({triton_utils.TRITON_MAX_TENSOR_NUMEL})"
+        )
+    return numel
+
+
+if getattr(tl_core.validate_block_shape, "__name__", "") != "_validate_block_shape_compat":
+    tl_core.validate_block_shape = _validate_block_shape_compat
+    triton_utils.validate_block_shape = _validate_block_shape_compat
 
 if hasattr(tl, "randint4x"):
     randint4x = getattr(tl, "randint4x")

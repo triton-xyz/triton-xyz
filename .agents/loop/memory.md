@@ -19,11 +19,13 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `third_party/ascend/unittest/pytest_ut/test_linearize_mask.py` passes once `backend/compiler.py` accepts the `optimize_dynamic_offset` JIT kwarg via `CPUOptions`.
 - Isolated `cann.libdevice` pytest cases need `torch_npu` loaded during collection; importing it from `python/tta-ut/conftest.py` installs the local module aliases early enough for `import triton.language.extra.cann.libdevice`.
 - `python/tta-ut/torch_npu.py` must alias `triton.language.extra.cann.libdevice` and `triton.language.extra.ascend.libdevice` to `third_party/triton/python/triton/language/extra/libdevice.py`, not the placeholder `extra/xyz/libdevice.py`.
-- After the harness alias fix, `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` fails in compilation with `arange's range must be a power of 2` at `tl.arange(0, 640)`.
+- `third_party/triton-ascend/python/triton/language/semantic.py` only enforces power-of-two `tl.arange` spans in SIMT mode, and `third_party/triton-ascend/python/triton/language/_utils.py` also relaxes the block-shape power-of-two check.
+- Mirroring that behavior in the local `python/tta-ut/torch_npu.py` harness lets `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` compile past `tl.arange(0, 640)`.
+- The next `test_cosh.py::test_cosh_special[float32]` blocker is `AttributeError(\"'NoneType' object has no attribute 'cosh'\")` because `backend/compiler.py:get_module_map()` currently returns `{\"triton.language.extra.libdevice\": None}` during codegen.
 
 ## Open Questions
 
-- Should the XYZ/TTA path support non-power-of-two `tl.arange` spans used by Ascend tests like `test_cosh.py`, or is there an upstream-compatible lowering workaround?
+- Should the non-power-of-two `tl.arange` and block-shape relaxation stay as a pytest-harness-only shim, or should the same behavior move into the shared Triton frontend/backend path?
 - Does `python/tta-ut/pytest_one.sh` need a parameterized target instead of the current hardcoded `test_abs.py` entry?
 
 ## Avoid Repeating

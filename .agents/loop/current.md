@@ -21,12 +21,13 @@ Keep this file short. It is the live working view for the next few rounds.
 - Existing debug artifacts are present in `debug/tmp/`, including `pytest.log`, `pytest.co.log`, and `pytest_one.log`.
 - `third_party/triton/python/triton/backends/xyz` resolves to the repo-local `backend/` directory, so edits in `backend/compiler.py` change the backend seen by the pytest harness.
 - `test_linearize_mask.py` was failing because `optimize_dynamic_offset=True` was rejected by `XYZBackend`; after adding that option to `CPUOptions`, `third_party/ascend/unittest/pytest_ut/test_linearize_mask.py` now passes all 18 cases under the `pytest_one.sh` env.
-- Isolated `cann.libdevice` tests were blocked because `test_cosh.py` imports `triton.language.extra.cann.libdevice` before `torch_npu` runs; local harness now preloads `torch_npu` in `python/tta-ut/conftest.py`, and `python/tta-ut/torch_npu.py` now maps `cann.libdevice` and `ascend.libdevice` to the shared local `triton.language.extra.libdevice` module.
-- With that harness fix, `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` now reproduces its real compiler failure under the single-test env: `tl.arange(0, 640)` is rejected because the current semantic layer requires power-of-two ranges.
+- Isolated `cann.libdevice` tests were blocked because `test_cosh.py` imports `triton.language.extra.cann.libdevice` before `torch_npu` runs; local harness now preloads `torch_npu` in `python/tta-ut/conftest.py`, and `python/tta-ut/torch_npu.py` aliases the `cann` and `ascend` libdevice imports to the shared local `triton.language.extra.libdevice` module.
+- `python/tta-ut/torch_npu.py` now also mirrors the triton-ascend non-SIMT behavior for non-power-of-two `tl.arange` and block shapes, so `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` gets past `tl.arange(0, 640)`.
+- The current isolated `test_cosh.py::test_cosh_special[float32]` failure is later in compilation: `libdevice.cosh` resolves to `None`, matching `backend/compiler.py:get_module_map()` returning `{\"triton.language.extra.libdevice\": None}` instead of a real module.
 
 ## Next Move
 
-- Investigate whether the `tl.arange` power-of-two restriction should be relaxed for the XYZ/TTA path or whether `test_cosh.py` should lower through a different pattern, using `third_party/triton-ascend` and upstream Triton references before changing compiler semantics.
+- Fix the XYZ backend libdevice module mapping used during codegen so `libdevice.cosh` resolves to a callable module under the TTA pytest harness, then rerun isolated `test_cosh.py`.
 
 ## Risks
 
@@ -34,7 +35,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - Following stale path notes can hide the actual logs; the current scripts write to `debug/tmp`.
 - Re-running setup can overwrite or distract from the current debug state without adding value.
 - Reusing `pytest_one.sh` without changing its hardcoded target still debugs `test_abs.py`, not the current failing case.
-- A direct one-test run can expose stricter Triton semantic checks than the earlier full-suite log made obvious; trust the isolated repro over the older aggregate failure list.
+- The pytest import aliases in `python/tta-ut/torch_npu.py` do not affect Triton codegen's separate `module_map`; keep runtime import fixes and compiler module resolution fixes distinct.
 
 ## Rules
 
