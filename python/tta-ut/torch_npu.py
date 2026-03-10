@@ -6,6 +6,7 @@ import triton  # noqa
 import triton.language as tl  # noqa
 import triton._utils as triton_utils
 import triton.language.core as tl_core
+import triton.language.semantic as triton_semantic
 import triton.compiler.code_generator as triton_codegen
 import triton.language.extra.cuda.libdevice as cuda_libdevice
 import triton.language.extra.xyz.libdevice as xyz_libdevice
@@ -134,6 +135,7 @@ for name in [
     "asin",
     "asinh",
     "atan",
+    "clamp",
     "clone",
     "contiguous",
     "cos",
@@ -214,6 +216,34 @@ def _relaxed_validate_block_shape(shape):
 
 triton_utils.validate_block_shape = _relaxed_validate_block_shape
 tl_core.validate_block_shape = _relaxed_validate_block_shape
+
+
+def _patch_arange_range_power_of_two_check():
+    current_impl = triton_semantic.TritonSemantic.arange
+    if getattr(current_impl, "_ttx_arange_range_compat", False):
+        return
+
+    def _arange(self, start: int, end: int, *, ret_ty: tl.block_type = None):
+        if not isinstance(start, int) or not isinstance(end, int):
+            raise ValueError("arange's arguments must be of type tl.constexpr")
+        is_start_int64 = bool(start >> 32)
+        is_end_int64 = bool(end >> 32)
+        if is_start_int64 or is_end_int64:
+            raise ValueError("arange must fit in int32")
+        if end <= start:
+            raise ValueError("arange's end argument must be greater than the start argument")
+        extent = end - start
+        shape = [extent]
+        if ret_ty is None:
+            ret_ty = tl.block_type(tl.int32, shape)
+        ret_ty_ir = ret_ty.to_ir(self.builder)
+        return self.tensor(self.builder.create_make_range(ret_ty_ir, start, end), ret_ty)
+
+    _arange._ttx_arange_range_compat = True
+    triton_semantic.TritonSemantic.arange = _arange
+
+
+_patch_arange_range_power_of_two_check()
 
 
 def _patch_constexpr_global_annotations():
