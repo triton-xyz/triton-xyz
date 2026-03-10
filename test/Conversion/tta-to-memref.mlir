@@ -1563,11 +1563,12 @@ module {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: f32):
-// CHECK:             %[[CMPF_0:.*]] = arith.cmpf oeq, %[[VAL_0]], %[[ARG2]] : f32
-// CHECK:             %[[SELECT_0:.*]] = arith.select %[[CMPF_0]], %[[ARG3]], %[[VAL_0]] : f32
-// CHECK:             memref.atomic_yield %[[SELECT_0]] : f32
+// CHECK:           %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32>
+// CHECK:           %[[BITCAST_0:.*]] = arith.bitcast %[[LOAD_0]] : f32 to i32
+// CHECK:           %[[BITCAST_1:.*]] = arith.bitcast %[[ARG2]] : f32 to i32
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi eq, %[[BITCAST_0]], %[[BITCAST_1]] : i32
+// CHECK:           scf.if %[[CMPI_0]] {
+// CHECK:             memref.store %[[ARG3]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32>
 // CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }

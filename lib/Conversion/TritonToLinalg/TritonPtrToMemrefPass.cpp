@@ -18,8 +18,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/AnalysisStructured.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -554,8 +554,8 @@ struct TensorPtrAtomicRMWToMemref
     }
 
     auto loc = op.getLoc();
-    if (auto atomicKind =
-            getMemRefAtomicRMWKind(op.getAtomicRmwOp(), op.getVal().getType())) {
+    if (auto atomicKind = getMemRefAtomicRMWKind(op.getAtomicRmwOp(),
+                                                 op.getVal().getType())) {
       auto createAtomic = [&]() -> Value {
         return memref::AtomicRMWOp::create(rewriter, loc, *atomicKind,
                                            op.getVal(), memrefAccess->memref,
@@ -564,10 +564,10 @@ struct TensorPtrAtomicRMWToMemref
       };
 
       if (auto mask = op.getMask()) {
-        Value current = memref::LoadOp::create(
-                            rewriter, loc, memrefAccess->memref,
-                            ValueRange{memrefAccess->index})
-                            .getResult();
+        Value current =
+            memref::LoadOp::create(rewriter, loc, memrefAccess->memref,
+                                   ValueRange{memrefAccess->index})
+                .getResult();
         auto ifOp = scf::IfOp::create(rewriter, loc, op.getType(), mask,
                                       /*withElseRegion=*/true);
 
@@ -632,31 +632,48 @@ struct TensorPtrAtomicCASToMemref
     }
 
     auto loc = op.getLoc();
+    auto valueType = op.getType();
+    if (auto floatType = dyn_cast<FloatType>(valueType)) {
+      Type compareType = rewriter.getIntegerType(floatType.getWidth());
+      Value current =
+          memref::LoadOp::create(rewriter, loc, memrefAccess->memref,
+                                 memrefAccess->index)
+              .getResult();
+      Value currentBits =
+          arith::BitcastOp::create(rewriter, loc, compareType, current)
+              .getResult();
+      Value compareBits =
+          arith::BitcastOp::create(rewriter, loc, compareType, op.getCmp())
+              .getResult();
+      Value equal =
+          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
+                                currentBits, compareBits)
+              .getResult();
+      scf::IfOp::create(
+          rewriter, loc, equal, [&](OpBuilder &builder, Location loc) {
+            memref::StoreOp::create(builder, loc, op.getVal(),
+                                    memrefAccess->memref, memrefAccess->index);
+            scf::YieldOp::create(builder, loc);
+          });
+      rewriter.replaceOp(op, current);
+      return success();
+    }
+
     auto generic = memref::GenericAtomicRMWOp::create(
         rewriter, loc, memrefAccess->memref, memrefAccess->index);
     Block &body = generic.getRegion().front();
     rewriter.setInsertionPointToStart(&body);
 
     Value current = body.getArgument(0);
-    Value cmp = op.getCmp();
-    Value desired = op.getVal();
-
-    Value equal;
-    if (isa<FloatType>(current.getType())) {
-      equal = arith::CmpFOp::create(rewriter, loc, arith::CmpFPredicate::OEQ,
-                                    current, cmp)
-                  .getResult();
-    } else if (isa<IntegerType>(current.getType())) {
-      equal = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
-                                    current, cmp)
-                  .getResult();
-    } else {
+    if (!isa<IntegerType>(current.getType())) {
       rewriter.eraseOp(generic);
       return failure();
     }
-
+    Value equal = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
+                                        current, op.getCmp())
+                      .getResult();
     Value finalValue =
-        arith::SelectOp::create(rewriter, loc, equal, desired, current)
+        arith::SelectOp::create(rewriter, loc, equal, op.getVal(), current)
             .getResult();
     memref::AtomicYieldOp::create(rewriter, loc, finalValue);
     rewriter.replaceOp(op, generic.getResult());

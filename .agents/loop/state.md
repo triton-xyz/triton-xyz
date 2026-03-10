@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The active float32 strategy stays the same: keep `python/tta-ut/pytest_one.sh` on one fresh isolated repro at a time, widen only after the isolated case is green, and prefer nearby atomic files while the failure context is still warm. The latest checkpoint cleared `test_atomic_add.py`, so the harness is now repointed to `test_atomic_cas.py -k test_atomic_cas_without_full[4096-256-dtype0-float32]` for the next narrow repro.
+- Keep the float32 loop on one fresh isolated repro at a time, but treat old comments and old full-suite failures as stale until reprobed. The latest checkpoint cleared `test_atomic_cas.py`, confirmed the old `test_complex_mask.py::test_complex_mask_permute_copy` comment is stale, and repointed `python/tta-ut/pytest_one.sh` to `test_atomic_max.py -k test_atomic_max_2d_supply[float32-shape0]`, where the next live blocker already reproduces during `--triton-to-linalg-tta`.
 
 # Evidence
 
@@ -88,16 +88,23 @@
 - 2026-03-11: `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` now traces direct `tt.addptr` chains when recovering scalar memref accesses from extracted pointer tensors, and it lowers simple scalar atomics through `memref.atomic_rmw` plus `scf.if` for masked cases instead of always materializing `memref.generic_atomic_rmw`, avoiding the unsupported float `cmpxchg` fallback in LLVM lowering.
 - 2026-03-11: Added `test/Conversion/triton-ptr-to-memref.mlir` coverage for `tensor.extract(tt.addptr(...))` feeding a masked scalar `tt.atomic_rmw`, locking the new ptr-to-memref rewrite shape.
 - 2026-03-11: Validation for the `atomic_add` checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-ptr-to-memref.mlir` (`1 passed`), `bash python/tta-ut/pytest_one.sh` on `test_atomic_add.py::test_atomic_add_2d_supply[float32-shape0]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_atomic_add.py` (`9 passed, 11 skipped`).
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_atomic_cas.py -k test_atomic_cas_without_full[4096-256-dtype0-float32]` reproduced the next live atomic blocker at LLVM lowering: both the TTA memref path and the shared scalar ptr-to-memref path still lowered float CAS through `memref.generic_atomic_rmw`, which `convert-xyz-to-llvm` turned into invalid `llvm.cmpxchg` on `f32`.
+- 2026-03-11: `lib/Conversion/TritonToLinalgTTA/TTAToMemrefPass.cpp` and the shared `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` now bypass float `memref.generic_atomic_rmw` for scalar CAS by emitting a bit-pattern compare plus conditional `memref.store`, while keeping integer CAS on the real atomic path.
+- 2026-03-11: Added focused float CAS coverage to `test/Conversion/tta-to-memref.mlir` and `test/Conversion/triton-ptr-to-memref.mlir` so both lowering paths lock the new bitcast-compare plus conditional-store form.
+- 2026-03-11: Validation for the `atomic_cas` checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-ptr-to-memref.mlir test/Conversion/tta-to-memref.mlir` (`2 passed`), `bash python/tta-ut/pytest_one.sh` on `test_atomic_cas.py::test_atomic_cas_without_full[4096-256-dtype0-float32]` (`1 passed` before repointing), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_atomic_cas.py` (`4 passed, 8 skipped`).
+- 2026-03-11: A quick stale-check probe of `test_complex_mask.py::test_complex_mask_permute_copy` now passes (`1 passed`), so the old `Segmentation fault` comment in `python/tta-ut/pytest_one.sh` was stale and is no longer a good next target.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_atomic_max.py -k test_atomic_max_2d_supply[float32-shape0]`, and the isolated repro fails during `--triton-to-linalg-tta` before linalg emission. The pass dumps show float `atomic_max` has already been bitcast into scalar `tt.atomic_rmw max` / `tt.atomic_rmw umin` on `!tt.ptr<i32>`, but those ops still survive through `tta-to-memref` and `triton-ptr-to-memref`, so the next blocker is a missing lowering for this scalar atomic-max/min form rather than another fake-NPU shim issue.
 
 # Next Options
 
-- Use the already-repointed `python/tta-ut/pytest_one.sh` target on `test_atomic_cas.py::test_atomic_cas_without_full[4096-256-dtype0-float32]` to see whether the next live atomic blocker is another ptr-lowering gap or a distinct CAS issue.
-- If the `atomic_cas` repro reaches LLVM lowering, check whether scalar CAS should also bypass `memref.generic_atomic_rmw` for float cases, since this round proved the generic float path falls onto an invalid `llvm.cmpxchg`.
-- If the next repro fails during JIT dependency discovery on `triton.language.extra.xyz.libdevice`, prefer another repo-owned shim in `python/tta-ut/torch_npu.py` first, and only add C++ lowering when an extern survives into `build/bin/triton-xyz-opt`.
-- Prefer file-level reruns only after the isolated `atomic_cas` case is green, since the full `python/tta-ut/pytest.sh` path remains noisy and can hang.
+- Use the already-repointed `python/tta-ut/pytest_one.sh` target on `test_atomic_max.py::test_atomic_max_2d_supply[float32-shape0]` to inspect why scalar `tt.atomic_rmw max` / `tt.atomic_rmw umin` on `!tt.ptr<i32>` still survive past `tta-to-memref` and `triton-ptr-to-memref`.
+- Check whether the existing scalar atomic rewrite in `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` should learn the `max` / `umin` forms produced by the float atomic-max bitcast path, or whether the TTA route needs a separate rewrite earlier in `lib/Conversion/TritonToLinalgTTA/TTAToMemrefPass.cpp`.
+- After the isolated `atomic_max` case is green, widen to `pytest -v third_party/ascend/unittest/pytest_ut/test_atomic_max.py` under the float32 filter before touching another atomic family.
+- Keep using quick stale probes for old failure comments before spending a round on them, since `test_complex_mask.py::test_complex_mask_permute_copy` was already green.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
 - The remaining failure set is still large and heterogeneous, so the next round must keep choosing one narrow repro at a time rather than inferring a shared root cause from the noisy full-suite log.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
+- The next live atomic blocker now sits earlier in `--triton-to-linalg-tta` than the previous CAS issue, and the compiler stderr is terse, so the pass dumps under `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/` are currently the best source of truth for diagnosing `test_atomic_max.py`.

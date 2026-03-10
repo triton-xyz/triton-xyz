@@ -2700,8 +2700,8 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
     }
     Value totalOffset = *maybeTotalOffset;
 
-    auto rankedType =
-        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
+    Type valueType = op.getValue().getType();
+    auto rankedType = MemRefType::get({ShapedType::kDynamic}, valueType);
     Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
                                                 rankedType, *maybeBaseMemref)
                              .getResult();
@@ -2815,8 +2815,8 @@ struct ConvertTTAAtomicCASPattern
           op.getOperation(), "tta.atomic_cas offset must be int/index scalar");
     }
 
-    auto rankedType =
-        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
+    Type valueType = op.getValue().getType();
+    auto rankedType = MemRefType::get({ShapedType::kDynamic}, valueType);
     Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
                                                 rankedType, *maybeBaseMemref)
                              .getResult();
@@ -2829,30 +2829,49 @@ struct ConvertTTAAtomicCASPattern
     }
     Value totalOffset = *maybeTotalOffset;
 
+    if (auto floatType = dyn_cast<FloatType>(valueType)) {
+      Type compareType = rewriter.getIntegerType(floatType.getWidth());
+      Value current =
+          memref::LoadOp::create(rewriter, op.getLoc(), rankedMemref,
+                                 ValueRange{totalOffset})
+              .getResult();
+      Value currentBits =
+          arith::BitcastOp::create(rewriter, op.getLoc(), compareType, current)
+              .getResult();
+      Value compareBits =
+          arith::BitcastOp::create(rewriter, op.getLoc(), compareType,
+                                   adaptor.getCompare())
+              .getResult();
+      Value equal =
+          arith::CmpIOp::create(rewriter, op.getLoc(), arith::CmpIPredicate::eq,
+                                currentBits, compareBits)
+              .getResult();
+      scf::IfOp::create(
+          rewriter, op.getLoc(), equal, [&](OpBuilder &builder, Location loc) {
+            memref::StoreOp::create(builder, loc, adaptor.getValue(),
+                                    rankedMemref, ValueRange{totalOffset});
+            scf::YieldOp::create(builder, loc);
+          });
+      rewriter.replaceOp(op, current);
+      return success();
+    }
+
     auto generic = memref::GenericAtomicRMWOp::create(
         rewriter, op.getLoc(), rankedMemref, totalOffset);
     Block &body = generic.getRegion().front();
     rewriter.setInsertionPointToStart(&body);
 
     Value current = body.getArgument(0);
-    Value equal;
-    if (isa<FloatType>(current.getType())) {
-      equal = arith::CmpFOp::create(rewriter, op.getLoc(),
-                                    arith::CmpFPredicate::OEQ, current,
-                                    adaptor.getCompare())
-                  .getResult();
-    } else if (isa<IntegerType>(current.getType())) {
-      equal =
-          arith::CmpIOp::create(rewriter, op.getLoc(), arith::CmpIPredicate::eq,
-                                current, adaptor.getCompare())
-              .getResult();
-    } else {
+    if (!isa<IntegerType>(current.getType())) {
       rewriter.eraseOp(generic);
       return emitTTAToMemrefError(
           op.getOperation(),
           "tta.atomic_cas only supports integer or floating-point values");
     }
-
+    Value equal =
+        arith::CmpIOp::create(rewriter, op.getLoc(), arith::CmpIPredicate::eq,
+                              current, adaptor.getCompare())
+            .getResult();
     Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(), equal,
                                                adaptor.getValue(), current)
                            .getResult();
