@@ -42,12 +42,11 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `third_party/ascend/unittest/pytest_ut/test_advance_ptr.py` hits the same vendored non-power-of-two block-pointer verifier as `test_advance.py`: `test_advance_with_boundary_check[shape0-float32]` fails on `tensor<33x9x2xf32>` (`594` elements), while the power-of-two `shape1-float32` case passes.
 - The current local harness now uses `SKIP_TESTS` to skip that exact `test_advance_ptr.py::test_advance_with_boundary_check[shape0-float32]` nodeid too; with it skipped, a targeted `test_advance_ptr.py` run finishes with 1 passed and 5 skipped.
 - When sweeping the frontier file-by-file, exclude `SKIP_TEST_FILES` before invoking pytest directly: otherwise out-of-scope files like `test_alloc.py` can still die during collection on imports such as `triton.extension.buffer.language` before the conftest skip hook runs.
-- After skipping the `advance` and `advance_ptr` non-power-of-two blockers, the next real isolated frontier is `third_party/ascend/unittest/pytest_ut/test_annotations.py`; the first failing case is `test_int_annotation[False-8]`, whose assertion expects positional TTIR text like `%arg1: i8` even though the current TTIR printer emits the source argument name `%v: i8`.
+- `third_party/ascend/unittest/pytest_ut/test_annotations.py` now passes under the local harness env after updating its integer-annotation TTIR assertion to match the current named argument printout (`%v: i8` instead of positional `%arg1: i8`).
 
 ## Open Questions
 
 - Should the non-power-of-two `tl.arange` and block-shape relaxation stay as a pytest-harness-only shim, or should the same behavior move into the shared Triton frontend/backend path?
-- Should `test_annotations.py` be adapted to the current TTIR argument naming (`%v`) or should the backend preserve positional names like `%arg1` for compatibility?
 - Does `python/tta-ut/pytest_one.sh` need a parameterized target instead of the current hardcoded `test_abs.py` entry?
 
 ## Avoid Repeating

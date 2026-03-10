@@ -47,11 +47,11 @@ Keep this file short. It is the live working view for the next few rounds.
 - The skip is intentionally harness-local: a semantic fix would still need non-power-of-two block-pointer support or a much larger frontend-side retile rewrite.
 - `python/tta-ut/conftest.py` now also skips `test_advance_ptr.py::test_advance_with_boundary_check[shape0-float32]`, the matching non-power-of-two `33x9x2=594` block-pointer case; a targeted run of `third_party/ascend/unittest/pytest_ut/test_advance_ptr.py` now finishes with 1 passed and 5 skipped under the local harness env.
 - Direct file-by-file frontier sweeps must exclude `SKIP_TEST_FILES`: invoking skipped files like `third_party/ascend/unittest/pytest_ut/test_alloc.py` directly still trips collection-time imports such as `triton.extension.buffer.language` before the harness skip filter can prune them.
-- After excluding skipped files, the next real isolated frontier is `third_party/ascend/unittest/pytest_ut/test_annotations.py`, where `test_int_annotation[False-8]` fails because the assertion still expects positional TTIR names like `%arg1: i8`, but the current TTIR printout names the annotated argument `%v: i8`.
+- `third_party/ascend/unittest/pytest_ut/test_annotations.py` now passes all 10 cases under the local harness env after aligning its integer-annotation TTIR assertion with the current named-argument printout (`%v: i8` instead of positional `%arg1: i8`).
 
 ## Next Move
 
-- Inspect and fix the isolated `test_annotations.py` failure, starting with whether its TTIR string assertions should accept source argument names like `%v` instead of only positional `%arg1`.
+- Resume the filtered isolated frontier sweep after `test_annotations.py` to find the next real failing file, still excluding `SKIP_TEST_FILES`.
 
 ## Risks
 
