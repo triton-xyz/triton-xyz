@@ -44,6 +44,7 @@ struct MemrefAccessFromTensorPtr {
 struct ScalarMemrefAccess {
   Value memref;
   Value index;
+  Value basePtr;
 };
 
 static bool isOneToOneUnrealizedCast(UnrealizedConversionCastOp op) {
@@ -75,6 +76,46 @@ static FailureOr<Value> materializeValueAsType(Value value, Type targetType,
 
   return UnrealizedConversionCastOp::create(rewriter, loc, targetType,
                                             ValueRange{value})
+      .getResult(0);
+}
+
+static FailureOr<Value>
+materializePtrBaseAsRank1Memref(Value ptr, Type targetElementType,
+                                PatternRewriter &rewriter, Location loc) {
+  Value currentPtr = ptr;
+  while (auto bitcastOp = currentPtr.getDefiningOp<triton::BitcastOp>()) {
+    currentPtr = bitcastOp.getSrc();
+  }
+
+  auto castOp = currentPtr.getDefiningOp<UnrealizedConversionCastOp>();
+  if (!isOneToOneUnrealizedCast(castOp)) {
+    return failure();
+  }
+
+  Value memref = castOp.getInputs().front();
+  auto memrefType = dyn_cast<MemRefType>(memref.getType());
+  auto unrankedType = dyn_cast<UnrankedMemRefType>(memref.getType());
+  if (!memrefType && !unrankedType) {
+    return failure();
+  }
+
+  Type sourceElementType =
+      memrefType ? memrefType.getElementType() : unrankedType.getElementType();
+  Attribute memorySpace =
+      memrefType ? memrefType.getMemorySpace() : unrankedType.getMemorySpace();
+  auto rank1Type = MemRefType::get({ShapedType::kDynamic}, targetElementType,
+                                   AffineMap(), memorySpace);
+
+  if (sourceElementType == targetElementType) {
+    if (!memrefType || memrefType != rank1Type) {
+      return memref::CastOp::create(rewriter, loc, rank1Type, memref)
+          .getResult();
+    }
+    return memref;
+  }
+
+  return UnrealizedConversionCastOp::create(rewriter, loc, rank1Type,
+                                            ValueRange{memref})
       .getResult(0);
 }
 
@@ -141,42 +182,38 @@ static Value castToIndex(OpBuilder &b, Location loc, Value value) {
 
 static std::optional<ScalarMemrefAccess>
 getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
-                                   PatternRewriter &rewriter) {
+                                   PatternRewriter &rewriter,
+                                   Type targetElementType = Type()) {
   Value totalOffset;
   Value currentTensor = ptrTensor;
   Location loc = ptrTensor.getLoc();
+  auto ptrTensorType = dyn_cast<RankedTensorType>(ptrTensor.getType());
+  auto ptrElemType =
+      ptrTensorType
+          ? dyn_cast<triton::PointerType>(ptrTensorType.getElementType())
+          : triton::PointerType();
+  if (!ptrElemType) {
+    return std::nullopt;
+  }
 
   while (true) {
     if (auto fillOp = currentTensor.getDefiningOp<linalg::FillOp>()) {
       Value basePtr = fillOp.getInputs().front();
-      auto castOp = basePtr.getDefiningOp<UnrealizedConversionCastOp>();
-      if (!castOp || castOp.getInputs().size() != 1) {
+      auto maybeRank1Memref = materializePtrBaseAsRank1Memref(
+          basePtr,
+          targetElementType ? targetElementType : ptrElemType.getPointeeType(),
+          rewriter, loc);
+      if (failed(maybeRank1Memref)) {
         return std::nullopt;
       }
-      Value memref = castOp.getInputs().front();
-      auto memrefType = dyn_cast<MemRefType>(memref.getType());
-      auto unrankedType = dyn_cast<UnrankedMemRefType>(memref.getType());
-      if (!memrefType && !unrankedType) {
-        return std::nullopt;
-      }
-
-      auto elementType = memrefType ? memrefType.getElementType()
-                                    : unrankedType.getElementType();
-      auto memorySpace = memrefType ? memrefType.getMemorySpace()
-                                    : unrankedType.getMemorySpace();
-      auto rank1Type = MemRefType::get({ShapedType::kDynamic}, elementType,
-                                       AffineMap(), memorySpace);
-      Value rank1Memref = memref;
-      if (!memrefType || memrefType != rank1Type) {
-        rank1Memref = memref::CastOp::create(rewriter, loc, rank1Type, memref);
-      }
+      Value rank1Memref = *maybeRank1Memref;
 
       if (!totalOffset) {
         totalOffset =
             arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0))
                 .getResult();
       }
-      return ScalarMemrefAccess{rank1Memref, totalOffset};
+      return ScalarMemrefAccess{rank1Memref, totalOffset, basePtr};
     }
 
     if (auto addPtr = currentTensor.getDefiningOp<triton::AddPtrOp>()) {
@@ -258,7 +295,8 @@ getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
 }
 
 static std::optional<ScalarMemrefAccess>
-getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter) {
+getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter,
+                             Type targetElementType = Type()) {
   auto extractOp = ptr.getDefiningOp<tensor::ExtractOp>();
   if (!extractOp) {
     return std::nullopt;
@@ -269,7 +307,7 @@ getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter) {
     return std::nullopt;
   }
   return getScalarMemrefAccessFromPtrTensor(tensor, extractOp.getIndices(),
-                                            rewriter);
+                                            rewriter, targetElementType);
 }
 
 static std::optional<Value> buildAtomicRMWUpdate(PatternRewriter &rewriter,
@@ -350,6 +388,28 @@ getMemRefAtomicRMWKind(triton::RMWOp rmwOp, Type valueType) {
   default:
     return std::nullopt;
   }
+}
+
+static std::optional<arith::AtomicRMWKind>
+getFloatBitcastAtomicRMWKind(triton::RMWOp rmwOp) {
+  switch (rmwOp) {
+  case triton::RMWOp::MAX:
+  case triton::RMWOp::UMIN:
+    return arith::AtomicRMWKind::maximumf;
+  case triton::RMWOp::MIN:
+  case triton::RMWOp::UMAX:
+    return arith::AtomicRMWKind::minimumf;
+  default:
+    return std::nullopt;
+  }
+}
+
+static Value peelPointerBitcasts(Value ptr) {
+  Value currentPtr = ptr;
+  while (auto bitcastOp = currentPtr.getDefiningOp<triton::BitcastOp>()) {
+    currentPtr = bitcastOp.getSrc();
+  }
+  return currentPtr;
 }
 
 class TritonFunctionSignatureConverter : public TypeConverter {
@@ -554,6 +614,67 @@ struct TensorPtrAtomicRMWToMemref
     }
 
     auto loc = op.getLoc();
+    auto currentPtrType = dyn_cast<triton::PointerType>(op.getPtr().getType());
+    Value rootBasePtr = peelPointerBitcasts(memrefAccess->basePtr);
+    auto rootBasePtrType = dyn_cast<triton::PointerType>(rootBasePtr.getType());
+    auto intResultType = dyn_cast<IntegerType>(op.getType());
+    auto floatBaseType =
+        rootBasePtrType ? dyn_cast<FloatType>(rootBasePtrType.getPointeeType())
+                        : FloatType();
+    if (currentPtrType && rootBasePtrType && intResultType && floatBaseType &&
+        isa<IntegerType>(currentPtrType.getPointeeType()) &&
+        intResultType.getWidth() == floatBaseType.getWidth()) {
+      if (auto floatAtomicKind =
+              getFloatBitcastAtomicRMWKind(op.getAtomicRmwOp())) {
+        auto floatAccess =
+            getScalarMemrefAccessFromPtr(op.getPtr(), rewriter, floatBaseType);
+        if (floatAccess) {
+          Value floatValue = arith::BitcastOp::create(
+                                 rewriter, loc, floatBaseType, op.getVal())
+                                 .getResult();
+          auto createAtomic = [&]() -> Value {
+            Value current =
+                memref::AtomicRMWOp::create(rewriter, loc, *floatAtomicKind,
+                                            floatValue, floatAccess->memref,
+                                            ValueRange{floatAccess->index})
+                    .getResult();
+            return arith::BitcastOp::create(rewriter, loc, op.getType(),
+                                            current)
+                .getResult();
+          };
+
+          if (auto mask = op.getMask()) {
+            Value current =
+                memref::LoadOp::create(rewriter, loc, floatAccess->memref,
+                                       ValueRange{floatAccess->index})
+                    .getResult();
+            Value currentBits =
+                arith::BitcastOp::create(rewriter, loc, op.getType(), current)
+                    .getResult();
+            auto ifOp = scf::IfOp::create(rewriter, loc, op.getType(), mask,
+                                          /*withElseRegion=*/true);
+
+            {
+              OpBuilder::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+              scf::YieldOp::create(rewriter, loc, createAtomic());
+            }
+
+            {
+              OpBuilder::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+              scf::YieldOp::create(rewriter, loc, currentBits);
+            }
+
+            rewriter.replaceOp(op, ifOp.getResults());
+          } else {
+            rewriter.replaceOp(op, createAtomic());
+          }
+          return success();
+        }
+      }
+    }
+
     if (auto atomicKind = getMemRefAtomicRMWKind(op.getAtomicRmwOp(),
                                                  op.getVal().getType())) {
       auto createAtomic = [&]() -> Value {

@@ -266,3 +266,71 @@ module {
     tt.return %result : f32
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_addptr_atomic_max_bitcast_ptr(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1,
+// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_0]]] : tensor<4xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[ARG0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[BITCAST_0:.*]] = arith.bitcast %[[ARG3]] : i32 to f32
+// CHECK:           %[[LOAD_0:.*]] = memref.load %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32>
+// CHECK:           %[[BITCAST_1:.*]] = arith.bitcast %[[LOAD_0]] : f32 to i32
+// CHECK:           %[[IF_0:.*]] = scf.if %[[ARG2]] -> (i32) {
+// CHECK:             %[[ATOMIC_0:.*]] = memref.atomic_rmw maximumf %[[BITCAST_0]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (f32, memref<?xf32>) -> f32
+// CHECK:             %[[BITCAST_2:.*]] = arith.bitcast %[[ATOMIC_0]] : f32 to i32
+// CHECK:             scf.yield %[[BITCAST_2]] : i32
+// CHECK:           } else {
+// CHECK:             scf.yield %[[BITCAST_1]] : i32
+// CHECK:           }
+// CHECK:           tt.return %[[IF_0]] : i32
+// CHECK:         }
+  tt.func @tensor_ptr_addptr_atomic_max_bitcast_ptr(%arg0: !tt.ptr<f32>, %arg1: tensor<4xi32>, %arg2: i1, %arg3: i32) -> i32 {
+    %base = builtin.unrealized_conversion_cast %arg0 : !tt.ptr<f32> to memref<*xf32>
+    %base_ptr = builtin.unrealized_conversion_cast %base : memref<*xf32> to !tt.ptr<f32>
+    %bitcast_ptr = tt.bitcast %base_ptr : !tt.ptr<f32> -> !tt.ptr<i32>
+    %empty = tensor.empty() : tensor<4x!tt.ptr<i32>>
+    %ptrs = linalg.fill ins(%bitcast_ptr : !tt.ptr<i32>) outs(%empty : tensor<4x!tt.ptr<i32>>) -> tensor<4x!tt.ptr<i32>>
+    %offset_ptrs = tt.addptr %ptrs, %arg1 : tensor<4x!tt.ptr<i32>>, tensor<4xi32>
+    %c0 = arith.constant 0 : index
+    %ptr = tensor.extract %offset_ptrs[%c0] : tensor<4x!tt.ptr<i32>>
+    %result = tt.atomic_rmw max, acq_rel, gpu, %ptr, %arg3, %arg2 : (!tt.ptr<i32>, i32, i1) -> i32
+    tt.return %result : i32
+  }
+}
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @tensor_ptr_addptr_atomic_umin_bitcast_ptr(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_0]]] : tensor<4xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[ARG0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[BITCAST_0:.*]] = arith.bitcast %[[ARG2]] : i32 to f32
+// CHECK:           %[[ATOMIC_0:.*]] = memref.atomic_rmw maximumf %[[BITCAST_0]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (f32, memref<?xf32>) -> f32
+// CHECK:           %[[BITCAST_1:.*]] = arith.bitcast %[[ATOMIC_0]] : f32 to i32
+// CHECK:           tt.return %[[BITCAST_1]] : i32
+// CHECK:         }
+  tt.func @tensor_ptr_addptr_atomic_umin_bitcast_ptr(%arg0: !tt.ptr<f32>, %arg1: tensor<4xi32>, %arg2: i32) -> i32 {
+    %base = builtin.unrealized_conversion_cast %arg0 : !tt.ptr<f32> to memref<*xf32>
+    %base_ptr = builtin.unrealized_conversion_cast %base : memref<*xf32> to !tt.ptr<f32>
+    %bitcast_ptr = tt.bitcast %base_ptr : !tt.ptr<f32> -> !tt.ptr<i32>
+    %empty = tensor.empty() : tensor<4x!tt.ptr<i32>>
+    %ptrs = linalg.fill ins(%bitcast_ptr : !tt.ptr<i32>) outs(%empty : tensor<4x!tt.ptr<i32>>) -> tensor<4x!tt.ptr<i32>>
+    %offset_ptrs = tt.addptr %ptrs, %arg1 : tensor<4x!tt.ptr<i32>>, tensor<4xi32>
+    %c0 = arith.constant 0 : index
+    %ptr = tensor.extract %offset_ptrs[%c0] : tensor<4x!tt.ptr<i32>>
+    %result = tt.atomic_rmw umin, acq_rel, gpu, %ptr, %arg2 : (!tt.ptr<i32>, i32) -> i32
+    tt.return %result : i32
+  }
+}
