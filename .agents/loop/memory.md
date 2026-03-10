@@ -36,6 +36,8 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `python/tta-ut/torch_npu.py` can tag tensors produced by the fake-NPU allocation shims and `.npu()` conversion, then reject untagged CPU tensors in the local `triton.runtime.jit.JITFunction.run` wrapper; with that compatibility check in place, isolated `third_party/ascend/unittest/pytest_ut/test_address_check.py` passes both cases and preserves the expected `cpu tensor?` error hint.
 - The next isolated frontier after `test_address_check.py` is `third_party/ascend/unittest/pytest_ut/test_advance.py`; its float32 failures stop in `backend/compiler.py:make_ttir()` because `tl.make_block_ptr` and `tl.advance` create tensor-pointer loads/stores with non-power-of-two shapes like `tensor<33x9x2xf32>`, `tensor<1x3xf32>`, and `tensor<13x1xf32>`, which Triton's verifier rejects before later lowering runs.
 - The existing launch-time constexpr normalization in `python/tta-ut/torch_npu.py` only fixes non-power-of-two meta-parameters such as `*_SUB`, `BLOCK_SIZE`, and `*_BLOCK_SIZE`; it does not affect tensor shapes baked directly into kernel IR, so it cannot fix the current `test_advance.py` frontier by itself.
+- `test_advance.py` is not a blanket `tl.advance` failure: the current float32 failures are exactly the parameterized cases whose block-pointer tile numel is non-power-of-two (`594`, `3`, `3`, `13`, `13`), while the cases with power-of-two tile numel (`128`, `8192`, `256`) already pass under the local harness env.
+- `python/tta-ut/conftest.py` supports skipping exact parameterized pytest cases through `SKIP_TESTS`, matching either the full `item.nodeid` or `filename::item.name`.
 
 ## Open Questions
 

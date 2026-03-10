@@ -40,10 +40,14 @@ Keep this file short. It is the live working view for the next few rounds.
 - `python/tta-ut/torch_npu.py` now tags tensors created through the fake-NPU shims and rejects untagged CPU tensors at Triton kernel launch time, so isolated `third_party/ascend/unittest/pytest_ut/test_address_check.py` now passes both the fake-NPU success case and the CPU-tensor rejection case.
 - A fresh isolated frontier sweep after `test_address_check.py` now fails immediately at `third_party/ascend/unittest/pytest_ut/test_advance.py`, where 5 float32 cases stop in `backend/compiler.py:make_ttir()` on Triton verifier errors like `Number of elements must be power-of-two` for `tt.load` from block-pointer tensors such as `tensor<33x9x2xf32>`, `tensor<1x3xf32>`, `tensor<3x1xf32>`, `tensor<1x13xf32>`, and `tensor<13x1xf32>`.
 - The current launch-time constexpr normalization is not involved in `test_advance.py`; these failing shapes are baked into `tl.make_block_ptr` and `tl.advance` tensor-pointer shapes inside the kernel body, so the existing `*_SUB` and `BLOCK_SIZE` shims do not change this frontier.
+- Re-reading `debug_agent/frontier_round_20260311/test_advance.log` narrows the frontier further: only `test_advance_with_boundary_check[shape0-float32]` and the 4 `test_advance_supplement[*-float32]` cases fail, while `test_advance_with_boundary_check[shape1-float32]` plus both float32 `test_npu` cases already pass.
+- The split is exactly the block-pointer tile size: failing kernels materialize non-power-of-two tensor tiles (`33x9x2=594`, `1x3=3`, `3x1=3`, `1x13=13`, `13x1=13`), while the passing `test_advance.py` kernels use power-of-two block shapes (`8x8x2=128`, `2x256x16=8192`, `8x8x4=256`).
+- Because the verifier rejection comes from vendored Triton tensor-size checks on the `tt.load`/`tt.store` tensor type during `backend/compiler.py:make_ttir()`, this frontier is not fixable by downstream linalg or LLIR pass-order tweaks alone.
+- If the local goal is a smallest green pytest step rather than a Triton-core feature, `python/tta-ut/conftest.py` already has per-nodeid skip support through `SKIP_TESTS`; a semantic fix would instead need non-power-of-two block-pointer support or a much larger harness-side retile rewrite.
 
 ## Next Move
 
-- Investigate the `test_advance.py` TTIR verifier failure and decide whether the smallest correct fix belongs in the local pytest harness, Triton tensor-pointer lowering, or test filtering.
+- Choose between 2 concrete paths for `test_advance.py`: add a narrow `SKIP_TESTS` entry for the 5 known non-power-of-two block-pointer cases in `python/tta-ut/conftest.py`, or start a larger Triton/frontend compatibility experiment for non-power-of-two `tl.make_block_ptr` tiles.
 
 ## Risks
 
@@ -60,6 +64,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - The local harness intentionally aliases `torch.Tensor.npu` to CPU tensors and rewrites `device='npu'` factory calls to CPU, so tests that specifically assert CPU-vs-NPU rejection semantics can fail for harness reasons even when kernel execution is otherwise correct.
 - The fake-NPU marker currently comes from the local allocation and `.npu()` shims; if a later test feeds a derived CPU tensor back into a kernel without going through those paths, the new CPU-tensor rejection check may need extra propagation logic.
 - The current local constexpr normalization only rewrites launch-time meta-parameters; it does not help kernels like `test_advance.py` whose non-power-of-two tensor sizes are materialized directly in `tl.make_block_ptr` and `tl.load` tensor types.
+- A harness-side attempt to silently shrink `tl.make_block_ptr` block shapes would change the amount of data loaded and stored in `test_advance.py`, so it is not a safe "compat" shim unless it also retiles the surrounding access pattern.
 
 ## Rules
 
