@@ -14,13 +14,13 @@
 
 # Current Strategy
 
-- Keep `python/tta-ut/pytest_one.sh` pointed at the isolated `test_advance.py` repro, use repo-owned pytest shims to mirror Ascend frontend expectations when possible, and stop short of vendored edits until the remaining failure proves there is no repo-owned interception point before the upstream Triton verifier.
+- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, but carry the new `python/tta-ut/patch_active_triton_verifier.sh` helper whenever the active `third_party/triton` checkout needs the Ascend-style non-power-of-two verifier relaxation and matching rebuild before advancing to the next failing file.
 
 # Evidence
 
 - 2026-03-11: `python/tta-ut/setup.sh` clones `third_party/triton-ascend` and wires `python/tta-ut/conftest.py` plus `python/tta-ut/torch_npu.py` into `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/` via symlinks.
 - 2026-03-11: `python/tta-ut/pytest.sh` runs `pytest -v third_party/ascend/unittest/pytest_ut` from `third_party/triton-ascend` with `TRITON_ALWAYS_COMPILE=1`, `TRITON_HOME=debug/tmp`, and logs to `debug/tmp/pytest.log`.
-- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. For the current repro it now targets `test_address_check.py -k test_cpu_tensor_should_fail`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is the single-test debug template. It enables `TRITON_DEBUG=1`, `MLIR_ENABLE_DUMP=1`, and `MLIR_ENABLE_DUMP_DIR=debug/tmp-pytest_one/_pass_dump`. For the current repro it now targets `test_advance.py -k test_advance_with_boundary_check[shape0-float32]`.
 - 2026-03-11: `python/tta-ut/conftest.py` provides pytest-side filtering and compatibility policy, including `SKIP_TEST_FILES`, dtype normalization, and the current supported dtype default of `float32`.
 - 2026-03-11: `python/tta-ut/torch_npu.py` supplies the CPU-backed NPU shim by activating `XYZDriver`, remapping selected `torch` allocation APIs away from `npu`, and aliasing `triton.language.extra.cann` and `triton.language.extra.ascend` to `xyz`.
 - 2026-03-11: `debug/tmp-0/pytest.log` shows a prior full-suite run collecting 1544 items and then hitting many failures and errors during execution. Representative early failures include `test_broadcast_op.py::test_broadcast_to[float32]`, the `test_cannonicalize_tl_where.py` family, `test_cat_dim.py::test_cat`, and `test_dot.py::*` with `ERROR`.
@@ -36,16 +36,21 @@
 - 2026-03-11: `python/tta-ut/torch_npu.py` now patches both `triton._utils.validate_block_shape` and `triton.language.core.validate_block_shape` to match the Ascend fork during fake-NPU pytest runs, which moves `test_advance.py` past the earlier `tl.make_block_ptr` frontend exception without editing vendored Triton sources.
 - 2026-03-11: After the shim patch, `bash python/tta-ut/pytest_one.sh` for `test_advance_with_boundary_check[shape0-float32]` still fails, but now at compiler verification with `Number of elements must be power-of-two` on `tt.load` from `tensor<33x9x2xf32>`, proving the next blocker is deeper than pytest compatibility.
 - 2026-03-11: `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_advance.py` selected 8 runnable cases and finished `3 passed, 5 failed, 16 skipped`; the remaining failures are the non-power-of-two `tt.load` verifier cases for shapes `(33, 9, 6)`, `(1, 3)`, `(3, 1)`, `(1, 13)`, and `(13, 1)`.
+- 2026-03-11: A repo-owned Python shim that skipped the initial `module.verify()` check was not sufficient; the same non-power-of-two invariant still fired later inside the MLIR pass manager and then again inside `build/bin/triton-xyz-opt`, so the remaining blocker was in the active C++ verifier path, not just Python frontend glue.
+- 2026-03-11: `third_party/triton/python/triton/_C/libtriton.so` resolves to `build/libtriton.so`, so changing `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp` and rebuilding `libtriton.so` plus `triton-xyz-opt` updates the exact binaries used by the fake-NPU pytest flow.
+- 2026-03-11: Relaxing the power-of-two element-count checks in the active `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp` to match `third_party/triton-ascend/lib/Dialect/Triton/IR/Traits.cpp`, then rebuilding `libtriton.so` and `triton-xyz-opt`, fixed the isolated `test_advance_with_boundary_check[shape0-float32]` repro (`1 passed`).
+- 2026-03-11: `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_advance.py` now finishes `8 passed, 16 skipped`, clearing the previously failing float32 `test_advance.py` family.
+- 2026-03-11: `python/tta-ut/patch_active_triton_verifier.sh` now codifies the active Triton verifier patch-and-rebuild flow for future rounds, because the `third_party/triton/` checkout is currently outside git tracking in this repository.
 
 # Next Options
 
-- Inspect whether the `test_advance.py` harness can be routed to the Ascend-flavored Triton frontend/runtime selection without vendored edits, since the current active path still loads the stricter upstream verifier from `third_party/triton`.
-- Compare the active verifier failure against `third_party/triton-ascend/lib/Dialect/Triton/IR/Traits.cpp`, where the relevant power-of-two checks are commented out, and determine whether there is a repo-owned build or package-selection hook that can reuse that behavior.
-- If there is no repo-owned interception point, decide whether this mission now justifies a scoped vendored change in the active Triton verifier path for block-pointer `tt.load`/`tt.store` with non-power-of-two tensor shapes.
-- Keep watching for more `pytest_ut` files that rely on the relaxed block-shape frontend behavior, because the new shim patch may unblock other cases even before the deeper verifier issue is solved.
+- Retarget `python/tta-ut/pytest_one.sh` to the next earliest reproducible non-skipped failure from the saved full-suite evidence, likely `test_broadcast_op.py::test_broadcast_to[float32]`, and keep the inner loop narrow.
+- Watch for other `pytest_ut` files that now pass automatically under the relaxed active Triton verifier, especially tests that rely on non-power-of-two block-pointer shapes or tensor pointer rewrites.
+- Decide whether to move the active Triton verifier relaxation into a more formal tracked workflow beyond the helper script if repeated rebuilds of the untracked `third_party/triton/` checkout become common.
+- When a new failure looks compiler-specific rather than pytest-shim-specific, confirm first whether it reproduces after rerunning `python/tta-ut/patch_active_triton_verifier.sh` to eliminate stale local binaries.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
 - The remaining failure set is still large and heterogeneous, so the next round must keep choosing one narrow repro at a time rather than inferring a shared root cause from the noisy full-suite log.
-- The active `test_advance` blocker has moved past pytest/frontend shims and now fails inside the upstream Triton verifier path loaded from `third_party/triton`, where non-power-of-two tensor element counts on `tt.load` are rejected before the repo's local lowering pipeline can help.
+- The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
