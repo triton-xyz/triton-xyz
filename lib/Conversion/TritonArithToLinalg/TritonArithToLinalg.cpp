@@ -1501,6 +1501,8 @@ public:
 
     POPULATE_BINARY_OP("__nv_atan2f", math::Atan2Op);
     POPULATE_BINARY_OP("__nv_atan2", math::Atan2Op);
+    POPULATE_BINARY_OP("__nv_copysignf", math::CopySignOp);
+    POPULATE_BINARY_OP("__nv_copysign", math::CopySignOp);
     POPULATE_BINARY_OP("__nv_powf", math::PowFOp);
     POPULATE_BINARY_OP("__nv_pow", math::PowFOp);
 

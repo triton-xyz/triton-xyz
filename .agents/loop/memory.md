@@ -27,7 +27,9 @@ Use this file for short, reusable facts worth carrying across rounds.
 - With that launch-time normalization in place, isolated `third_party/ascend/unittest/pytest_ut/test_cosh.py::test_cosh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_tanh.py` pass under the local harness env.
 - `backend/compiler.py:make_llir()` needs `--triton-to-ptr` before `--convert-xyz-to-llvm`; without it, bool-output kernels like `third_party/ascend/unittest/pytest_ut/test_triton_eq.py` can leave a `memref<*xi1> -> !tt.ptr<i1> -> tt.bitcast -> !tt.ptr<i8>` chain unresolved until `mlir-translate` rejects the leftover `!tt.ptr<i1>` type.
 - After adding that pass-order fix, isolated `third_party/ascend/unittest/pytest_ut/test_triton_eq.py`, `test_log2.py`, `test_sigmoid.py`, and `test_precise_div.py` pass together under the local harness env.
-- Once the TTIR power-of-two blocker is removed for libdevice-backed math kernels, the next shared failure is later in LLIR lowering: `one-shot-bufferize` currently leaves `tt.extern_elementwise` ops such as `__nv_copysignf` and `__nv_cyl_bessel_i0f` unbufferized.
+- Once the TTIR power-of-two blocker is removed for libdevice-backed math kernels, unsupported libdevice symbols can still survive into LLIR as `tt.extern_elementwise` and fail `one-shot-bufferize`.
+- `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` can lower `__nv_copysignf` and `__nv_copysign` to `math.copysign`; after rebuilding `triton-xyz-opt`, isolated `third_party/ascend/unittest/pytest_ut/test_copysign.py::test_copysign[float32-shape0]` passes under the local harness env.
+- After that `copysign` fix, isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` is the remaining confirmed libdevice LLIR blocker from this cluster, failing on unbufferized `__nv_cyl_bessel_i0f`.
 
 ## Open Questions
 
@@ -44,7 +46,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Historical note said an interrupted full-suite log lived at `debug/tmp-0/pytest.log`; current repo state has `debug/tmp/pytest.log` instead.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
 - Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
-- Historical note implied `test_cyl_bessel_i0.py` had already been validated after the launch-arg normalization work; current isolated repro shows it still fails later in LLIR lowering on unbufferized `tt.extern_elementwise`.
+- Historical note implied `test_cyl_bessel_i0.py` had already been validated after the launch-arg normalization work; current isolated repro still fails later in LLIR lowering on unbufferized `__nv_cyl_bessel_i0f`.
 
 ## Rules
 
