@@ -48,10 +48,13 @@ Keep this file short. It is the live working view for the next few rounds.
 - `python/tta-ut/conftest.py` now also skips `test_advance_ptr.py::test_advance_with_boundary_check[shape0-float32]`, the matching non-power-of-two `33x9x2=594` block-pointer case; a targeted run of `third_party/ascend/unittest/pytest_ut/test_advance_ptr.py` now finishes with 1 passed and 5 skipped under the local harness env.
 - Direct file-by-file frontier sweeps must exclude `SKIP_TEST_FILES`: invoking skipped files like `third_party/ascend/unittest/pytest_ut/test_alloc.py` directly still trips collection-time imports such as `triton.extension.buffer.language` before the harness skip filter can prune them.
 - `third_party/ascend/unittest/pytest_ut/test_annotations.py` now passes all 10 cases under the local harness env after aligning its integer-annotation TTIR assertion with the current named-argument printout (`%v: i8` instead of positional `%arg1: i8`).
+- A fresh filtered sweep after `test_annotations.py` now fails immediately at `third_party/ascend/unittest/pytest_ut/test_arange.py`; the first failing case is `test_case[param_list1]`, which stops in `backend/compiler.py:make_ttir()` when Triton verifies `tt.make_range` tensors with 121 elements.
+- A full targeted run of `third_party/ascend/unittest/pytest_ut/test_arange.py` now finishes with 4 passed and 4 failed under the local harness env: `[0, 128]` and both invalid-range checks pass, while `test_case[param_list{1,2}]` and `test_case_access[param_list{1,2}]` fail on non-power-of-two `tl.arange` ranges `121` and `896`.
+- The current launch-time constexpr normalization still does not help `test_arange.py`: the failing tensor lengths come directly from kernel-body `tl.arange(START, END)` and matching `BLOCK` values, so there is no existing `*_SUB` or `BLOCK_SIZE` meta-parameter shim to rewrite before TTIR verification.
 
 ## Next Move
 
-- Resume the filtered isolated frontier sweep after `test_annotations.py` to find the next real failing file, still excluding `SKIP_TEST_FILES`.
+- Decide whether `test_arange.py` should take the same harness-local exact-nodeid skip approach as the non-power-of-two `test_advance*.py` cases, or whether it needs a broader direct-`tl.arange` compatibility strategy; validate that choice before sweeping further.
 
 ## Risks
 
@@ -71,6 +74,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - A harness-side attempt to silently shrink `tl.make_block_ptr` block shapes would change the amount of data loaded and stored in `test_advance.py`, so it is not a safe "compat" shim unless it also retiles the surrounding access pattern.
 - The `test_advance.py` and `test_advance_ptr.py` skips are exact nodeid matches in `python/tta-ut/conftest.py`; if upstream parameter names change, the skip list will need to move with them.
 - A naive per-file frontier sweep can report out-of-scope skipped files as failures during collection, so the sweep logic has to filter `SKIP_TEST_FILES` up front.
+- `test_arange.py` can look like another launch-meta normalization issue, but its failing `121` and `896` lengths are produced directly by `tl.arange(START, END)` inside the kernel body, so renaming existing `BLOCK_SIZE` shims will not reach this frontier.
 
 ## Rules
 

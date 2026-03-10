@@ -43,6 +43,8 @@ Use this file for short, reusable facts worth carrying across rounds.
 - The current local harness now uses `SKIP_TESTS` to skip that exact `test_advance_ptr.py::test_advance_with_boundary_check[shape0-float32]` nodeid too; with it skipped, a targeted `test_advance_ptr.py` run finishes with 1 passed and 5 skipped.
 - When sweeping the frontier file-by-file, exclude `SKIP_TEST_FILES` before invoking pytest directly: otherwise out-of-scope files like `test_alloc.py` can still die during collection on imports such as `triton.extension.buffer.language` before the conftest skip hook runs.
 - `third_party/ascend/unittest/pytest_ut/test_annotations.py` now passes under the local harness env after updating its integer-annotation TTIR assertion to match the current named argument printout (`%v: i8` instead of positional `%arg1: i8`).
+- The next filtered frontier after `test_annotations.py` is `third_party/ascend/unittest/pytest_ut/test_arange.py`; a targeted run now finishes with 4 passed and 4 failed, and every failing case is a non-power-of-two direct `tl.arange` range (`121` for `[7, 128]`, `896` for `[128, 1024]`).
+- `test_arange.py` is a different frontier from the earlier `*_SUB` and `BLOCK_SIZE` cases: its failing tensor lengths come from kernel-body `tl.arange(START, END)` and `BLOCK` values, so the current launch-time constexpr normalization in `python/tta-ut/torch_npu.py` does not rewrite them before Triton verifies `tt.make_range`.
 
 ## Open Questions
 
@@ -61,6 +63,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
 - Historical note said `test_cyl_bessel_i0.py` still failed in LLIR on unbufferized `__nv_cyl_bessel_i0f`; current harness patches replace that libdevice call with a local Triton approximation, and the isolated float32 case now passes.
 - Historical note implied the active frontier was `test_address_check.py`; current evidence shows that file now passes and the frontier has advanced past `test_advance.py`/`test_advance_ptr.py` to `test_annotations.py`.
+- Historical note said the next frontier step was to resume after `test_annotations.py`; current evidence shows `test_annotations.py` passes and the active frontier has moved to `test_arange.py`.
 
 ## Rules
 
