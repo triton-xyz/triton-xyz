@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, and keep preferring repo-owned fake-NPU compatibility shims when failures come from frontend/runtime mismatches between active `third_party/triton` and the Ascend corpus. The `test_asinh.py` `tl.arange` frontend blocker is now cleared, along with a follow-on fake-NPU marker loss in `test_atanh.py`, so the next round should retarget the single-test harness to a fresh unresolved file from the earlier noisy suite failures instead of revisiting the fixed unary math cases.
+- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, and keep preferring repo-owned fake-NPU compatibility shims when failures come from Ascend-only runtime kwargs or frontend expectations that the active `third_party/triton` CPU/XYZ stack does not recognize. The `test_cannonicalize_tl_where.py` family is now cleared under the float32 filter, so the next round should move to another still-unresolved early-suite failure instead of revisiting the fixed unary math or `tl.where` cases.
 
 # Evidence
 
@@ -55,13 +55,17 @@
 - 2026-03-11: Validation after the fake-NPU `tl.arange` shim succeeded with `bash python/tta-ut/pytest_one.sh` for `test_asinh.py::test_asinh_special[float32]`, `pytest -v third_party/ascend/unittest/pytest_ut/test_asinh.py` (`1 passed, 2 skipped`), a unary-math regression rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_acos.py` (`1 passed, 2 skipped`), `pytest -v third_party/ascend/unittest/pytest_ut/test_asin.py` (`1 passed`), and `pytest -v third_party/ascend/unittest/pytest_ut/test_arange.py` (`8 passed`).
 - 2026-03-11: A follow-on float32 sweep of `pytest -v third_party/ascend/unittest/pytest_ut/test_atanh.py` exposed a fake-NPU marker propagation gap rather than a lowering issue: `test_atanh_common[param_list0]` used `.npu().clamp(-0.99, 0.99)`, and `Tensor.clamp` was not in the fake-NPU method wrapper list, so the launcher rejected the resulting plain CPU tensor with `ValueError("Pointer argument cannot be accessed from Triton (cpu tensor?)")`.
 - 2026-03-11: Adding `clamp` to the fake-NPU tensor-method propagation list in `python/tta-ut/torch_npu.py` fixed that compatibility gap. Validation then succeeded with `pytest -v third_party/ascend/unittest/pytest_ut/test_atanh.py` (`3 passed, 6 skipped` under the float32 filter).
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_cat_dim.py::test_cat` showed that the earlier suite failure was no longer reproducing under the current shim stack; the isolated rerun passed (`1 passed`), so `test_cat_dim.py` is not the next useful debug target.
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_cannonicalize_tl_where.py::test_tl_where[128-128-256-dtype0-float32]` reproduced a frontend/runtime compatibility failure before compilation: active `third_party/triton/python/triton/runtime/jit.py` raised `KeyError("Keyword argument optimize_dynamic_offset was specified but unrecognised")` because the fake-NPU XYZ backend does not expose Ascend-only launch kwargs.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now monkeypatches `triton.runtime.jit.JITFunction._pack_args` during fake-NPU pytest runs so a controlled set of Ascend-only runtime kwargs (`optimize_dynamic_offset`, `enable_mask_fallback_conversion`, `multibuffer`, `enable_mixed_cv`, `enable_auto_bind_sub_block`, `sync_solver`) is filtered out when the active backend does not declare support for them, matching the Ascend test corpus expectation without editing vendored Triton Python sources.
+- 2026-03-11: Validation succeeded with `bash python/tta-ut/pytest_one.sh` for `test_cannonicalize_tl_where.py::test_tl_where[128-128-256-dtype0-float32]` and with `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_cannonicalize_tl_where.py` for the whole file (`21 passed`).
 
 # Next Options
 
-- Retarget `python/tta-ut/pytest_one.sh` from the now-passing `test_asinh.py` case to the next unresolved failure from the earlier suite evidence, with `test_cat_dim.py::test_cat` and the `test_cannonicalize_tl_where.py` family as good first candidates because they were already failing near the top of the previous full run.
-- Keep probing for fake-NPU tensor-method propagation gaps when a failing test shows `Pointer argument cannot be accessed from Triton (cpu tensor?)`, because `.npu().method(...)` chains can still drop the fake device marker one method at a time.
-- Continue the float32 unary/libdevice sweep only when it meaningfully reduces uncertainty, since `test_acos.py`, `test_acosh.py`, `test_asin.py`, `test_asinh.py`, `test_atanh.py`, and `test_arange.py` now all validate under the current shim stack.
-- If another frontend relaxation is needed in active Triton, preserve it through tracked repo-owned shim code or helper scripts when possible, because the local `third_party/triton/` checkout used by pytest is still outside git tracking here.
+- Retarget `python/tta-ut/pytest_one.sh` to the next unresolved early-suite failure, with `test_dot.py` and other still-failing files from the prior broad log now higher-value candidates than `test_cat_dim.py` or `test_cannonicalize_tl_where.py`.
+- Keep probing for repo-owned fake-NPU/runtime shim gaps when a failing test dies before lowering on unsupported launch kwargs or on `Pointer argument cannot be accessed from Triton (cpu tensor?)`, because Ascend corpus expectations still exceed the active XYZ runtime surface.
+- Continue preserving frontend/runtime compatibility adjustments in tracked shim code or helper scripts when possible, because the local `third_party/triton/` checkout used by pytest is still outside git tracking here.
+- Use broader file-level reruns only after an isolated repro passes, since the full `python/tta-ut/pytest.sh` path is still noisy and can hang.
 
 # Blockers
 

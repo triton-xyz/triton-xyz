@@ -12,7 +12,7 @@ import triton.language.extra.cuda.libdevice as cuda_libdevice
 import triton.language.extra.xyz.libdevice as xyz_libdevice
 import triton.backends.xyz.driver as xyz_driver
 from triton.backends.xyz.driver import XYZDriver  # noqa
-from triton.runtime.jit import _normalize_ty
+from triton.runtime.jit import JITFunction, _normalize_ty
 
 # set device
 
@@ -271,6 +271,39 @@ def _patch_constexpr_global_annotations():
 
 
 _patch_constexpr_global_annotations()
+
+
+_ASCEND_RUNTIME_KWARGS = {
+    "enable_auto_bind_sub_block",
+    "enable_mask_fallback_conversion",
+    "enable_mixed_cv",
+    "multibuffer",
+    "optimize_dynamic_offset",
+    "sync_solver",
+}
+
+
+def _patch_ascend_runtime_kwargs():
+    current_impl = JITFunction._pack_args
+    if getattr(current_impl, "_ttx_ascend_runtime_kwargs_compat", False):
+        return
+
+    def _pack_args(self, backend, kwargs, bound_args, specialization, options):
+        supported_option_fields = getattr(type(backend.parse_options({})), "__dataclass_fields__", {})
+        supported_option_keys = set(supported_option_fields.keys())
+        sigkeys = {param.name for param in self.params}
+        filtered_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key not in _ASCEND_RUNTIME_KWARGS or key in supported_option_keys or key in sigkeys
+        }
+        return current_impl(self, backend, filtered_kwargs, bound_args, specialization, options)
+
+    _pack_args._ttx_ascend_runtime_kwargs_compat = True
+    JITFunction._pack_args = _pack_args
+
+
+_patch_ascend_runtime_kwargs()
 
 
 _XYZ_LIBDEVICE_COMPAT_OPS = (
