@@ -1,7 +1,10 @@
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/MaskAnalysis.h"
@@ -93,6 +96,14 @@ static std::optional<unsigned> getBitWidth(Type a) {
     return a.getIntOrFloatBitWidth();
 
   return std::nullopt;
+}
+
+static Value getDimValue(OpBuilder &b, Location loc, Value tensor, int64_t dim,
+                         int64_t dimSize) {
+  if (!ShapedType::isDynamic(dimSize)) {
+    return arith::ConstantOp::create(b, loc, b.getIndexAttr(dimSize));
+  }
+  return tensor::DimOp::create(b, loc, tensor, dim);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1441,6 +1452,168 @@ public:
   }
 };
 
+class ScalarScanConverter : public OpConversionPattern<triton::ScanOp> {
+  using OpConversionPattern<triton::ScanOp>::OpConversionPattern;
+
+  enum class CombineKind {
+    AddF,
+    AddI,
+    MaxNumF,
+    MaximumF,
+    MaxSI,
+    MaxUI,
+  };
+
+  std::optional<CombineKind> getCombineKind(triton::ScanOp op) const {
+    Block *scanBlock = op.getBody();
+    auto ops = llvm::map_to_vector(scanBlock->without_terminator(),
+                                   [](Operation &op) { return &op; });
+    if (ops.size() != 1) {
+      return std::nullopt;
+    }
+
+    Operation *combineOp = ops.front();
+    if (combineOp->getResult(0) != scanBlock->getTerminator()->getOperand(0)) {
+      return std::nullopt;
+    }
+
+    auto blockArgs =
+        llvm::map_range(scanBlock->getArguments(),
+                        [](BlockArgument arg) { return dyn_cast<Value>(arg); });
+    auto combineArgs = combineOp->getOperands();
+    if (DenseSet<Value>(blockArgs.begin(), blockArgs.end()) !=
+        DenseSet<Value>(combineArgs.begin(), combineArgs.end())) {
+      return std::nullopt;
+    }
+
+    return TypeSwitch<Operation *, std::optional<CombineKind>>(combineOp)
+        .Case<arith::AddFOp>([](auto) { return CombineKind::AddF; })
+        .Case<arith::AddIOp>([](auto) { return CombineKind::AddI; })
+        .Case<arith::MaxNumFOp>([](auto) { return CombineKind::MaxNumF; })
+        .Case<arith::MaximumFOp>([](auto) { return CombineKind::MaximumF; })
+        .Case<arith::MaxSIOp>([](auto) { return CombineKind::MaxSI; })
+        .Case<arith::MaxUIOp>([](auto) { return CombineKind::MaxUI; })
+        .Default([](Operation *) { return std::nullopt; });
+  }
+
+  Value createCombine(ConversionPatternRewriter &rewriter, Location loc,
+                      CombineKind kind, Value lhs, Value rhs) const {
+    switch (kind) {
+    case CombineKind::AddF:
+      return arith::AddFOp::create(rewriter, loc, lhs, rhs);
+    case CombineKind::AddI:
+      return arith::AddIOp::create(rewriter, loc, lhs, rhs);
+    case CombineKind::MaxNumF:
+      return arith::MaxNumFOp::create(rewriter, loc, lhs, rhs);
+    case CombineKind::MaximumF:
+      return arith::MaximumFOp::create(rewriter, loc, lhs, rhs);
+    case CombineKind::MaxSI:
+      return arith::MaxSIOp::create(rewriter, loc, lhs, rhs);
+    case CombineKind::MaxUI:
+      return arith::MaxUIOp::create(rewriter, loc, lhs, rhs);
+    }
+    llvm_unreachable("unsupported scan combiner");
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(triton::ScanOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto combineKind = getCombineKind(op);
+    if (!combineKind) {
+      return rewriter.notifyMatchFailure(
+          op, "Only support scalarized add/max scan variants");
+    }
+
+    auto inputType =
+        dyn_cast<RankedTensorType>(adaptor.getOperands()[0].getType());
+    if (!inputType) {
+      return failure();
+    }
+
+    auto loc = op.getLoc();
+    Value input = adaptor.getOperands()[0];
+    int64_t rank = inputType.getRank();
+    int64_t axis = op.getAxis();
+    bool reverse = op.getReverse();
+
+    Value init = tensor::EmptyOp::create(rewriter, loc, inputType.getShape(),
+                                         inputType.getElementType());
+    Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    Value one = arith::ConstantIndexOp::create(rewriter, loc, 1);
+    SmallVector<Value> outerIndices;
+
+    auto buildIndices = [&](Value scanIndex) {
+      SmallVector<Value> indices;
+      indices.reserve(rank);
+      int64_t outerIdx = 0;
+      for (int64_t dim = 0; dim < rank; ++dim) {
+        if (dim == axis) {
+          indices.push_back(scanIndex);
+          continue;
+        }
+        indices.push_back(outerIndices[outerIdx++]);
+      }
+      return indices;
+    };
+
+    auto buildAxisLoop = [&](Value iterTensor) -> Value {
+      Value upper =
+          getDimValue(rewriter, loc, input, axis, inputType.getShape()[axis]);
+      Value last = arith::SubIOp::create(rewriter, loc, upper, one);
+      Value firstIndex = reverse ? last : zero;
+      SmallVector<Value> firstIndices = buildIndices(firstIndex);
+      Value firstValue =
+          tensor::ExtractOp::create(rewriter, loc, input, firstIndices);
+      Value seeded = tensor::InsertOp::create(rewriter, loc, firstValue,
+                                              iterTensor, firstIndices);
+
+      auto forOp = scf::ForOp::create(rewriter, loc, one, upper, one,
+                                      ValueRange{firstValue, seeded});
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+
+      Value position = forOp.getInductionVar();
+      if (reverse) {
+        position = arith::SubIOp::create(rewriter, loc, last, position);
+      }
+
+      SmallVector<Value> indices = buildIndices(position);
+      Value current = tensor::ExtractOp::create(rewriter, loc, input, indices);
+      Value combined = createCombine(rewriter, loc, *combineKind,
+                                     forOp.getRegionIterArg(0), current);
+      Value updated = tensor::InsertOp::create(
+          rewriter, loc, combined, forOp.getRegionIterArg(1), indices);
+      scf::YieldOp::create(rewriter, loc, ValueRange{combined, updated});
+      return forOp.getResult(1);
+    };
+
+    auto buildLoops = [&](auto &self, int64_t dim, Value iterTensor) -> Value {
+      if (dim == rank) {
+        return buildAxisLoop(iterTensor);
+      }
+      if (dim == axis) {
+        return self(self, dim + 1, iterTensor);
+      }
+
+      Value upper =
+          getDimValue(rewriter, loc, input, dim, inputType.getShape()[dim]);
+      auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
+                                      ValueRange{iterTensor});
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+      outerIndices.push_back(forOp.getInductionVar());
+      Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
+      outerIndices.pop_back();
+      scf::YieldOp::create(rewriter, loc, next);
+      return forOp.getResult(0);
+    };
+
+    rewriter.replaceOp(op, buildLoops(buildLoops, 0, init));
+    return success();
+  }
+};
+
 class ReshapeConverter : public OpConversionPattern<triton::ReshapeOp> {
   using OpConversionPattern<triton::ReshapeOp>::OpConversionPattern;
 
@@ -1618,7 +1791,7 @@ void mlir::triton::populateTritonArithToLinalgConversionPatterns(
   patterns.add<SplatConverter>(patterns.getContext());
   patterns.add<UnsplatConverter>(patterns.getContext());
   patterns.add<DenseConstantConverter>(patterns.getContext());
-  patterns.add<CumSumConverter>(patterns.getContext());
+  patterns.add<CumSumConverter, ScalarScanConverter>(patterns.getContext());
   patterns.add<ReshapeConverter>(patterns.getContext());
 
   populateExternElementwiseOpToMLIROps(patterns);

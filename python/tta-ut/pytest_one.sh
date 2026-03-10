@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_associative_scan.py
-  -k "test_scan[False-maximum-0-shape0-float32]"
+  third_party/ascend/unittest/pytest_ut/test_associative_scan_multi_input.py
+  -k "test_multi_input_prefix_sum[False-shape0-0]"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py
