@@ -21,12 +21,10 @@ args=(
   -v
   # -q -r fE
   #
-  # -p no:timeout
+  third_party/ascend/unittest/pytest_ut
   #
   # third_party/ascend/unittest/pytest_ut
-  #
-  third_party/ascend/unittest/pytest_ut
-  -k "test_abs.py"
+  # -k "test_abs.py"
   #
 )
 pushd third_party/triton-ascend

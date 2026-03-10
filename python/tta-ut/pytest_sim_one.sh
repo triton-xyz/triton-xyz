@@ -19,8 +19,6 @@ args=(
   -v
   # -q -r fE
   #
-  # -p no:timeout
-  #
   third_party/ascend/unittest/pytest_ut/test_abs.py
   -k "test_abs.py"
   #
