@@ -32,9 +32,9 @@ Keep this file short. It is the live working view for the next few rounds.
 - Adding `--triton-to-ptr` before `--convert-xyz-to-llvm` in `backend/compiler.py:make_llir()` lowers that bool-output pointer bitcast path cleanly; isolated `test_triton_eq.py`, `test_log2.py`, `test_sigmoid.py`, and `test_precise_div.py` now pass together.
 - `python/tta-ut/torch_npu.py` now also normalizes bare non-power-of-two `BLOCK_SIZE` and `*_BLOCK_SIZE` constexpr launch args on the local CPU path to the highest power-of-two divisor before JIT compilation, so isolated `test_copysign.py::test_copysign[float32-shape0]` gets past the TTIR `tt.make_range` power-of-two verifier failure.
 - `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` now lowers `__nv_copysignf` and `__nv_copysign` to `math.copysign`, and `test/Conversion/triton-arith-to-linalg.mlir` covers that mapping.
-- With the new extern-elementwise lowering in place, isolated `third_party/ascend/unittest/pytest_ut/test_copysign.py::test_copysign[float32-shape0]` now passes under the local harness env.
+- The earlier isolated `test_copysign.py` pass note is stale under the current fake-NPU launch guard: a fresh rerun now fails before compilation because `z = torch.empty_like(x)` returns an untagged CPU tensor, and `python/tta-ut/torch_npu.py:_raise_on_cpu_tensor_args()` rejects that output buffer at kernel launch.
 - `python/tta-ut/torch_npu.py` now patches both `triton.language.extra.libdevice` and `triton.language.extra.cuda.libdevice` with a local `@triton.jit` `cyl_bessel_i0` approximation for the CPU harness, so isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` no longer reaches the LLIR `tt.extern_elementwise` bufferization failure.
-- After the new local `cyl_bessel_i0` shim, isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]`, `test_copysign.py::test_copysign[float32-shape0]`, and `test_cosh.py::test_cosh_special[float32]` all pass under the local harness env.
+- After the new local `cyl_bessel_i0` shim, isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` and `test_cosh.py::test_cosh_special[float32]` still describe the older libdevice/block-size frontier, but `test_copysign.py` must now be re-evaluated separately because the later fake-NPU launch guard changed pointer-argument behavior.
 - The old full-suite `debug/tmp/pytest.log` failure at `test_acos.py::test_asinh_special[float32]` is stale; rerunning the frontier showed that isolated `test_acos.py` now passes under the current local harness env.
 - `backend/compiler.py:make_llir()` now runs `--convert-math-to-libm` and `--convert-func-to-llvm` after `--convert-xyz-to-llvm`, which lowers libdevice-backed `math.acosh` to `acoshf` and lets isolated `third_party/ascend/unittest/pytest_ut/test_acosh.py` pass.
 - `python/tta-ut/torch_npu.py` now tags tensors created through the fake-NPU shims and rejects untagged CPU tensors at Triton kernel launch time, so isolated `third_party/ascend/unittest/pytest_ut/test_address_check.py` now passes both the fake-NPU success case and the CPU-tensor rejection case.
@@ -51,10 +51,12 @@ Keep this file short. It is the live working view for the next few rounds.
 - A fresh filtered sweep after `test_annotations.py` exposed `third_party/ascend/unittest/pytest_ut/test_arange.py` as the next frontier: its failing cases stop in `backend/compiler.py:make_ttir()` when Triton verifies non-power-of-two `tt.make_range` tensors with 121 and 896 elements.
 - `python/tta-ut/torch_npu.py` already relaxes the semantic `tl.arange` power-of-two check for the local CPU builder, but that does not bypass TTIR pass-manager verification; the verifier still rejects `tensor<121xi32>` and `tensor<896xi32>` `tt.make_range` results in `test_arange.py`.
 - `python/tta-ut/conftest.py` now skips the exact 4 non-power-of-two `test_arange.py` nodeids via `SKIP_TESTS`, and a targeted run of `third_party/ascend/unittest/pytest_ut/test_arange.py` now finishes with 4 passed and 4 skipped under the local harness env.
+- A fresh filtered frontier sweep after `test_arange.py` now fails immediately at `third_party/ascend/unittest/pytest_ut/test_asin.py::test_asin[float32-shape0]`, where `y = torch.empty_like(x)` produces an untagged CPU tensor and `python/tta-ut/torch_npu.py:_raise_on_cpu_tensor_args()` rejects kernel argument 1 before TTIR compilation starts.
+- Rechecking the previously noted `third_party/ascend/unittest/pytest_ut/test_copysign.py::test_copysign[float32-shape0]` under the same env shows the same regression on kernel argument 2 (`z = torch.empty_like(x)`), so the active frontier is now the fake-NPU tag propagation gap in `torch.empty_like`-style factory helpers, not the old libdevice lowering.
 
 ## Next Move
 
-- Resume the filtered frontier sweep after `test_arange.py` to find the next real failing file under the local harness, while keeping the current non-power-of-two skips explicit and narrow.
+- Patch `python/tta-ut/torch_npu.py` so `torch.empty_like`-style factory helpers inherit the fake-NPU tag from fake-NPU tensor inputs, then rerun `test_asin.py` and `test_copysign.py` before resuming the filtered frontier sweep past `test_arange.py`.
 
 ## Risks
 
@@ -76,6 +78,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - A naive per-file frontier sweep can report out-of-scope skipped files as failures during collection, so the sweep logic has to filter `SKIP_TEST_FILES` up front.
 - `test_arange.py` can look like another launch-meta normalization issue, but its failing `121` and `896` lengths are produced directly by `tl.arange(START, END)` inside the kernel body, so renaming existing `BLOCK_SIZE` shims will not reach this frontier.
 - The `test_arange.py` skips are also exact nodeid matches in `python/tta-ut/conftest.py`; if upstream parameter names change, the skip list will need to move with them.
+- The fake-NPU launch guard currently depends on the `_ttx_fake_npu` marker, but `python/tta-ut/torch_npu.py:_wrap_api()` only adds that marker when a factory call explicitly uses `device='npu'`; helpers like `torch.empty_like(fake_npu_tensor)` currently clear the marker instead of propagating it.
 
 ## Rules
 
