@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_erfinv.py
-  -k "test_erfinv_case[param_list0]"
+  third_party/ascend/unittest/pytest_ut/test_extract_slice.py
+  -k "test_extract_slice"
   #
 )
 pushd third_party/triton-ascend

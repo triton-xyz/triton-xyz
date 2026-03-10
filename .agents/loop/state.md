@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded alphabetical float32 slice is working again as the discovery mechanism. This round cleared the first live blocker it found, `test_eq.py`, by teaching `triton-ptr-to-memref` to normalize scalar bool-pointer signatures to byte-addressable memrefs and fold scalar pointer bitcasts back to memref values. The next round should stay on the newly discovered `test_erfinv.py::test_erfinv_case[param_list0]` repro in `python/tta-ut/pytest_one.sh` and first check whether the Ascend corpus expects a fake-NPU `xyz.libdevice.erfinv` shim, before touching lowering.
+- The bounded alphabetical float32 discovery flow is still paying off. This round cleared `test_erfinv.py` by teaching the fake-NPU `xyz.libdevice` shim to provide a repo-owned `erfinv` helper instead of relying on an extern that the active XYZ backend cannot lower cleanly. The next round should stay on the newly exposed `test_extract_slice.py::test_extract_slice` repro in `python/tta-ut/pytest_one.sh`, inspect the Ascend-side slice extension semantics, and decide whether the smallest viable fix is a repo-owned fake-NPU `triton.language.extra.cann.extension` shim or deeper compiler/runtime support.
 
 # Evidence
 
@@ -120,17 +120,26 @@
 - 2026-03-11: Re-running the same bounded discovery slice after the `eq` fix advanced to a new fake-NPU compatibility gap instead of another lowering bug: `test_erfinv.py::test_erfinv_case[param_list0]` now fails during JIT dependency discovery with `AttributeError: module 'triton.language.extra.xyz.libdevice' has no attribute 'erfinv'`.
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_erfinv.py -k test_erfinv_case[param_list0]` so the next round can stay on the live repro without re-running the discovery slice first.
 - 2026-03-11: Re-running `bash python/tta-ut/pytest_one.sh` after repointing confirmed the new isolated blocker is live in the harness itself, with the same `xyz.libdevice.erfinv` `AttributeError` and no compiler pass dumps yet because failure happens during JIT dependency discovery.
+- 2026-03-11: Comparing the live `erfinv` repro against the active sources showed `third_party/triton/python/triton/language/extra/libdevice.py` already declares `erfinv`, but `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` has no `__nv_erfinv[f]` lowering. That made a plain CUDA-libdevice re-export risky, so the fix stayed in repo-owned fake-NPU Python shims instead of adding a new extern-lowering path first.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now installs a repo-owned `xyz.libdevice.erfinv` helper that uses a Winitzki-style inverse-erf seed, three Newton refinements, explicit `NaN` handling for `|x| > 1`, and `+/-inf` for exact `+/-1`, so fake-NPU pytest runs avoid the missing-symbol failure without touching vendored Triton sources.
+- 2026-03-11: The first `erfinv` helper attempt refined with `tl.erf(...)`, which reached LLVM-stage MLIR and then failed in `mlir-translate` with `Dialect 'math' not found for custom op 'math.erf'`. Replacing that refinement step with a repo-owned polynomial `_approx_erf` helper in `python/tta-ut/torch_npu.py` avoided the unsupported `math.erf` op on the active XYZ backend.
+- 2026-03-11: Validation for the `erfinv` checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_erfinv.py::test_erfinv_case[param_list0]` (`1 passed`) and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_erfinv.py` (`2 passed`).
+- 2026-03-11: Re-running the same bounded float32 discovery slice over `test_eq.py`, `test_eq_2.py`, `test_erfinv.py`, `test_exp.py`, `test_exp2.py`, `test_exp_.py`, `test_expand_dims.py`, and `test_expm1.py` now finishes cleanly as `17 passed, 37 skipped`, so the previous `eq` -> `ex*` slice is fully green under the current shim/lowering stack.
+- 2026-03-11: Advancing the alphabetical discovery window to `test_extract_slice.py`, `test_fdiv.py`, `test_fixpipe.py`, `test_flip.py`, `test_floor.py`, `test_floordiv.py`, `test_for_ptr.py`, and `test_full.py` exposed the next live blocker immediately during collection: `test_extract_slice.py` imports `triton.language.extra.cann.extension`, but the fake-NPU shim only aliases `cann` / `ascend` libdevice modules today, so pytest stops with `ModuleNotFoundError: No module named 'triton.language.extra.cann.extension'`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_extract_slice.py -k test_extract_slice`, and `bash python/tta-ut/pytest_one.sh` reproduces the same missing-`cann.extension` import error directly in the single-test harness.
+- 2026-03-11: `third_party/triton-ascend/python/triton/runtime/ascend_interpreter.py` contains `create_extract_slice(...)` and `create_insert_slice(...)` helpers, so the next blocker is not just a missing import name; the Ascend fork expects extra slice/insert functionality that the active fake-NPU path does not yet surface.
 
 # Next Options
 
-- Compare active `third_party/triton/python/triton/language/extra/cuda/libdevice.py` and the Ascend-side pytest expectations to decide whether fake-NPU `xyz.libdevice.erfinv` should be re-exported from CUDA libdevice or implemented as a repo-owned helper in `python/tta-ut/torch_npu.py`.
-- Reproduce the live blocker through `bash python/tta-ut/pytest_one.sh` on `test_erfinv.py::test_erfinv_case[param_list0]`, patch the smallest repo-owned shim that satisfies dependency discovery, and rerun the isolated case.
-- If `erfinv` reaches lowering after the shim and exposes a compiler-stage failure, inspect the new pass dumps under `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/` before widening coverage.
-- After the `erfinv` repro is green, resume the same bounded alphabetical float32 slice with `--maxfail=1` to surface the next live blocker.
+- Inspect how the Ascend fork wires `triton.language.extra.cann.extension` to builder or interpreter functionality, then add the smallest repo-owned fake-NPU shim needed to make `test_extract_slice.py` import and compile.
+- Reproduce the live blocker through `bash python/tta-ut/pytest_one.sh` on `test_extract_slice.py::test_extract_slice`, patch the import/module gap first, and rerun the isolated case before touching broader coverage.
+- If `test_extract_slice.py` gets past import and exposes a deeper lowering/runtime failure, inspect whether the active builder already has hidden slice support or whether repo-owned interpreter/compiler plumbing is required.
+- After the extract-slice repro is green, resume the bounded alphabetical float32 discovery flow from the same `extract_slice` -> `full` slice to find the next live blocker.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The live next blocker is now `test_erfinv.py::test_erfinv_case[param_list0]`, which currently fails before compilation because fake-NPU `triton.language.extra.xyz.libdevice` does not expose `erfinv`.
+- The live next blocker is now `test_extract_slice.py::test_extract_slice`, which currently fails during collection because fake-NPU pytest runs do not expose `triton.language.extra.cann.extension`.
+- The Ascend fork appears to pair that missing Python module with real slice helpers in `third_party/triton-ascend/python/triton/runtime/ascend_interpreter.py`, so the next fix may need more than a bare import alias.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
 - Compiler stderr is still terse for live lowering failures, so the pass dumps under `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/` remain the best source of truth when a new isolated repro reaches `--triton-to-linalg-tta`.

@@ -597,6 +597,33 @@ def _libdevice_atanh(x):  # ty:ignore
     return 0.5 * tl.log((1.0 + x) / (1.0 - x))
 
 
+@triton.jit
+def _approx_erf(x):  # ty:ignore
+    abs_x = tl.abs(x)
+    t = 1.0 / (1.0 + 0.3275911 * abs_x)
+    poly = (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t)
+    y = 1.0 - poly * tl.exp(-abs_x * abs_x)
+    return tl.where(x < 0.0, -y, y)
+
+
+@triton.jit
+def _libdevice_erfinv(x):  # ty:ignore
+    abs_x = tl.abs(x)
+    sign = tl.where(x < 0.0, -1.0, 1.0)
+    safe_abs_x = tl.where(abs_x < (1.0 - 1.0e-7), abs_x, 1.0 - 1.0e-7)
+    log_term = tl.log(1.0 - safe_abs_x * safe_abs_x)
+    w = 2.0 / (3.141592653589793 * 0.147) + 0.5 * log_term
+    y = sign * tl.sqrt(tl.sqrt(w * w - log_term / 0.147) - w)
+    for _ in range(3):
+        y = y - (_approx_erf(y) - x) * 0.8862269254527579 * tl.exp(y * y)
+    inf = float("inf")
+    nan = float("nan")
+    y = tl.where(abs_x > 1.0, nan, y)
+    y = tl.where(x == 1.0, inf, y)
+    y = tl.where(x == -1.0, -inf, y)
+    return y
+
+
 @tl_core.builtin
 def _libdevice_cyl_bessel_i0(arg0, _semantic=None):  # ty:ignore
     coeffs_a = [
@@ -698,6 +725,7 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "acosh": _libdevice_acosh,
     "asinh": _libdevice_asinh,
     "atanh": _libdevice_atanh,
+    "erfinv": _libdevice_erfinv,
     "cyl_bessel_i0": _libdevice_cyl_bessel_i0,
 }
 
