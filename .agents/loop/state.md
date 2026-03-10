@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, but carry the new `python/tta-ut/patch_active_triton_verifier.sh` helper whenever the active `third_party/triton` checkout needs the Ascend-style non-power-of-two verifier relaxation and matching rebuild before advancing to the next failing file.
+- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time, and prefer repo-owned Python compatibility shims first when a failure is caused by frontend behavior differences between active `third_party/triton` and the Ascend test corpus. Keep `python/tta-ut/patch_active_triton_verifier.sh` available for the separate verifier-path mismatch already proven by `test_advance.py`.
 
 # Evidence
 
@@ -41,12 +41,16 @@
 - 2026-03-11: Relaxing the power-of-two element-count checks in the active `third_party/triton/lib/Dialect/Triton/IR/Traits.cpp` to match `third_party/triton-ascend/lib/Dialect/Triton/IR/Traits.cpp`, then rebuilding `libtriton.so` and `triton-xyz-opt`, fixed the isolated `test_advance_with_boundary_check[shape0-float32]` repro (`1 passed`).
 - 2026-03-11: `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_advance.py` now finishes `8 passed, 16 skipped`, clearing the previously failing float32 `test_advance.py` family.
 - 2026-03-11: `python/tta-ut/patch_active_triton_verifier.sh` now codifies the active Triton verifier patch-and-rebuild flow for future rounds, because the `third_party/triton/` checkout is currently outside git tracking in this repository.
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_broadcast_op.py -k test_broadcast_to[float32]` reproduced a different frontend blocker: active `third_party/triton/python/triton/compiler/code_generator.py` rejected module-level globals like `NUMEL : tl.constexpr = XS * ZS` with `NameError("Cannot access global variable NUMEL... annotating a variable as constexpr ... is not supported")`.
+- 2026-03-11: Comparing active Triton against `third_party/triton-ascend/python/triton/compiler/code_generator.py` showed the Ascend fork treats `__annotations__[name] == tl.constexpr` as constexpr-global metadata, while the active frontend only accepts `triton.language.constexpr(...)` values.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now patches `triton.compiler.code_generator.CodeGenerator._is_constexpr_global` to honor module-level `tl.constexpr` annotations during fake-NPU pytest runs, matching the Ascend corpus expectation without editing the active vendored Triton Python sources.
+- 2026-03-11: Validation succeeded with `bash python/tta-ut/pytest_one.sh` for `test_broadcast_op.py::test_broadcast_to[float32]`, `pytest -v third_party/ascend/unittest/pytest_ut/test_broadcast_op.py` for the whole file (`1 passed`), and a second annotated-constexpr sanity probe `pytest -v third_party/ascend/unittest/pytest_ut/test_template.py` (`1 passed`).
 
 # Next Options
 
-- Retarget `python/tta-ut/pytest_one.sh` to the next earliest reproducible non-skipped failure from the saved full-suite evidence, likely `test_broadcast_op.py::test_broadcast_to[float32]`, and keep the inner loop narrow.
-- Watch for other `pytest_ut` files that now pass automatically under the relaxed active Triton verifier, especially tests that rely on non-power-of-two block-pointer shapes or tensor pointer rewrites.
-- Decide whether to move the active Triton verifier relaxation into a more formal tracked workflow beyond the helper script if repeated rebuilds of the untracked `third_party/triton/` checkout become common.
+- Retarget `python/tta-ut/pytest_one.sh` to the next earliest reproducible non-skipped failure from the saved full-suite evidence, likely one of the early elementwise files such as `test_acos.py` or `test_acosh.py`, and keep the inner loop narrow.
+- Watch for other `pytest_ut` files that now pass automatically under the new annotated-constexpr shim, especially kernels that use module-level `X_SIZE : tl.constexpr = ...` style globals inside `@triton.jit` bodies.
+- Watch for files that now pass automatically under the relaxed active Triton verifier, especially tests that rely on non-power-of-two block-pointer shapes or tensor pointer rewrites.
 - When a new failure looks compiler-specific rather than pytest-shim-specific, confirm first whether it reproduces after rerunning `python/tta-ut/patch_active_triton_verifier.sh` to eliminate stale local binaries.
 
 # Blockers

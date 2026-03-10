@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_advance.py
-  -k "test_advance_with_boundary_check[shape0-float32]"
+  third_party/ascend/unittest/pytest_ut/test_broadcast_op.py
+  -k "test_broadcast_to[float32]"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py

@@ -6,8 +6,10 @@ import triton  # noqa
 import triton.language as tl  # noqa
 import triton._utils as triton_utils
 import triton.language.core as tl_core
+import triton.compiler.code_generator as triton_codegen
 import triton.backends.xyz.driver as xyz_driver
 from triton.backends.xyz.driver import XYZDriver  # noqa
+from triton.runtime.jit import _normalize_ty
 
 # set device
 
@@ -138,6 +140,33 @@ def _relaxed_validate_block_shape(shape):
 
 triton_utils.validate_block_shape = _relaxed_validate_block_shape
 tl_core.validate_block_shape = _relaxed_validate_block_shape
+
+
+def _patch_constexpr_global_annotations():
+    current_impl = triton_codegen.CodeGenerator._is_constexpr_global
+    if getattr(current_impl, "_ttx_constexpr_global_compat", False):
+        return
+
+    def _is_constexpr_global(self, name):
+        absent_marker = object()
+        val = self.gscope.get(name, absent_marker)
+        if val is absent_marker:
+            return False
+
+        if triton_codegen._is_constexpr(val):
+            return True
+
+        annotation = self.gscope.get("__annotations__", {}).get(name)
+        if annotation is not None:
+            return _normalize_ty(annotation) == "constexpr"
+
+        return False
+
+    _is_constexpr_global._ttx_constexpr_global_compat = True
+    triton_codegen.CodeGenerator._is_constexpr_global = _is_constexpr_global
+
+
+_patch_constexpr_global_annotations()
 
 
 _orig_build_unranked_memref = xyz_driver._build_unranked_memref
