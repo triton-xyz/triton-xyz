@@ -39,11 +39,15 @@ Use this file for short, reusable facts worth carrying across rounds.
 - `test_advance.py` is not a blanket `tl.advance` failure: the current float32 failures are exactly the parameterized cases whose block-pointer tile numel is non-power-of-two (`594`, `3`, `3`, `13`, `13`), while the cases with power-of-two tile numel (`128`, `8192`, `256`) already pass under the local harness env.
 - `python/tta-ut/conftest.py` supports skipping exact parameterized pytest cases through `SKIP_TESTS`, matching either the full `item.nodeid` or `filename::item.name`.
 - The current local harness uses `SKIP_TESTS` to skip exactly 5 `test_advance.py` float32 nodeids (`test_advance_with_boundary_check[shape0-float32]` and `test_advance_supplement[shape{0,1,2,3}-float32]`); with those skips in place, a targeted `test_advance.py` run finishes with the remaining 3 float32 cases passing.
+- `third_party/ascend/unittest/pytest_ut/test_advance_ptr.py` hits the same vendored non-power-of-two block-pointer verifier as `test_advance.py`: `test_advance_with_boundary_check[shape0-float32]` fails on `tensor<33x9x2xf32>` (`594` elements), while the power-of-two `shape1-float32` case passes.
+- The current local harness now uses `SKIP_TESTS` to skip that exact `test_advance_ptr.py::test_advance_with_boundary_check[shape0-float32]` nodeid too; with it skipped, a targeted `test_advance_ptr.py` run finishes with 1 passed and 5 skipped.
+- When sweeping the frontier file-by-file, exclude `SKIP_TEST_FILES` before invoking pytest directly: otherwise out-of-scope files like `test_alloc.py` can still die during collection on imports such as `triton.extension.buffer.language` before the conftest skip hook runs.
+- After skipping the `advance` and `advance_ptr` non-power-of-two blockers, the next real isolated frontier is `third_party/ascend/unittest/pytest_ut/test_annotations.py`; the first failing case is `test_int_annotation[False-8]`, whose assertion expects positional TTIR text like `%arg1: i8` even though the current TTIR printer emits the source argument name `%v: i8`.
 
 ## Open Questions
 
 - Should the non-power-of-two `tl.arange` and block-shape relaxation stay as a pytest-harness-only shim, or should the same behavior move into the shared Triton frontend/backend path?
-- After the `test_advance.py` skip-only step, what is the next real failing pytest file in the isolated frontier?
+- Should `test_annotations.py` be adapted to the current TTIR argument naming (`%v`) or should the backend preserve positional names like `%arg1` for compatibility?
 - Does `python/tta-ut/pytest_one.sh` need a parameterized target instead of the current hardcoded `test_abs.py` entry?
 
 ## Avoid Repeating
@@ -57,7 +61,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
 - Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
 - Historical note said `test_cyl_bessel_i0.py` still failed in LLIR on unbufferized `__nv_cyl_bessel_i0f`; current harness patches replace that libdevice call with a local Triton approximation, and the isolated float32 case now passes.
-- Historical note implied the active frontier was `test_address_check.py`; current evidence shows that file now passes and the next frontier is `test_advance.py`.
+- Historical note implied the active frontier was `test_address_check.py`; current evidence shows that file now passes and the frontier has advanced past `test_advance.py`/`test_advance_ptr.py` to `test_annotations.py`.
 
 ## Rules
 
