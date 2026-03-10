@@ -1,5 +1,5 @@
 PPWD=$(pwd)
-DIR=$PPWD/debug/tmp
+DIR=$PPWD/debug/tmp-pytest_one
 mkdir -p $DIR
 
 export PATH="$PWD/build/bin:$PATH"
