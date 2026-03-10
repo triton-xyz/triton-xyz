@@ -1,0 +1,4 @@
+interface:
+  display_name: "Autonomous Loop"
+  short_description: "Run a self-directed repository work loop"
+  default_prompt: "Use $autonomous-loop to drive the next repository round from `.agents/loop/state.md` and preserve a checkpoint only when the work is real."

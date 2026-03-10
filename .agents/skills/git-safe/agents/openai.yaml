@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Safe"
+  short_description: "Finalize one safe autonomous checkpoint"
+  default_prompt: "Use $git-safe to stage the intended files, create one safe checkpoint commit, and push without force."
