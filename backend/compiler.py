@@ -242,6 +242,8 @@ class XYZBackend(BaseBackend):
                     "--expand-strided-metadata",
                     "--triton-to-ptr",
                     "--convert-xyz-to-llvm",
+                    "--convert-math-to-libm",
+                    "--convert-func-to-llvm",
                     "--reconcile-unrealized-casts",
                     "--canonicalize",
                     "--cse",

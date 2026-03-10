@@ -31,6 +31,9 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Once the TTIR power-of-two blocker is removed for libdevice-backed math kernels, unsupported libdevice symbols can still survive into LLIR as `tt.extern_elementwise` and fail `one-shot-bufferize`.
 - `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` can lower `__nv_copysignf` and `__nv_copysign` to `math.copysign`; after rebuilding `triton-xyz-opt`, isolated `third_party/ascend/unittest/pytest_ut/test_copysign.py::test_copysign[float32-shape0]` passes under the local harness env.
 - `python/tta-ut/torch_npu.py` can replace `cyl_bessel_i0` in both libdevice modules with a local `@triton.jit` approximation for the CPU harness; that avoids the unbufferized `__nv_cyl_bessel_i0f` LLIR path and makes isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` pass.
+- In `backend/compiler.py:make_llir()`, lowering `math.acosh`-style ops for the CPU backend needs both `--convert-math-to-libm` and `--convert-func-to-llvm` after `--convert-xyz-to-llvm`; `--convert-math-to-llvm` alone leaves `math.acosh` untouched, while `--convert-math-to-libm` alone leaves a `func.func @acoshf` declaration that `mlir-translate` rejects.
+- After that LLIR pipeline fix, isolated `third_party/ascend/unittest/pytest_ut/test_acos.py::test_asinh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_acosh.py` pass under the local harness env, so the old full-suite `test_acos`/`test_acosh` failures in `debug/tmp/pytest.log` are stale.
+- `third_party/ascend/unittest/pytest_ut/test_address_check.py::test_cpu_tensor_should_fail` is now the refreshed earliest failure in that frontier; it expects CPU tensors to be rejected, but the local harness maps both `.npu()` and `device='npu'` allocations onto CPU tensors, so no `ValueError` is raised today.
 
 ## Open Questions
 
@@ -48,6 +51,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
 - Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
 - Historical note said `test_cyl_bessel_i0.py` still failed in LLIR on unbufferized `__nv_cyl_bessel_i0f`; current harness patches replace that libdevice call with a local Triton approximation, and the isolated float32 case now passes.
+- Historical note implied the next frontier was still the old libdevice unary-math failures from `debug/tmp/pytest.log`; current reruns show `test_acos.py` and `test_acosh.py` pass, and the active frontier has moved to `test_address_check.py`.
 
 ## Rules
 

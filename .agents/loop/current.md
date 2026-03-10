@@ -35,10 +35,13 @@ Keep this file short. It is the live working view for the next few rounds.
 - With the new extern-elementwise lowering in place, isolated `third_party/ascend/unittest/pytest_ut/test_copysign.py::test_copysign[float32-shape0]` now passes under the local harness env.
 - `python/tta-ut/torch_npu.py` now patches both `triton.language.extra.libdevice` and `triton.language.extra.cuda.libdevice` with a local `@triton.jit` `cyl_bessel_i0` approximation for the CPU harness, so isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]` no longer reaches the LLIR `tt.extern_elementwise` bufferization failure.
 - After the new local `cyl_bessel_i0` shim, isolated `third_party/ascend/unittest/pytest_ut/test_cyl_bessel_i0.py::test_modified_bessel_i0[param_list0]`, `test_copysign.py::test_copysign[float32-shape0]`, and `test_cosh.py::test_cosh_special[float32]` all pass under the local harness env.
+- The old full-suite `debug/tmp/pytest.log` failure at `test_acos.py::test_asinh_special[float32]` is stale; rerunning the frontier showed that isolated `test_acos.py` now passes under the current local harness env.
+- `backend/compiler.py:make_llir()` now runs `--convert-math-to-libm` and `--convert-func-to-llvm` after `--convert-xyz-to-llvm`, which lowers libdevice-backed `math.acosh` to `acoshf` and lets isolated `third_party/ascend/unittest/pytest_ut/test_acosh.py` pass.
+- After the acosh LLIR fix, the refreshed earliest real failure is `third_party/ascend/unittest/pytest_ut/test_address_check.py::test_cpu_tensor_should_fail`: the local CPU harness accepts CPU tensors instead of raising the expected `ValueError`.
 
 ## Next Move
 
-- Refresh the failing frontier after the `cyl_bessel_i0` harness fix by isolating the next unresolved pytest case from `debug/tmp/pytest.log`, starting with the earliest still-failing non-skipped test rather than assuming the old libdevice blocker remains.
+- Investigate `third_party/ascend/unittest/pytest_ut/test_address_check.py::test_cpu_tensor_should_fail` under the local harness and decide whether the right next step is to restore CPU-tensor rejection semantics or to mark this device-distinction test unsupported for the CPU-backed shim.
 
 ## Risks
 
@@ -52,6 +55,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - The bool-output fix depends on the LLIR pipeline order in `backend/compiler.py`; if a future edit drops `--triton-to-ptr` again, scalar bool stores can regress at `mlir-translate` time even when TTIR and linalg lowering succeed.
 - The new bare `BLOCK_SIZE` normalization only removes the front-end verifier blocker; libdevice-heavy kernels can still stop later when `tt.extern_elementwise` reaches `one-shot-bufferize` unchanged in the LLIR path.
 - `copysign` now has an explicit TritonArithToLinalg lowering, but other libdevice symbols without MLIR math equivalents may still need either a core lowering or a harness-side compatibility implementation.
+- The local harness intentionally aliases `torch.Tensor.npu` to CPU tensors and rewrites `device='npu'` factory calls to CPU, so tests that specifically assert CPU-vs-NPU rejection semantics can fail for harness reasons even when kernel execution is otherwise correct.
 
 ## Rules
 
