@@ -161,11 +161,15 @@ for name in [
     "log",
     "log10",
     "log1p",
+    "permute",
     "sin",
     "sinh",
     "sqrt",
     "tan",
     "tanh",
+    "reshape",
+    "transpose",
+    "view",
 ]:
     if hasattr(torch.Tensor, name):
         setattr(torch.Tensor, name, _wrap_tensor_method_result(getattr(torch.Tensor, name)))

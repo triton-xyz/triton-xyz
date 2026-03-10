@@ -1614,6 +1614,210 @@ public:
   }
 };
 
+class MultiInputScalarScanConverter
+    : public OpConversionPattern<triton::ScanOp> {
+  using OpConversionPattern<triton::ScanOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(triton::ScanOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    size_t numInputs = adaptor.getOperands().size();
+    size_t numResults = op->getNumResults();
+    if (numInputs <= 1 || numResults <= 1) {
+      return failure();
+    }
+    if (numInputs != numResults) {
+      return rewriter.notifyMatchFailure(
+          op, "Only support multi-input scans with matching result arity");
+    }
+
+    Block *scanBlock = op.getBody();
+    if (scanBlock->getNumArguments() != static_cast<int>(numInputs * 2)) {
+      return rewriter.notifyMatchFailure(
+          op, "Only support scans whose combine region takes accumulator and "
+              "current values for each input");
+    }
+    if (scanBlock->getTerminator()->getNumOperands() !=
+        static_cast<int>(numResults)) {
+      return rewriter.notifyMatchFailure(
+          op, "Scan return arity does not match scan result arity");
+    }
+
+    SmallVector<RankedTensorType> inputTypes;
+    inputTypes.reserve(numInputs);
+    for (Value operand : adaptor.getOperands()) {
+      auto type = dyn_cast<RankedTensorType>(operand.getType());
+      if (!type) {
+        return rewriter.notifyMatchFailure(
+            op, "Only support ranked tensor multi-input scans");
+      }
+      inputTypes.push_back(type);
+    }
+
+    auto refType = inputTypes.front();
+    int64_t rank = refType.getRank();
+    int64_t axis = op.getAxis();
+    bool reverse = op.getReverse();
+    auto loc = op.getLoc();
+
+    if (!llvm::all_of(inputTypes, [&](RankedTensorType type) {
+          return type.getRank() == rank &&
+                 type.getShape() == refType.getShape();
+        })) {
+      return rewriter.notifyMatchFailure(
+          op, "Only support multi-input scans with identical input shapes");
+    }
+
+    SmallVector<Value> initTensors;
+    initTensors.reserve(numResults);
+    for (Type resultType : op->getResultTypes()) {
+      auto tensorType = dyn_cast<RankedTensorType>(resultType);
+      if (!tensorType) {
+        return rewriter.notifyMatchFailure(
+            op, "Only support ranked tensor scan results");
+      }
+      initTensors.push_back(tensor::EmptyOp::create(
+          rewriter, loc, tensorType.getShape(), tensorType.getElementType()));
+    }
+
+    Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    Value one = arith::ConstantIndexOp::create(rewriter, loc, 1);
+    SmallVector<Value> outerIndices;
+
+    auto buildIndices = [&](Value scanIndex) {
+      SmallVector<Value> indices;
+      indices.reserve(rank);
+      int64_t outerIdx = 0;
+      for (int64_t dim = 0; dim < rank; ++dim) {
+        if (dim == axis) {
+          indices.push_back(scanIndex);
+          continue;
+        }
+        indices.push_back(outerIndices[outerIdx++]);
+      }
+      return indices;
+    };
+
+    auto buildAxisLoop = [&](ValueRange iterTensors) {
+      Value upper = getDimValue(rewriter, loc, adaptor.getOperands().front(),
+                                axis, refType.getShape()[axis]);
+      Value last = arith::SubIOp::create(rewriter, loc, upper, one);
+      Value firstIndex = reverse ? last : zero;
+      SmallVector<Value> firstIndices = buildIndices(firstIndex);
+
+      SmallVector<Value> firstValues;
+      firstValues.reserve(numInputs);
+      SmallVector<Value> seededTensors;
+      seededTensors.reserve(numResults);
+      for (auto [input, iterTensor] :
+           llvm::zip_equal(adaptor.getOperands(), iterTensors)) {
+        Value firstValue =
+            tensor::ExtractOp::create(rewriter, loc, input, firstIndices);
+        firstValues.push_back(firstValue);
+        seededTensors.push_back(tensor::InsertOp::create(
+            rewriter, loc, firstValue, iterTensor, firstIndices));
+      }
+
+      SmallVector<Value> iterArgs(firstValues);
+      iterArgs.append(seededTensors.begin(), seededTensors.end());
+      auto forOp = scf::ForOp::create(rewriter, loc, one, upper, one, iterArgs);
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+
+      Value position = forOp.getInductionVar();
+      if (reverse) {
+        position = arith::SubIOp::create(rewriter, loc, last, position);
+      }
+
+      SmallVector<Value> indices = buildIndices(position);
+      SmallVector<Value> currentValues;
+      currentValues.reserve(numInputs);
+      for (Value input : adaptor.getOperands()) {
+        currentValues.push_back(
+            tensor::ExtractOp::create(rewriter, loc, input, indices));
+      }
+
+      IRMapping mapping;
+      for (auto [blockArg, value] :
+           llvm::zip_equal(scanBlock->getArguments().take_front(numInputs),
+                           forOp.getRegionIterArgs().take_front(numInputs))) {
+        mapping.map(blockArg, value);
+      }
+      for (auto [blockArg, value] :
+           llvm::zip_equal(scanBlock->getArguments().drop_front(numInputs),
+                           currentValues)) {
+        mapping.map(blockArg, value);
+      }
+
+      for (Operation &bodyOp : scanBlock->without_terminator()) {
+        Operation *clonedOp = rewriter.clone(bodyOp, mapping);
+        for (auto [oldResult, newResult] :
+             llvm::zip_equal(bodyOp.getResults(), clonedOp->getResults())) {
+          mapping.map(oldResult, newResult);
+        }
+      }
+
+      SmallVector<Value> combinedValues;
+      combinedValues.reserve(numResults);
+      for (Value operand : scanBlock->getTerminator()->getOperands()) {
+        combinedValues.push_back(mapping.lookupOrDefault(operand));
+      }
+
+      SmallVector<Value> updatedTensors;
+      updatedTensors.reserve(numResults);
+      for (auto [combined, iterTensor] :
+           llvm::zip_equal(combinedValues,
+                           forOp.getRegionIterArgs().drop_front(numInputs))) {
+        updatedTensors.push_back(tensor::InsertOp::create(
+            rewriter, loc, combined, iterTensor, indices));
+      }
+
+      SmallVector<Value> yields(combinedValues);
+      yields.append(updatedTensors.begin(), updatedTensors.end());
+      scf::YieldOp::create(rewriter, loc, yields);
+
+      SmallVector<Value> results;
+      results.reserve(numResults);
+      for (Value result : forOp.getResults().drop_front(numInputs)) {
+        results.push_back(result);
+      }
+      return results;
+    };
+
+    auto buildLoops = [&](auto &self, int64_t dim,
+                          ValueRange iterTensors) -> SmallVector<Value> {
+      if (dim == rank) {
+        return buildAxisLoop(iterTensors);
+      }
+      if (dim == axis) {
+        return self(self, dim + 1, iterTensors);
+      }
+
+      Value upper = getDimValue(rewriter, loc, adaptor.getOperands().front(),
+                                dim, refType.getShape()[dim]);
+      auto forOp = scf::ForOp::create(
+          rewriter, loc, zero, upper, one,
+          SmallVector<Value>(iterTensors.begin(), iterTensors.end()));
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+      outerIndices.push_back(forOp.getInductionVar());
+      SmallVector<Value> next = self(self, dim + 1, forOp.getRegionIterArgs());
+      outerIndices.pop_back();
+      scf::YieldOp::create(rewriter, loc, next);
+      SmallVector<Value> results;
+      results.reserve(forOp.getNumResults());
+      for (Value result : forOp.getResults()) {
+        results.push_back(result);
+      }
+      return results;
+    };
+
+    rewriter.replaceOp(op, buildLoops(buildLoops, 0, initTensors));
+    return success();
+  }
+};
+
 class ReshapeConverter : public OpConversionPattern<triton::ReshapeOp> {
   using OpConversionPattern<triton::ReshapeOp>::OpConversionPattern;
 
@@ -1791,7 +1995,9 @@ void mlir::triton::populateTritonArithToLinalgConversionPatterns(
   patterns.add<SplatConverter>(patterns.getContext());
   patterns.add<UnsplatConverter>(patterns.getContext());
   patterns.add<DenseConstantConverter>(patterns.getContext());
-  patterns.add<CumSumConverter, ScalarScanConverter>(patterns.getContext());
+  patterns
+      .add<CumSumConverter, ScalarScanConverter, MultiInputScalarScanConverter>(
+          patterns.getContext());
   patterns.add<ReshapeConverter>(patterns.getContext());
 
   populateExternElementwiseOpToMLIROps(patterns);

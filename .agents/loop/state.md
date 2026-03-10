@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- Keep `python/tta-ut/pytest_one.sh` on one isolated repro at a time. The single-input `test_associative_scan.py` float32 family is now cleared by repo-owned `tt.scan` lowering, so keep the harness on the new `test_associative_scan_multi_input.py` repro and determine whether multi-operand `tt.scan` needs a similar lowering path instead of more pytest-side patching.
+- The active associative-scan subgoal is now cleared for both the single-input and multi-input float32 files. Keep using `python/tta-ut/pytest_one.sh` on one isolated repro at a time, but choose the next target from the remaining unresolved suite evidence instead of staying on the now-passing multi-input scan file.
 
 # Evidence
 
@@ -68,12 +68,17 @@
 - 2026-03-11: Added `test/Conversion/triton-arith-to-linalg-scan.mlir` to lock the new scalarized max-scan lowering for forward and reverse 1D scans. Validation succeeded with `lit -v test/Conversion/triton-arith-to-linalg-scan.mlir` (`1 passed`).
 - 2026-03-11: Validation for the original blocker succeeded with `bash python/tta-ut/pytest_one.sh` on `test_associative_scan.py::test_scan[False-maximum-0-shape0-float32]` (`1 passed`) and with `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_associative_scan.py` (`12 passed, 24 skipped`).
 - 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_associative_scan_multi_input.py -k test_multi_input_prefix_sum[False-shape0-0]` exposes the next compiler-side blocker: multi-input `tt.scan` still survives into `build/bin/triton-xyz-opt --one-shot-bufferize`, which fails with `error: op was not bufferized` on a two-result scan region that combines `arith.addf` and `arith.addi` plus the generated overflow `cf.assert`.
+- 2026-03-11: `lib/Conversion/TritonArithToLinalg/TritonArithToLinalg.cpp` now adds a repo-owned `MultiInputScalarScanConverter` that scalarizes multi-input / multi-result `tt.scan` ops by cloning the combine region into nested `scf.for` loops, preserving region-side `tt.assert` checks while replacing the unbufferizable scan with `tensor.extract` / `tensor.insert` updates.
+- 2026-03-11: `test/Conversion/triton-arith-to-linalg-scan.mlir` now also locks the multi-input scan lowering shape, including the cloned overflow `cf.assert` path inside the scalarized loop body.
+- 2026-03-11: After the compiler fix, the same isolated repro surfaced a fake-NPU compatibility gap instead of a lowering failure: tensors produced through `permute` / `reshape` style methods were losing the fake-NPU marker and were rejected by the launcher as plain CPU tensors.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now propagates fake-NPU markers through `Tensor.permute`, `Tensor.reshape`, `Tensor.transpose`, and `Tensor.view`, which is enough for the multi-input scan test's `permute(...).contiguous()` and `reshape(...)` flows to keep launcher-visible fake-NPU placement.
+- 2026-03-11: Validation for the multi-input checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-arith-to-linalg-scan.mlir` (`1 passed`), `bash python/tta-ut/pytest_one.sh` on `test_associative_scan_multi_input.py::test_multi_input_prefix_sum[False-shape0-0]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_associative_scan_multi_input.py` (`12 passed`).
 
 # Next Options
 
-- Extend the new repo-owned `tt.scan` lowering to multi-input / multi-result scans, starting from `test_associative_scan_multi_input.py::test_multi_input_prefix_sum[False-shape0-0]`, because the next blocker is a two-operand scan that still reaches one-shot bufferization unchanged.
-- Inspect the freshly captured `debug/tmp-pytest_one/_pass_dump__2_xyz_to_llvm` dump for the multi-input repro to decide whether the generated `cf.assert` overflow check can be preserved in a scalarized lowering or should be normalized earlier.
-- Keep using repo-owned fake-NPU/runtime shims when a repro dies before lowering on unsupported launch kwargs, fake device APIs, or CPU-tensor pointer checks, because those have been high-yield fixes for Ascend corpus expectations.
+- Repoint `python/tta-ut/pytest_one.sh` to the next unresolved float32 pytest failure outside the now-cleared associative-scan files, using `debug/tmp-0/pytest.log` as the source list rather than rerunning the full suite.
+- Keep using repo-owned fake-NPU/runtime shims when a repro dies before lowering on unsupported launch kwargs, fake device APIs, or CPU-tensor pointer checks, because the latest multi-input scan pass exposed another high-yield marker-propagation gap after the compiler blocker was removed.
+- If the next blocker is compiler-side again, prefer adding tracked lit coverage near `test/Conversion/triton-arith-to-linalg-scan.mlir` or the closest pass-specific file before widening pytest coverage.
 - Use broader file-level reruns only after an isolated repro passes, since the full `python/tta-ut/pytest.sh` path is still noisy and can hang.
 
 # Blockers
