@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded alphabetical float32 discovery flow is still paying off. This round cleared `test_erfinv.py` by teaching the fake-NPU `xyz.libdevice` shim to provide a repo-owned `erfinv` helper instead of relying on an extern that the active XYZ backend cannot lower cleanly. The next round should stay on the newly exposed `test_extract_slice.py::test_extract_slice` repro in `python/tta-ut/pytest_one.sh`, inspect the Ascend-side slice extension semantics, and decide whether the smallest viable fix is a repo-owned fake-NPU `triton.language.extra.cann.extension` shim or deeper compiler/runtime support.
+- The bounded alphabetical float32 discovery flow is still paying off. This round cleared the rank-1 `cann.extension` slice repros by teaching the fake-NPU shim to expose a repo-owned `triton.language.extra.cann.extension` module with 1D `extract_slice` / `insert_slice` helpers built from active Triton core ops, and by unskipping the now-green `test_extract_slice.py` / `test_insert_slice.py` files in `python/tta-ut/conftest.py`. The next round should stay on the newly exposed `test_fixpipe.py::test_fixpipe` repro in `python/tta-ut/pytest_one.sh`, inspect how much of `triton.extension.buffer.language` can be faked in repo-owned Python shims, and decide whether a narrow import-level compatibility layer is enough before touching deeper compiler support.
 
 # Evidence
 
@@ -128,18 +128,23 @@
 - 2026-03-11: Advancing the alphabetical discovery window to `test_extract_slice.py`, `test_fdiv.py`, `test_fixpipe.py`, `test_flip.py`, `test_floor.py`, `test_floordiv.py`, `test_for_ptr.py`, and `test_full.py` exposed the next live blocker immediately during collection: `test_extract_slice.py` imports `triton.language.extra.cann.extension`, but the fake-NPU shim only aliases `cann` / `ascend` libdevice modules today, so pytest stops with `ModuleNotFoundError: No module named 'triton.language.extra.cann.extension'`.
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_extract_slice.py -k test_extract_slice`, and `bash python/tta-ut/pytest_one.sh` reproduces the same missing-`cann.extension` import error directly in the single-test harness.
 - 2026-03-11: `third_party/triton-ascend/python/triton/runtime/ascend_interpreter.py` contains `create_extract_slice(...)` and `create_insert_slice(...)` helpers, so the next blocker is not just a missing import name; the Ascend fork expects extra slice/insert functionality that the active fake-NPU path does not yet surface.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now installs a repo-owned `triton.language.extra.xyz.extension` module and aliases it to `triton.language.extra.cann.extension` / `triton.language.extra.ascend.extension`, with rank-1 `extract_slice` and `insert_slice` helpers implemented from active Triton core broadcast / reduce ops instead of relying on missing builder-side `create_extract_slice` hooks.
+- 2026-03-11: `python/tta-ut/conftest.py` no longer skips `test_extract_slice.py` or `test_insert_slice.py`, because the fake-NPU shim now covers their current 1D float32 usage.
+- 2026-03-11: Validation for the slice-extension checkpoint succeeded with `bash python/tta-ut/pytest_one.sh` on `test_extract_slice.py::test_extract_slice` (`1 passed`) before repointing, plus `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_extract_slice.py third_party/ascend/unittest/pytest_ut/test_insert_slice.py` (`2 passed`).
+- 2026-03-11: Re-running the same bounded `extract_slice` -> `full` discovery slice after the shim fix advanced to a new import-level compatibility gap instead of a slice failure: `test_fixpipe.py` now stops during collection with `ModuleNotFoundError: No module named 'triton.extension'`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_fixpipe.py -k test_fixpipe`, and `bash python/tta-ut/pytest_one.sh` reproduces the same missing-`triton.extension.buffer.language` import error directly in the single-test harness.
 
 # Next Options
 
-- Inspect how the Ascend fork wires `triton.language.extra.cann.extension` to builder or interpreter functionality, then add the smallest repo-owned fake-NPU shim needed to make `test_extract_slice.py` import and compile.
-- Reproduce the live blocker through `bash python/tta-ut/pytest_one.sh` on `test_extract_slice.py::test_extract_slice`, patch the import/module gap first, and rerun the isolated case before touching broader coverage.
-- If `test_extract_slice.py` gets past import and exposes a deeper lowering/runtime failure, inspect whether the active builder already has hidden slice support or whether repo-owned interpreter/compiler plumbing is required.
-- After the extract-slice repro is green, resume the bounded alphabetical float32 discovery flow from the same `extract_slice` -> `full` slice to find the next live blocker.
+- Inspect how the Ascend fork wires `triton.extension.buffer.language` and related buffer helpers, then add the smallest repo-owned fake-NPU shim needed to make `test_fixpipe.py` import and compile.
+- Reproduce the live blocker through `bash python/tta-ut/pytest_one.sh` on `test_fixpipe.py::test_fixpipe`, patch the import/module gap first, and rerun the isolated case before touching broader coverage.
+- If `test_fixpipe.py` gets past import and exposes deeper IR generation failures, inspect whether the active builder already has any buffer-allocation hooks that can be surfaced from repo-owned Python shims.
+- After the `fixpipe` repro is understood, resume the bounded alphabetical float32 discovery flow from the same `extract_slice` -> `full` slice to find the next live blocker.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The live next blocker is now `test_extract_slice.py::test_extract_slice`, which currently fails during collection because fake-NPU pytest runs do not expose `triton.language.extra.cann.extension`.
-- The Ascend fork appears to pair that missing Python module with real slice helpers in `third_party/triton-ascend/python/triton/runtime/ascend_interpreter.py`, so the next fix may need more than a bare import alias.
+- The live next blocker is now `test_fixpipe.py::test_fixpipe`, which currently fails during collection because fake-NPU pytest runs do not expose `triton.extension.buffer.language`.
+- The Ascend-side `fixpipe` test imports both `triton.extension.buffer.language` and `triton.language.extra.cann.extension`, so the next fix may need coordinated buffer-language and extension shims rather than a single alias.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
 - Compiler stderr is still terse for live lowering failures, so the pass dumps under `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/` remain the best source of truth when a new isolated repro reaches `--triton-to-linalg-tta`.

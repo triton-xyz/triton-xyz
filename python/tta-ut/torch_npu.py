@@ -749,6 +749,82 @@ def _patch_xyz_libdevice():
 _patch_xyz_libdevice()
 
 
+@triton.jit
+def _extension_sum_combine(a, b):  # ty:ignore
+    return a + b
+
+
+def _extension_constexpr_value(value):
+    return value.value if isinstance(value, tl_core.constexpr) else value
+
+
+def _validate_extension_slice_args(full_tensor, offsets, sizes, strides, sub_tensor=None):
+    if len(full_tensor.shape) != 1:
+        raise NotImplementedError("fake cann.extension only supports rank-1 tensors")
+    if len(offsets) != 1 or len(sizes) != 1 or len(strides) != 1:
+        raise NotImplementedError("fake cann.extension only supports rank-1 slice metadata")
+    slice_size = _extension_constexpr_value(sizes[0])
+    stride = _extension_constexpr_value(strides[0])
+    if not isinstance(slice_size, int) or slice_size < 1:
+        raise ValueError("slice size must be a positive integer")
+    if stride != 1:
+        raise NotImplementedError("fake cann.extension only supports unit strides")
+    if sub_tensor is not None and tuple(sub_tensor.shape) != (slice_size,):
+        raise ValueError("slice payload shape does not match requested size")
+    return slice_size
+
+
+@tl_core.builtin
+def _extension_extract_slice(full_tensor, offsets, sizes, strides, _builder=None, _generator=None, _semantic=None):
+    slice_size = _validate_extension_slice_args(full_tensor, offsets, sizes, strides)
+    full_size = _extension_constexpr_value(full_tensor.shape[0])
+    offset = _semantic.to_tensor(offsets[0])
+    local_offset = _semantic.mod(offset, full_size)
+    full_idx = tl_core.arange(0, full_size, _semantic=_semantic)
+    slice_idx = _semantic.add(local_offset, tl_core.arange(0, slice_size, _semantic=_semantic), True)
+    full_vals = tl_core.broadcast_to(tl_core.expand_dims(full_tensor, 0, _semantic=_semantic),
+                                     (slice_size, full_size), _semantic=_semantic)
+    full_idx = tl_core.broadcast_to(tl_core.expand_dims(full_idx, 0, _semantic=_semantic),
+                                    (slice_size, full_size), _semantic=_semantic)
+    slice_idx = tl_core.broadcast_to(tl_core.expand_dims(slice_idx, 1, _semantic=_semantic),
+                                     (slice_size, full_size), _semantic=_semantic)
+    zeros = tl_core.full((slice_size, full_size), 0, full_tensor.type.scalar, _semantic=_semantic)
+    selected = _semantic.where(_semantic.equal(full_idx, slice_idx), full_vals, zeros)
+    return tl_core.reduce(selected, 1, _extension_sum_combine, _semantic=_semantic, _generator=_generator)
+
+
+@tl_core.builtin
+def _extension_insert_slice(full_tensor, sub_tensor, offsets, sizes, strides, _builder=None, _generator=None, _semantic=None):
+    slice_size = _validate_extension_slice_args(full_tensor, offsets, sizes, strides, sub_tensor=sub_tensor)
+    full_size = _extension_constexpr_value(full_tensor.shape[0])
+    offset = _semantic.to_tensor(offsets[0])
+    local_offset = _semantic.mod(offset, full_size)
+    full_idx = tl_core.arange(0, full_size, _semantic=_semantic)
+    slice_idx = _semantic.add(local_offset, tl_core.arange(0, slice_size, _semantic=_semantic), True)
+    sub_vals = tl_core.broadcast_to(tl_core.expand_dims(sub_tensor, 0, _semantic=_semantic),
+                                    (full_size, slice_size), _semantic=_semantic)
+    full_idx = tl_core.broadcast_to(tl_core.expand_dims(full_idx, 1, _semantic=_semantic),
+                                    (full_size, slice_size), _semantic=_semantic)
+    slice_idx = tl_core.broadcast_to(tl_core.expand_dims(slice_idx, 0, _semantic=_semantic),
+                                     (full_size, slice_size), _semantic=_semantic)
+    selector = _semantic.equal(full_idx, slice_idx)
+    data_zeros = tl_core.full((full_size, slice_size), 0, sub_tensor.type.scalar, _semantic=_semantic)
+    inserted = tl_core.reduce(_semantic.where(selector, sub_vals, data_zeros), 1, _extension_sum_combine,
+                              _semantic=_semantic, _generator=_generator)
+    match_zeros = tl_core.full((full_size, slice_size), 0, tl.int32, _semantic=_semantic)
+    match_ones = tl_core.full((full_size, slice_size), 1, tl.int32, _semantic=_semantic)
+    matched = tl_core.reduce(_semantic.where(selector, match_ones, match_zeros), 1, _extension_sum_combine,
+                             _semantic=_semantic, _generator=_generator)
+    return _semantic.where(_semantic.not_equal(matched, 0), inserted, full_tensor)
+
+
+_xyz_extension = types.ModuleType("triton.language.extra.xyz.extension")
+_xyz_extension.extract_slice = _extension_extract_slice
+_xyz_extension.insert_slice = _extension_insert_slice
+_xyz_extension.__all__ = ["extract_slice", "insert_slice"]
+setattr(triton.language.extra.xyz, "extension", _xyz_extension)
+
+
 _orig_build_unranked_memref = xyz_driver._build_unranked_memref
 
 
@@ -775,5 +851,8 @@ if hasattr(tl, "randint4x"):
 
 sys.modules["triton.language.extra.cann"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.cann.libdevice"] = xyz_libdevice  # ty:ignore
+sys.modules["triton.language.extra.cann.extension"] = _xyz_extension  # ty:ignore
 sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.ascend.libdevice"] = xyz_libdevice  # ty:ignore
+sys.modules["triton.language.extra.ascend.extension"] = _xyz_extension  # ty:ignore
+sys.modules["triton.language.extra.xyz.extension"] = _xyz_extension

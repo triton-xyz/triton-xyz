@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_extract_slice.py
-  -k "test_extract_slice"
+  third_party/ascend/unittest/pytest_ut/test_fixpipe.py
+  -k "test_fixpipe"
   #
 )
 pushd third_party/triton-ascend
