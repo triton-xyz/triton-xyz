@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_cannonicalize_tl_where.py
-  -k "test_tl_where[128-128-256-dtype0-float32]"
+  third_party/ascend/unittest/pytest_ut/test_associative_scan.py
+  -k "test_scan[False-maximum-0-shape0-float32]"
   #
   # `Segmentation fault`
   # third_party/ascend/unittest/pytest_ut/test_complex_mask.py

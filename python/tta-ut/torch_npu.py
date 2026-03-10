@@ -1,4 +1,5 @@
 import sys
+import types
 import numpy as np
 import torch
 
@@ -24,6 +25,22 @@ torch.cpu.set_device(DEVICE)
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
+
+
+class _FakeNPUUtils:
+    @staticmethod
+    def set_device(device):
+        return device
+
+
+class _FakeNPUMatmul:
+    allow_hf32 = True
+
+
+npu = types.SimpleNamespace(
+    utils=_FakeNPUUtils(),
+    matmul=_FakeNPUMatmul(),
+)
 
 
 # fake apis
@@ -244,6 +261,26 @@ def _patch_arange_range_power_of_two_check():
 
 
 _patch_arange_range_power_of_two_check()
+
+
+def _patch_dot_input_precision():
+    current_impl = triton_semantic.TritonSemantic._str_to_dot_input_precision
+    if getattr(current_impl, "_ttx_dot_precision_compat", False):
+        return
+
+    def _str_to_dot_input_precision(self, input_precision):
+        if isinstance(input_precision, str):
+            normalized = input_precision.lower()
+            allowed = tuple(precision.lower() for precision in self.builder.options.allowed_dot_input_precisions)
+            if normalized in {"hf32", "tf32"} and normalized not in allowed and "ieee" in allowed:
+                input_precision = "ieee"
+        return current_impl(self, input_precision)
+
+    _str_to_dot_input_precision._ttx_dot_precision_compat = True
+    triton_semantic.TritonSemantic._str_to_dot_input_precision = _str_to_dot_input_precision
+
+
+_patch_dot_input_precision()
 
 
 def _patch_constexpr_global_annotations():
