@@ -6,9 +6,12 @@ export PATH="$PWD/build/bin:$PATH"
 export TRITON_ALWAYS_COMPILE=1
 export TRITON_HOME="$DIR"
 
+export TRITON_DEBUG=1
+export MLIR_ENABLE_DUMP=1
+export MLIR_ENABLE_DUMP_DIR="$DIR/_pass_dump"
+
 export TTX_PYTEST_QUIET=1
 export TTX_PYTEST_GLOBAL_TIMEOUT=100
-
 export TTX_PYTEST_DTYPE="float32"
 
 args=(

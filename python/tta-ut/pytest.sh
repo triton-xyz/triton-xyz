@@ -8,7 +8,6 @@ export TRITON_HOME="$DIR"
 
 export TTX_PYTEST_QUIET=0
 export TTX_PYTEST_GLOBAL_TIMEOUT=100
-
 # export TTX_PYTEST_DTYPE="float32"
 # export TTX_PYTEST_DTYPE="float16"
 # export TTX_PYTEST_DTYPE="int32"
