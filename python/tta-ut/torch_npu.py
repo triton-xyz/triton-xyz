@@ -4,6 +4,7 @@ import torch
 
 import triton  # noqa
 import triton.language as tl  # noqa
+import triton.language.extra.libdevice as extra_libdevice  # noqa
 from triton.backends.xyz.driver import XYZDriver  # noqa
 
 # set device
@@ -49,7 +50,8 @@ if hasattr(tl, "randint4x"):
         _randint4x_compat._ttxt_randint4x_compat = True  # ty:ignore
         setattr(tl, "randint4x", _randint4x_compat)
 
+triton.language.extra.xyz.libdevice = extra_libdevice  # ty:ignore[attr-defined]
 sys.modules["triton.language.extra.cann"] = triton.language.extra.xyz  # ty:ignore
-sys.modules["triton.language.extra.cann.libdevice"] = triton.language.extra.xyz.libdevice  # ty:ignore
+sys.modules["triton.language.extra.cann.libdevice"] = extra_libdevice
 sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ignore
-sys.modules["triton.language.extra.ascend.libdevice"] = triton.language.extra.xyz.libdevice  # ty:ignore
+sys.modules["triton.language.extra.ascend.libdevice"] = extra_libdevice

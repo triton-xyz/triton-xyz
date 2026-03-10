@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_npu  # noqa: F401
 
 import numbers
 import os
