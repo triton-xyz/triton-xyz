@@ -334,3 +334,28 @@ module {
     tt.return %result : i32
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   func.func @scalar_i1_ptr_bitcast_store(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xi8>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK-NOT:       tt.bitcast
+// CHECK-NOT:       !tt.ptr
+// CHECK:           %[[CAST:.*]] = memref.cast %[[ARG0]] : memref<*xi8> to memref<?xi8>
+// CHECK:           %[[EXT:.*]] = arith.extui %[[ARG1]] : i1 to i8
+// CHECK:           memref.store %[[EXT]], %[[CAST]]
+// CHECK:           return
+  func.func @scalar_i1_ptr_bitcast_store(%arg0: !tt.ptr<i1>, %arg1: i1) {
+    %base = builtin.unrealized_conversion_cast %arg0 : !tt.ptr<i1> to memref<*xi8>
+    %base_ptr = builtin.unrealized_conversion_cast %base : memref<*xi8> to !tt.ptr<i1>
+    %bitcast_ptr = tt.bitcast %base_ptr : !tt.ptr<i1> -> !tt.ptr<i8>
+    %target = builtin.unrealized_conversion_cast %bitcast_ptr : !tt.ptr<i8> to memref<*xi8>
+    %cast = memref.cast %target : memref<*xi8> to memref<?xi8>
+    %c0 = arith.constant 0 : index
+    %ext = arith.extui %arg1 : i1 to i8
+    memref.store %ext, %cast[%c0] : memref<?xi8>
+    return
+  }
+}

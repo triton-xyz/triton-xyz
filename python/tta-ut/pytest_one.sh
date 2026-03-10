@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_elementwise_round.py
-  -k "test_elementwise_common[3-32-dtype0-float32-round-triton_round-standard_round]"
+  third_party/ascend/unittest/pytest_ut/test_erfinv.py
+  -k "test_erfinv_case[param_list0]"
   #
 )
 pushd third_party/triton-ascend

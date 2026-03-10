@@ -47,6 +47,13 @@ struct ScalarMemrefAccess {
   Value basePtr;
 };
 
+static Type getMemrefElementTypeForPointer(Type pointeeType) {
+  if (pointeeType.isInteger(1)) {
+    return IntegerType::get(pointeeType.getContext(), 8);
+  }
+  return pointeeType;
+}
+
 static bool isOneToOneUnrealizedCast(UnrealizedConversionCastOp op) {
   return op && op.getInputs().size() == 1 && op->getNumResults() == 1;
 }
@@ -418,13 +425,16 @@ public:
     // The order of type conversion is important: later ones are tried earlier.
     addConversion([](Type type) { return type; });
     addConversion([](triton::PointerType ptrType) {
-      return UnrankedMemRefType::get(ptrType.getPointeeType(),
-                                     /*memorySpace=*/0);
+      return UnrankedMemRefType::get(
+          getMemrefElementTypeForPointer(ptrType.getPointeeType()),
+          /*memorySpace=*/0);
     });
     addConversion([](RankedTensorType tensorType) -> std::optional<Type> {
       if (auto ptrType =
               dyn_cast<triton::PointerType>(tensorType.getElementType())) {
-        return MemRefType::get(tensorType.getShape(), ptrType.getPointeeType());
+        return MemRefType::get(
+            tensorType.getShape(),
+            getMemrefElementTypeForPointer(ptrType.getPointeeType()));
       }
       return std::nullopt;
     });
@@ -497,6 +507,63 @@ struct FoldPtrSelectToMemrefSelect : public OpRewritePattern<arith::SelectOp> {
 
     for (UnrealizedConversionCastOp castUser : castUsers) {
       castUser.getResult(0).replaceAllUsesWith(memrefSelect);
+      rewriter.eraseOp(castUser);
+    }
+
+    if (op->use_empty()) {
+      rewriter.eraseOp(op);
+    }
+
+    return success();
+  }
+};
+
+struct FoldScalarPtrBitcastToMemrefCast
+    : public OpRewritePattern<triton::BitcastOp> {
+  using OpRewritePattern<triton::BitcastOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(triton::BitcastOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!isa<triton::PointerType>(op.getType()) ||
+        !isa<triton::PointerType>(op.getSrc().getType())) {
+      return failure();
+    }
+
+    SmallVector<UnrealizedConversionCastOp> castUsers;
+    Type targetType;
+    for (OpOperand &use : op.getResult().getUses()) {
+      auto castOp = dyn_cast<UnrealizedConversionCastOp>(use.getOwner());
+      if (!castOp || !isOneToOneUnrealizedCast(castOp) ||
+          castOp.getInputs().front() != op.getResult()) {
+        return failure();
+      }
+
+      Type castResultType = castOp.getResult(0).getType();
+      if (!isa<BaseMemRefType>(castResultType)) {
+        return failure();
+      }
+
+      if (!targetType) {
+        targetType = castResultType;
+      } else if (targetType != castResultType) {
+        return failure();
+      }
+
+      castUsers.push_back(castOp);
+    }
+
+    if (castUsers.empty() || !targetType) {
+      return failure();
+    }
+
+    auto maybeMemref =
+        materializeValueAsType(op.getSrc(), targetType, rewriter, op.getLoc());
+    if (failed(maybeMemref)) {
+      return failure();
+    }
+
+    for (UnrealizedConversionCastOp castUser : castUsers) {
+      castUser.getResult(0).replaceAllUsesWith(*maybeMemref);
       rewriter.eraseOp(castUser);
     }
 
@@ -838,9 +905,11 @@ public:
     }
 
     RewritePatternSet postPatterns(&getContext());
-    postPatterns.add<FoldPtrSelectToMemrefSelect, TensorPtrLoadToMemref,
-                     TensorPtrStoreToMemref, TensorPtrAtomicRMWToMemref,
-                     TensorPtrAtomicCASToMemref>(&getContext());
+    postPatterns
+        .add<FoldPtrSelectToMemrefSelect, FoldScalarPtrBitcastToMemrefCast,
+             TensorPtrLoadToMemref, TensorPtrStoreToMemref,
+             TensorPtrAtomicRMWToMemref, TensorPtrAtomicCASToMemref>(
+            &getContext());
     if (failed(applyPatternsGreedily(moduleOp, std::move(postPatterns)))) {
       signalPassFailure();
     }
