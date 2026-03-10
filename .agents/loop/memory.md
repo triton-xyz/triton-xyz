@@ -34,6 +34,8 @@ Use this file for short, reusable facts worth carrying across rounds.
 - In `backend/compiler.py:make_llir()`, lowering `math.acosh`-style ops for the CPU backend needs both `--convert-math-to-libm` and `--convert-func-to-llvm` after `--convert-xyz-to-llvm`; `--convert-math-to-llvm` alone leaves `math.acosh` untouched, while `--convert-math-to-libm` alone leaves a `func.func @acoshf` declaration that `mlir-translate` rejects.
 - After that LLIR pipeline fix, isolated `third_party/ascend/unittest/pytest_ut/test_acos.py::test_asinh_special[float32]` and `third_party/ascend/unittest/pytest_ut/test_acosh.py` pass under the local harness env, so the old full-suite `test_acos`/`test_acosh` failures in `debug/tmp/pytest.log` are stale.
 - `python/tta-ut/torch_npu.py` can tag tensors produced by the fake-NPU allocation shims and `.npu()` conversion, then reject untagged CPU tensors in the local `triton.runtime.jit.JITFunction.run` wrapper; with that compatibility check in place, isolated `third_party/ascend/unittest/pytest_ut/test_address_check.py` passes both cases and preserves the expected `cpu tensor?` error hint.
+- The next isolated frontier after `test_address_check.py` is `third_party/ascend/unittest/pytest_ut/test_advance.py`; its float32 failures stop in `backend/compiler.py:make_ttir()` because `tl.make_block_ptr` and `tl.advance` create tensor-pointer loads/stores with non-power-of-two shapes like `tensor<33x9x2xf32>`, `tensor<1x3xf32>`, and `tensor<13x1xf32>`, which Triton's verifier rejects before later lowering runs.
+- The existing launch-time constexpr normalization in `python/tta-ut/torch_npu.py` only fixes non-power-of-two meta-parameters such as `*_SUB`, `BLOCK_SIZE`, and `*_BLOCK_SIZE`; it does not affect tensor shapes baked directly into kernel IR, so it cannot fix the current `test_advance.py` frontier by itself.
 
 ## Open Questions
 
@@ -51,7 +53,7 @@ Use this file for short, reusable facts worth carrying across rounds.
 - Historical note said `pytest_one.sh` dumps to `debug/tmp-pytest_one`; current script writes to `debug/tmp`.
 - Historical note said the next decision was whether to bypass `backend/compiler.py:make_ttir()` verification; current evidence shows the durable fix direction is launch-time sub-block normalization instead.
 - Historical note said `test_cyl_bessel_i0.py` still failed in LLIR on unbufferized `__nv_cyl_bessel_i0f`; current harness patches replace that libdevice call with a local Triton approximation, and the isolated float32 case now passes.
-- Historical note implied the active frontier was `test_address_check.py`; current harness-side fake-NPU tagging fixes that file, so the next frontier must be refreshed from a new isolated rerun.
+- Historical note implied the active frontier was `test_address_check.py`; current evidence shows that file now passes and the next frontier is `test_advance.py`.
 
 ## Rules
 

@@ -38,10 +38,12 @@ Keep this file short. It is the live working view for the next few rounds.
 - The old full-suite `debug/tmp/pytest.log` failure at `test_acos.py::test_asinh_special[float32]` is stale; rerunning the frontier showed that isolated `test_acos.py` now passes under the current local harness env.
 - `backend/compiler.py:make_llir()` now runs `--convert-math-to-libm` and `--convert-func-to-llvm` after `--convert-xyz-to-llvm`, which lowers libdevice-backed `math.acosh` to `acoshf` and lets isolated `third_party/ascend/unittest/pytest_ut/test_acosh.py` pass.
 - `python/tta-ut/torch_npu.py` now tags tensors created through the fake-NPU shims and rejects untagged CPU tensors at Triton kernel launch time, so isolated `third_party/ascend/unittest/pytest_ut/test_address_check.py` now passes both the fake-NPU success case and the CPU-tensor rejection case.
+- A fresh isolated frontier sweep after `test_address_check.py` now fails immediately at `third_party/ascend/unittest/pytest_ut/test_advance.py`, where 5 float32 cases stop in `backend/compiler.py:make_ttir()` on Triton verifier errors like `Number of elements must be power-of-two` for `tt.load` from block-pointer tensors such as `tensor<33x9x2xf32>`, `tensor<1x3xf32>`, `tensor<3x1xf32>`, `tensor<1x13xf32>`, and `tensor<13x1xf32>`.
+- The current launch-time constexpr normalization is not involved in `test_advance.py`; these failing shapes are baked into `tl.make_block_ptr` and `tl.advance` tensor-pointer shapes inside the kernel body, so the existing `*_SUB` and `BLOCK_SIZE` shims do not change this frontier.
 
 ## Next Move
 
-- Refresh the isolated pytest frontier after `test_address_check.py` to find the next real failure under the current local harness.
+- Investigate the `test_advance.py` TTIR verifier failure and decide whether the smallest correct fix belongs in the local pytest harness, Triton tensor-pointer lowering, or test filtering.
 
 ## Risks
 
@@ -57,6 +59,7 @@ Keep this file short. It is the live working view for the next few rounds.
 - `copysign` now has an explicit TritonArithToLinalg lowering, but other libdevice symbols without MLIR math equivalents may still need either a core lowering or a harness-side compatibility implementation.
 - The local harness intentionally aliases `torch.Tensor.npu` to CPU tensors and rewrites `device='npu'` factory calls to CPU, so tests that specifically assert CPU-vs-NPU rejection semantics can fail for harness reasons even when kernel execution is otherwise correct.
 - The fake-NPU marker currently comes from the local allocation and `.npu()` shims; if a later test feeds a derived CPU tensor back into a kernel without going through those paths, the new CPU-tensor rejection check may need extra propagation logic.
+- The current local constexpr normalization only rewrites launch-time meta-parameters; it does not help kernels like `test_advance.py` whose non-power-of-two tensor sizes are materialized directly in `tl.make_block_ptr` and `tl.load` tensor types.
 
 ## Rules
 
