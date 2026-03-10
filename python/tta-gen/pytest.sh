@@ -8,7 +8,6 @@ export TRITON_HOME="$DIR"
 
 export TTX_PYTEST_QUIET=0
 export TTX_PYTEST_GLOBAL_TIMEOUT=100
-
 # export TTX_PYTEST_DTYPE="float32"
 # export TTX_PYTEST_DTYPE="float16"
 # export TTX_PYTEST_DTYPE="int32"
@@ -21,12 +20,10 @@ args=(
   -v
   # -q -r fE
   #
-  # -p no:timeout
+  third_party/ascend/unittest/generalization_cases
   #
-  # third_party/ascend/unittest/pytest_ut
-  #
-  third_party/ascend/unittest/pytest_ut
-  -k "test_abs.py"
+  # third_party/ascend/unittest/generalization_cases
+  # -k "test_abs.py"
   #
 )
 pushd third_party/triton-ascend

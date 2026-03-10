@@ -6,10 +6,11 @@ export PATH="$PWD/build/bin:$PATH"
 export TRITON_ALWAYS_COMPILE=1
 export TRITON_HOME="$DIR"
 
-export TTX_PYTEST_QUIET=1
+export TTX_PYTEST_QUIET=0
 export TTX_PYTEST_GLOBAL_TIMEOUT=100
-
-export TTX_PYTEST_DTYPE="float32"
+# export TTX_PYTEST_DTYPE="float32"
+# export TTX_PYTEST_DTYPE="float16"
+# export TTX_PYTEST_DTYPE="int32"
 
 args=(
   #
@@ -19,10 +20,10 @@ args=(
   -v
   # -q -r fE
   #
-  # -p no:timeout
+  third_party/ascend/unittest/pytest_ut
   #
-  third_party/ascend/unittest/pytest_ut/test_abs.py
-  -k "test_abs.py"
+  # third_party/ascend/unittest/pytest_ut
+  # -k "test_abs.py"
   #
 )
 pushd third_party/triton-ascend
