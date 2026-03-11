@@ -1,3 +1,4 @@
+from . import extension
 from . import libdevice
 
-__all__ = ["libdevice"]
+__all__ = ["extension", "libdevice"]

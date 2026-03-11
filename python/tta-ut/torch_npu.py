@@ -20,7 +20,7 @@ import triton.language.semantic as triton_semantic
 import triton.language.standard as triton_standard
 import triton.compiler.code_generator as triton_codegen
 import triton.runtime.jit as triton_jit
-import triton.language.extra.cuda.libdevice as cuda_libdevice
+import triton.language.extra.xyz.extension as xyz_extension
 import triton.language.extra.xyz.libdevice as xyz_libdevice
 from triton._C import libtriton as triton_libtriton
 import triton.backends.xyz.driver as xyz_driver
@@ -1049,158 +1049,6 @@ def _patch_jit_run_device_print():
 _patch_jit_run_device_print()
 
 
-_XYZ_LIBDEVICE_COMPAT_OPS = (
-    "abs",
-    "copysign",
-    "sin",
-    "cos",
-    "tan",
-    "asin",
-    "acos",
-    "atan",
-    "atan2",
-    "sinh",
-    "cosh",
-    "tanh",
-    "acosh",
-    "asinh",
-    "atanh",
-    "log",
-    "log10",
-    "log1p",
-    "exp",
-    "exp2",
-    "erf",
-    "sqrt",
-    "rsqrt",
-    "ceil",
-    "floor",
-    "trunc",
-    "pow",
-)
-
-
-@triton.jit
-def _libdevice_acosh(x):  # ty:ignore
-    return tl.log(x + tl.sqrt((x - 1.0) * (x + 1.0)))
-
-
-@triton.jit
-def _libdevice_asinh(x):  # ty:ignore
-    return tl.log(x + tl.sqrt(x * x + 1.0))
-
-
-@triton.jit
-def _libdevice_atanh(x):  # ty:ignore
-    return 0.5 * tl.log((1.0 + x) / (1.0 - x))
-
-
-@triton.jit
-def _libdevice_hypot(x, y):  # ty:ignore
-    abs_x = tl.abs(x)
-    abs_y = tl.abs(y)
-    hi = tl.maximum(abs_x, abs_y)
-    lo = tl.minimum(abs_x, abs_y)
-    safe_hi = tl.where(hi == 0.0, 1.0, hi)
-    ratio = lo / safe_hi
-    result = hi * tl.sqrt(1.0 + ratio * ratio)
-    inf = float("inf")
-    nan = float("nan")
-    has_inf = (abs_x == inf) | (abs_y == inf)
-    has_nan = (x != x) | (y != y)
-    result = tl.where(hi == 0.0, 0.0, result)
-    result = tl.where(has_inf, inf, result)
-    result = tl.where(has_nan & (~has_inf), nan, result)
-    return result
-
-
-@triton.jit
-def _libdevice_nearbyint(x):  # ty:ignore
-    floor_x = tl.floor(x)
-    ceil_x = tl.ceil(x)
-    frac = x - floor_x
-    floor_half = tl.floor(floor_x * 0.5)
-    floor_is_even = floor_half + floor_half == floor_x
-    ties = tl.where(floor_is_even, floor_x, ceil_x)
-    rounded = tl.where(frac < 0.5, floor_x, tl.where(frac > 0.5, ceil_x, ties))
-    return tl.where(x == x, rounded, x)
-
-
-@triton.jit
-def _libdevice_rint(x):  # ty:ignore
-    return _libdevice_nearbyint(x)
-
-
-@triton.jit
-def _libdevice_nextafter(x, y):  # ty:ignore
-    bitwidth: tl.constexpr = x.dtype.primitive_bitwidth
-    uint_ty: tl.constexpr = triton_standard._get_int_dtype(bitwidth=bitwidth, signed=False)
-    one = tl.full(x.shape, 1, uint_ty)
-    bits = x.to(uint_ty, bitcast=True)
-    advance = (y > x) == (x > 0)
-    stepped = tl.where(advance, bits + one, bits - one)
-    sign = (y < 0).to(uint_ty) << (bitwidth - 1)
-    tiny = (sign | one).to(x.dtype, bitcast=True)
-    moved = tl.where(x == 0, tiny, stepped.to(x.dtype, bitcast=True))
-    same = x == y
-    nan_mask = (x != x) | (y != y)
-    return tl.where(nan_mask, x + y, tl.where(same, y, moved))
-
-
-@triton.jit
-def _libdevice_relu(x):  # ty:ignore
-    return tl.maximum(x, 0.0)
-
-
-@triton.jit
-def _libdevice_signbit(x):  # ty:ignore
-    bitwidth: tl.constexpr = x.dtype.primitive_bitwidth
-    uint_ty: tl.constexpr = triton_standard._get_int_dtype(bitwidth=bitwidth, signed=False)
-    bits = x.to(uint_ty, bitcast=True)
-    sign_mask = tl.full(x.shape, 1, uint_ty) << (bitwidth - 1)
-    return (bits & sign_mask) != 0
-
-
-def _require_libdevice_fp16_fp32_bf16(arg0, _semantic):
-    arg0 = _semantic.to_tensor(arg0)
-    scalar_ty = arg0.type.scalar
-    if scalar_ty.is_fp16() or scalar_ty.is_fp32() or scalar_ty.is_bf16():
-        return arg0
-    raise ValueError(f"Expected dtype fp16/fp32/bf16, but got {scalar_ty}")
-
-
-def _libdevice_isfinite_impl(arg0, _semantic):
-    arg0 = _require_libdevice_fp16_fp32_bf16(arg0, _semantic)
-    abs_arg0 = tl_core.tensor(_semantic.builder.create_fabs(arg0.handle), arg0.type)
-    inf = _semantic.full(arg0.shape, float("inf"), arg0.type.scalar)
-    return _semantic.and_(_semantic.equal(arg0, arg0), _semantic.not_equal(abs_arg0, inf))
-
-
-@tl_core.builtin
-def _libdevice_finitef(arg0, _semantic=None):  # ty:ignore
-    return _libdevice_isfinite_impl(arg0, _semantic)
-
-
-@tl_core.builtin
-def _libdevice_isfinited(arg0, _semantic=None):  # ty:ignore
-    return _libdevice_isfinite_impl(arg0, _semantic)
-
-
-@tl_core.builtin
-def _libdevice_isnan(arg0, _semantic=None):  # ty:ignore
-    arg0 = _require_libdevice_fp16_fp32_bf16(arg0, _semantic)
-    return _semantic.not_equal(arg0, arg0)
-
-
-@triton.jit
-def _approx_erf(x):  # ty:ignore
-    abs_x = tl.abs(x)
-    t = 1.0 / (1.0 + 0.3275911 * abs_x)
-    poly = (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t)
-    y = 1.0 - poly * tl.exp(-abs_x * abs_x)
-    return tl.where(x < 0.0, -y, y)
-
-
 def _approx_erf_semantic(x, _semantic):
     x = _semantic.to_tensor(x)
     abs_x = _semantic.tensor(_semantic.builder.create_fabs(x.handle), x.type)
@@ -1218,234 +1066,14 @@ def _approx_erf_semantic(x, _semantic):
     return _semantic.where(_semantic.less_than(x, zero), _semantic.minus(y), y)
 
 
-@triton.jit
-def _libdevice_erfinv(x):  # ty:ignore
-    abs_x = tl.abs(x)
-    sign = tl.where(x < 0.0, -1.0, 1.0)
-    safe_abs_x = tl.where(abs_x < (1.0 - 1.0e-7), abs_x, 1.0 - 1.0e-7)
-    log_term = tl.log(1.0 - safe_abs_x * safe_abs_x)
-    w = 2.0 / (3.141592653589793 * 0.147) + 0.5 * log_term
-    y = sign * tl.sqrt(tl.sqrt(w * w - log_term / 0.147) - w)
-    for _ in range(3):
-        y = y - (_approx_erf(y) - x) * 0.8862269254527579 * tl.exp(y * y)
-    inf = float("inf")
-    nan = float("nan")
-    y = tl.where(abs_x > 1.0, nan, y)
-    y = tl.where(x == 1.0, inf, y)
-    y = tl.where(x == -1.0, -inf, y)
-    return y
-
-
-@triton.jit
-def _lanczos_log_gamma_positive(x):  # ty:ignore
-    z = x - 1.0
-    acc = 0.9999999999998099
-    acc = acc + 676.5203681218851 / (z + 1.0)
-    acc = acc - 1259.1392167224028 / (z + 2.0)
-    acc = acc + 771.3234287776531 / (z + 3.0)
-    acc = acc - 176.6150291621406 / (z + 4.0)
-    acc = acc + 12.507343278686905 / (z + 5.0)
-    acc = acc - 0.13857109526572012 / (z + 6.0)
-    acc = acc + 9.984369578019572e-6 / (z + 7.0)
-    acc = acc + 1.5056327351493116e-7 / (z + 8.0)
-    t = z + 7.5
-    return 0.9189385332046727 + (z + 0.5) * tl.log(t) - t + tl.log(acc)
-
-
-@triton.jit
-def _libdevice_lgamma(x):  # ty:ignore
-    use_reflection = x < 0.5
-    base = tl.where(use_reflection, 1.0 - x, x)
-    base_lgamma = _lanczos_log_gamma_positive(base)
-    reflected = 1.1447298858494002 - tl.log(tl.abs(tl.sin(3.141592653589793 * x))) - base_lgamma
-    result = tl.where(use_reflection, reflected, base_lgamma)
-    pole = (x <= 0.0) & (x == tl.floor(x))
-    return tl.where(pole, float("inf"), result)
-
-
-@triton.jit
-def _libdevice_tgamma(x):  # ty:ignore
-    use_reflection = x < 0.5
-    base = tl.where(use_reflection, 1.0 - x, x)
-    base_lgamma = _lanczos_log_gamma_positive(base)
-    reflected = 3.141592653589793 / (tl.sin(3.141592653589793 * x) * tl.exp(base_lgamma))
-    result = tl.where(use_reflection, reflected, tl.exp(base_lgamma))
-    result = tl.where(x == 0.0, float("inf"), result)
-    pole = (x < 0.0) & (x == tl.floor(x))
-    return tl.where(pole, float("nan"), result)
-
-
-@tl_core.builtin
-def _libdevice_cyl_bessel_i0(arg0, _semantic=None):  # ty:ignore
-    coeffs_a = [
-        -4.41534164647933937950e-18,
-        3.33079451882223809783e-17,
-        -2.43127984654795469359e-16,
-        1.71539128555513303061e-15,
-        -1.16853328779934516808e-14,
-        7.67618549860493561688e-14,
-        -4.85644678311192946090e-13,
-        2.95505266312963983461e-12,
-        -1.72682629144155570723e-11,
-        9.67580903537323691224e-11,
-        -5.18979560163526290666e-10,
-        2.65982372468238665035e-09,
-        -1.30002500998624804212e-08,
-        6.04699502254191894932e-08,
-        -2.67079385394061173391e-07,
-        1.11738753912010371815e-06,
-        -4.41673835845875056359e-06,
-        1.64484480707288970893e-05,
-        -5.75419501008210370398e-05,
-        1.88502885095841655729e-04,
-        -5.76375574538582365885e-04,
-        1.63947561694133579842e-03,
-        -4.32430999505057594430e-03,
-        1.05464603945949983183e-02,
-        -2.37374148058994688156e-02,
-        4.93052842396707084878e-02,
-        -9.49010970480476444210e-02,
-        1.71620901522208775349e-01,
-        -3.04682672343198398683e-01,
-        6.76795274409476084995e-01,
-    ]
-    coeffs_b = [
-        -7.23318048787475395456e-18,
-        -4.83050448594418207126e-18,
-        4.46562142029675999901e-17,
-        3.46122286769746109310e-17,
-        -2.82762398051658348494e-16,
-        -3.42548561967721913462e-16,
-        1.77256013305652638360e-15,
-        3.81168066935262242075e-15,
-        -9.55484669882830764870e-15,
-        -4.15056934728722208663e-14,
-        1.54008621752140982691e-14,
-        3.85277838274214270114e-13,
-        7.18012445138366623367e-13,
-        -1.79417853150680611778e-12,
-        -1.32158118404477131188e-11,
-        -3.14991652796324136454e-11,
-        1.18891471078464383424e-11,
-        4.94060238822496958910e-10,
-        3.39623202570838634515e-09,
-        2.26666899049817806459e-08,
-        2.04891858946906374183e-07,
-        2.89137052083475648297e-06,
-        6.88975834691682398426e-05,
-        3.36911647825569408990e-03,
-        8.04490411014108831608e-01,
-    ]
-
-    builder = _semantic.builder
-    arg0 = _semantic.to_tensor(arg0)
-    abs_x = tl_core.tensor(builder.create_fabs(arg0.handle), arg0.type)
-    x_a = _semantic.sub(_semantic.mul(abs_x, 0.5, True), 2.0, True)
-    a_n_2 = 0.0
-    a_n_1 = 0.0
-    a_n = coeffs_a[0]
-    for i in range(1, len(coeffs_a)):
-        a_n_2 = a_n_1
-        a_n_1 = a_n
-        a_n = _semantic.sub(_semantic.mul(x_a, a_n_1, True), a_n_2, True)
-        a_n = _semantic.add(a_n, coeffs_a[i], True)
-
-    f_32 = _semantic.full(abs_x.shape, 32.0, abs_x.type.scalar)
-    x_b = _semantic.sub(_semantic.fdiv(f_32, abs_x, True), 2.0, True)
-    b_n_2 = 0.0
-    b_n_1 = 0.0
-    b_n = coeffs_b[0]
-    for i in range(1, len(coeffs_b)):
-        b_n_2 = b_n_1
-        b_n_1 = b_n
-        b_n = _semantic.sub(_semantic.mul(x_b, b_n_1, True), b_n_2, True)
-        b_n = _semantic.add(b_n, coeffs_b[i], True)
-
-    half_exp = _semantic.mul(tl_core.tensor(builder.create_exp(abs_x.handle), abs_x.type), 0.5, True)
-    res_a = _semantic.mul(half_exp, _semantic.sub(a_n, a_n_2, True), True)
-    res_b = _semantic.fdiv(
-        _semantic.mul(half_exp, _semantic.sub(b_n, b_n_2, True), True),
-        tl_core.tensor(builder.create_sqrt(abs_x.handle), abs_x.type),
-        True,
-    )
-    cond = _semantic.less_equal(abs_x, 8.0)
-    return _semantic.where(cond, res_a, res_b)
-
-
-_XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
-    "acosh": _libdevice_acosh,
-    "asinh": _libdevice_asinh,
-    "atanh": _libdevice_atanh,
-    "nearbyint": _libdevice_nearbyint,
-    "rint": _libdevice_rint,
-    "nextafter": _libdevice_nextafter,
-    "relu": _libdevice_relu,
-    "signbit": _libdevice_signbit,
-    "finitef": _libdevice_finitef,
-    "hypot": _libdevice_hypot,
-    "erfinv": _libdevice_erfinv,
-    "gamma": _libdevice_tgamma,
-    "isfinited": _libdevice_isfinited,
-    "isnan": _libdevice_isnan,
-    "lgamma": _libdevice_lgamma,
-    "tgamma": _libdevice_tgamma,
-    "cyl_bessel_i0": _libdevice_cyl_bessel_i0,
-}
-
-
-def _patch_xyz_libdevice():
-    if getattr(xyz_libdevice, "_ttx_libdevice_compat", False):
-        return
-
-    for name, func in _XYZ_LIBDEVICE_JIT_COMPAT_OPS.items():
-        setattr(xyz_libdevice, name, func)
-
-    for name in _XYZ_LIBDEVICE_COMPAT_OPS:
-        if hasattr(xyz_libdevice, name):
-            continue
-        if hasattr(cuda_libdevice, name):
-            setattr(xyz_libdevice, name, getattr(cuda_libdevice, name))
-
-    xyz_libdevice._ttx_libdevice_compat = True
-
-
-_patch_xyz_libdevice()
-
-
-class _FakeAddressSpace:
-
-    def __init__(self, name):
-        self.name = name
-
-    def __repr__(self):
-        return self.name
-
-
-def _fake_enum_group(*names):
-    return types.SimpleNamespace(**{name: _FakeAddressSpace(name) for name in names})
-
-
-_fake_ascend_address_space = _fake_enum_group("GM", "L1", "L0A", "L0B", "L0C", "UB")
-_fake_fixpipe_dma_mode = _fake_enum_group("NZ2DN", "NZ2ND", "NZ2NZ")
-_fake_fixpipe_dual_dst_mode = _fake_enum_group("NO_DUAL", "COLUMN_SPLIT", "ROW_SPLIT")
-_fake_fixpipe_pre_quant_mode = _fake_enum_group("NO_QUANT", "F322BF16", "F322F16", "S322I8")
-_fake_fixpipe_pre_relu_mode = _fake_enum_group("LEAKY_RELU", "NO_RELU", "NORMAL_RELU", "P_RELU")
-
-
 @tl_core.builtin
 def _buffer_alloc(etype, shape, _address_space=None, is_mem_unique=False, _builder=None, _semantic=None):
     del _address_space, is_mem_unique, _builder
     return tl_core.full(shape, 0, etype, _semantic=_semantic)
 
 
-@tl_core.builtin
-def _extension_fixpipe(src, dst, dma_mode=None, dual_dst_mode=None, _builder=None, _semantic=None):
-    del dst, dma_mode, dual_dst_mode, _builder, _semantic
-    return None
-
-
 _buffer_language_core = types.ModuleType("triton.extension.buffer.language.core")
-_buffer_language_core.address_space = _FakeAddressSpace
+_buffer_language_core.address_space = xyz_extension._FakeAddressSpace
 _buffer_language_core.buffer = tl_core.tensor
 _buffer_language_core.alloc = _buffer_alloc
 _buffer_language_core.__all__ = ["address_space", "buffer", "alloc"]
@@ -1453,7 +1081,7 @@ _buffer_language_core.__all__ = ["address_space", "buffer", "alloc"]
 _buffer_language = types.ModuleType("triton.extension.buffer.language")
 _buffer_language.__path__ = []
 _buffer_language.core = _buffer_language_core
-_buffer_language.address_space = _FakeAddressSpace
+_buffer_language.address_space = xyz_extension._FakeAddressSpace
 _buffer_language.buffer = tl_core.tensor
 _buffer_language.alloc = _buffer_alloc
 _buffer_language.__all__ = ["core", "address_space", "buffer", "alloc"]
@@ -1478,16 +1106,6 @@ setattr(triton_libtriton, "ascend", _fake_ascend_pkg)
 
 
 @triton.jit
-def _extension_sum_combine(a, b):  # ty:ignore
-    return a + b
-
-
-@triton.jit
-def _extension_or_combine(a, b):  # ty:ignore
-    return a | b
-
-
-@triton.jit
 def _gather_2d_simd(src_ptr, index_ptr, out_ptr, m_size, n_size, k_size, XBLOCK: tl.constexpr, XBLOCK_SUB: tl.constexpr):  # ty:ignore
     del XBLOCK_SUB
     row_offsets = tl.program_id(0) * XBLOCK + tl.arange(0, XBLOCK)[:, None]
@@ -1499,88 +1117,6 @@ def _gather_2d_simd(src_ptr, index_ptr, out_ptr, m_size, n_size, k_size, XBLOCK:
     gathered = tl.load(src_ptr + row_offsets * n_size + gathered_idx, mask=mask, other=0.0)
     tl.store(out_ptr + row_offsets * k_size + col_offsets, gathered, mask=mask)
 
-
-def _extension_constexpr_value(value):
-    return value.value if isinstance(value, tl_core.constexpr) else value
-
-
-def _validate_extension_slice_args(full_tensor, offsets, sizes, strides, sub_tensor=None):
-    if len(full_tensor.shape) != 1:
-        raise NotImplementedError("fake cann.extension only supports rank-1 tensors")
-    if len(offsets) != 1 or len(sizes) != 1 or len(strides) != 1:
-        raise NotImplementedError("fake cann.extension only supports rank-1 slice metadata")
-    slice_size = _extension_constexpr_value(sizes[0])
-    stride = _extension_constexpr_value(strides[0])
-    if not isinstance(slice_size, int) or slice_size < 1:
-        raise ValueError("slice size must be a positive integer")
-    if stride != 1:
-        raise NotImplementedError("fake cann.extension only supports unit strides")
-    if sub_tensor is not None and tuple(sub_tensor.shape) != (slice_size,):
-        raise ValueError("slice payload shape does not match requested size")
-    return slice_size
-
-
-@tl_core.builtin
-def _extension_extract_slice(full_tensor, offsets, sizes, strides, _builder=None, _generator=None, _semantic=None):
-    slice_size = _validate_extension_slice_args(full_tensor, offsets, sizes, strides)
-    full_size = _extension_constexpr_value(full_tensor.shape[0])
-    offset = _semantic.to_tensor(offsets[0])
-    local_offset = _semantic.mod(offset, full_size)
-    full_idx = tl_core.arange(0, full_size, _semantic=_semantic)
-    slice_idx = _semantic.add(local_offset, tl_core.arange(0, slice_size, _semantic=_semantic), True)
-    full_vals = tl_core.broadcast_to(tl_core.expand_dims(full_tensor, 0, _semantic=_semantic),
-                                     (slice_size, full_size), _semantic=_semantic)
-    full_idx = tl_core.broadcast_to(tl_core.expand_dims(full_idx, 0, _semantic=_semantic),
-                                    (slice_size, full_size), _semantic=_semantic)
-    slice_idx = tl_core.broadcast_to(tl_core.expand_dims(slice_idx, 1, _semantic=_semantic),
-                                     (slice_size, full_size), _semantic=_semantic)
-    zeros = tl_core.full((slice_size, full_size), 0, full_tensor.type.scalar, _semantic=_semantic)
-    selected = _semantic.where(_semantic.equal(full_idx, slice_idx), full_vals, zeros)
-    return tl_core.reduce(selected, 1, _extension_sum_combine, _semantic=_semantic, _generator=_generator)
-
-
-@tl_core.builtin
-def _extension_insert_slice(full_tensor, sub_tensor, offsets, sizes, strides, _builder=None, _generator=None, _semantic=None):
-    slice_size = _validate_extension_slice_args(full_tensor, offsets, sizes, strides, sub_tensor=sub_tensor)
-    full_size = _extension_constexpr_value(full_tensor.shape[0])
-    offset = _semantic.to_tensor(offsets[0])
-    local_offset = _semantic.mod(offset, full_size)
-    full_idx = tl_core.arange(0, full_size, _semantic=_semantic)
-    slice_idx = _semantic.add(local_offset, tl_core.arange(0, slice_size, _semantic=_semantic), True)
-    sub_vals = tl_core.broadcast_to(tl_core.expand_dims(sub_tensor, 0, _semantic=_semantic),
-                                    (full_size, slice_size), _semantic=_semantic)
-    full_idx = tl_core.broadcast_to(tl_core.expand_dims(full_idx, 1, _semantic=_semantic),
-                                    (full_size, slice_size), _semantic=_semantic)
-    slice_idx = tl_core.broadcast_to(tl_core.expand_dims(slice_idx, 0, _semantic=_semantic),
-                                     (full_size, slice_size), _semantic=_semantic)
-    selector = _semantic.equal(full_idx, slice_idx)
-    data_zeros = tl_core.full((full_size, slice_size), 0, sub_tensor.type.scalar, _semantic=_semantic)
-    inserted = tl_core.reduce(_semantic.where(selector, sub_vals, data_zeros), 1, _extension_sum_combine,
-                              _semantic=_semantic, _generator=_generator)
-    matched = tl_core.reduce(selector, 1, _extension_or_combine, _semantic=_semantic, _generator=_generator)
-    return _semantic.where(matched, inserted, full_tensor)
-
-
-_xyz_extension = types.ModuleType("triton.language.extra.xyz.extension")
-_xyz_extension.ascend_address_space = _fake_ascend_address_space
-_xyz_extension.FixpipeDMAMode = _fake_fixpipe_dma_mode
-_xyz_extension.FixpipeDualDstMode = _fake_fixpipe_dual_dst_mode
-_xyz_extension.FixpipePreQuantMode = _fake_fixpipe_pre_quant_mode
-_xyz_extension.FixpipePreReluMode = _fake_fixpipe_pre_relu_mode
-_xyz_extension.extract_slice = _extension_extract_slice
-_xyz_extension.fixpipe = _extension_fixpipe
-_xyz_extension.insert_slice = _extension_insert_slice
-_xyz_extension.__all__ = [
-    "ascend_address_space",
-    "FixpipeDMAMode",
-    "FixpipeDualDstMode",
-    "FixpipePreQuantMode",
-    "FixpipePreReluMode",
-    "extract_slice",
-    "fixpipe",
-    "insert_slice",
-]
-setattr(triton.language.extra.xyz, "extension", _xyz_extension)
 setattr(triton.language.extra, "cann", triton.language.extra.xyz)
 setattr(triton.language.extra, "ascend", triton.language.extra.xyz)
 
@@ -1616,12 +1152,12 @@ if hasattr(tl, "randint4x"):
 
 sys.modules["triton.language.extra.cann"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.cann.libdevice"] = xyz_libdevice  # ty:ignore
-sys.modules["triton.language.extra.cann.extension"] = _xyz_extension  # ty:ignore
+sys.modules["triton.language.extra.cann.extension"] = xyz_extension  # ty:ignore
 sys.modules["triton.language.extra.ascend"] = triton.language.extra.xyz  # ty:ignore
 sys.modules["triton.language.extra.ascend.libdevice"] = xyz_libdevice  # ty:ignore
-sys.modules["triton.language.extra.ascend.extension"] = _xyz_extension  # ty:ignore
+sys.modules["triton.language.extra.ascend.extension"] = xyz_extension  # ty:ignore
 sys.modules["triton.language.extra.kernels"] = _xyz_kernels
-sys.modules["triton.language.extra.xyz.extension"] = _xyz_extension
+sys.modules["triton.language.extra.xyz.extension"] = xyz_extension
 sys.modules["triton.extension"] = _extension_pkg
 sys.modules["triton.extension.buffer"] = _buffer_pkg
 sys.modules["triton.extension.buffer.language"] = _buffer_language
