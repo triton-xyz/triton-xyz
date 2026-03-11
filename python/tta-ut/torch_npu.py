@@ -572,6 +572,25 @@ def _patch_arange_range_power_of_two_check():
 _patch_arange_range_power_of_two_check()
 
 
+def _patch_constexpr_tensor_to_tensor():
+    current_impl = triton_semantic.TritonSemantic.to_tensor
+    if getattr(current_impl, "_ttx_constexpr_tensor_compat", False):
+        return
+
+    def _to_tensor(self, x, check_type=True):
+        if isinstance(x, tl.constexpr):
+            x = x.value
+        if isinstance(x, self.tensor):
+            return x
+        return current_impl(self, x, check_type)
+
+    _to_tensor._ttx_constexpr_tensor_compat = True
+    triton_semantic.TritonSemantic.to_tensor = _to_tensor
+
+
+_patch_constexpr_tensor_to_tensor()
+
+
 def _patch_dot_input_precision():
     current_impl = triton_semantic.TritonSemantic._str_to_dot_input_precision
     if getattr(current_impl, "_ttx_dot_precision_compat", False):

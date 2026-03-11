@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded float32 sweep is now green through `test_nearest.py`. The next round should stay on the freshly isolated `test_npu_indexing2.py::test_npu_indexing2` compile-time failure, inspect the nested-loop TTIR frontend path, and only widen beyond `n*` after that single repro is either fixed or proven blocked.
+- The bounded float32 sweep is now green through the full `n*` window. The next round should advance into the next alphabetical slice with the same single-test discipline, starting from `test_or.py` and only widening until the next deterministic blocker is isolated.
 
 # Evidence
 
@@ -210,13 +210,16 @@
 - 2026-03-11: `python/tta-ut/torch_npu.py` now forces `copy=True` for fake-NPU `Tensor.cpu()` calls before clearing the marker, so `.cpu()` produces an untagged CPU copy without mutating the original fake-NPU tensor. A direct Python probe confirmed `img_src.cpu()` and `img_dst.cpu()` return distinct untagged copies while the originals stay tagged.
 - 2026-03-11: Validation for the `nearest` compatibility checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_nearest.py::test_nearest[shapes0]` (`1 passed` before repointing), and a refreshed bounded `n*` float32 slice over `test_ne.py` through `test_npu_indexing2.py` (`6 passed, 10 skipped, 1 failed`).
 - 2026-03-11: After the `nearbyint` / `nextafter` / `nearest` fixes, the first live blocker in the bounded `n*` slice is now `test_npu_indexing2.py::test_npu_indexing2`. The failure is compile-time, not runtime: fake-NPU TTIR frontend compilation aborts with `TypeError("cannot convert int32[] of type <class 'triton.language.core.tensor'> to tensor")` while lowering the nested-loop kernel body.
+- 2026-03-11: Instrumenting active `triton.language.semantic.TritonSemantic.to_tensor` during the isolated `test_npu_indexing2.py::test_npu_indexing2` repro showed the compile-time failure came from a nested-loop bound reaching `to_tensor` as `constexpr[int32[]]`; the active method unwrapped `tl.constexpr` only after its tensor-instance fast path, so `constexpr`-wrapped tensors fell through to `TypeError`, while the Ascend fork recursively re-ran `to_tensor` on `constexpr.value`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now patches fake-NPU `triton.language.semantic.TritonSemantic.to_tensor` to unwrap `tl.constexpr` before the tensor-instance check, matching the Ascend-era nested-loop frontend behavior without editing vendored Triton Python sources.
+- 2026-03-11: Validation for the `npu_indexing2` nested-loop frontend checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_npu_indexing2.py::test_npu_indexing2` (`1 passed`), and a refreshed bounded float32 `n*` slice over `test_ne.py`, `test_nearbyint.py`, `test_nearest.py`, `test_neg.py`, `test_nextafter.py`, `test_not.py`, `test_npu_indexing.py`, and `test_npu_indexing2.py` (`7 passed, 10 skipped`).
 
 # Next Options
 
-- Stay on `bash python/tta-ut/pytest_one.sh`, which is now repointed to `test_npu_indexing2.py::test_npu_indexing2`, and isolate which nested-loop expression triggers the `int32[]` to tensor conversion failure in the fake-NPU frontend.
-- Compare the active frontend behavior for `test_npu_indexing2.py` against the Ascend fork's codegen or emitted TTIR to decide whether the next fix belongs in `python/tta-ut/torch_npu.py` compatibility patches or in active Triton frontend code.
-- If the `npu_indexing2` failure is another repo-owned fake-NPU compatibility gap, keep the fix in `python/tta-ut/torch_npu.py` and rerun the single repro before widening the bounded `n*` slice again.
-- Once `test_npu_indexing2.py` is green, rerun the same bounded float32 `n*` slice to confirm it clears fully before moving on to the next alphabetical window.
+- Repoint `python/tta-ut/pytest_one.sh` to the next bounded float32 discovery window starting at `test_or.py`, and stop at the first deterministic failure instead of preselecting a fix category.
+- If the next blocker is frontend-only, compare the active Triton Python behavior against `third_party/triton-ascend/python/triton/` first so repo-owned shim patches stay minimal and targeted.
+- If the next blocker is in repo-owned compiler lowering instead of the fake-NPU shim, capture the failing pass dump under a dedicated `debug_agent/` directory before editing C++.
+- Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh single-test repro makes it deterministic again.
 
 # Blockers
 
