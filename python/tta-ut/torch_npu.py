@@ -457,6 +457,7 @@ for name in [
 
 
 for name in [
+    "abs",
     "arange",
     "as_tensor",
     "atan2",

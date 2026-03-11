@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The `test_pointer_type.py::test_pointer_type[0-dtype_str5]` lowering blocker is fixed. The next round should stay on the newly isolated `test_precise_sqrt.py::test_sqrtrn_fp32` fake-NPU marker gap, starting from the bounded `pointer_type` -> `pow` -> `precise_*` -> `ptr_add` slice instead of rediscovering the pointer-cast fix.
+- The `test_precise_sqrt.py::test_sqrtrn_fp32` fake-NPU marker gap is fixed. The next round should stay on the newly isolated, sequence-sensitive `test_reduce_count_vector.py` float32 abort in `_tensor_cpu`, using `python/tta-ut/pytest_one.sh` on the whole file instead of narrowing back to already green single cases.
 
 # Evidence
 
@@ -223,17 +223,22 @@
 - 2026-03-11: Added `test/e2e/tta-pointer-int-cast.mlir` to lock the full TTA-to-LLVM lowering path for runtime `tt.int_to_ptr` stores. The regression checks the LLVM-stage `llvm.inttoptr` reconstruction and guards against `ptr.from_ptr` / `builtin.unrealized_conversion_cast` surviving the full command sequence.
 - 2026-03-11: Validation for the `pointer_type` checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-to-ptr.mlir test/e2e/tta-pointer-int-cast.mlir` (`2 passed`), `bash python/tta-ut/pytest_one.sh` on `test_pointer_type.py::test_pointer_type[0-dtype_str5]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_pointer_type.py` (`1 passed, 5 skipped`).
 - 2026-03-11: Resuming the bounded float32 slice over `test_pointer_type.py`, `test_pow.py`, `test_precise_div.py`, `test_precise_sqrt.py`, and `test_ptr_add.py` now advances the first live blocker to `test_precise_sqrt.py::test_sqrtrn_fp32`. The failure is a repo-owned fake-NPU compatibility gap rather than lowering: `torch.empty_like(y)` inside `sqrtrn(...)` produces an untagged CPU-backed output tensor, so the launcher rejects `output_ptr` with `ValueError("Pointer argument cannot be accessed from Triton (cpu tensor?)")`.
+- 2026-03-11: A direct fake-NPU probe showed the live `precise_sqrt` gap was slightly earlier than first recorded: `torch.empty_like(y)` only came back untagged because top-level `torch.abs(torch.randn(..., device='npu'))` had already stripped the fake-NPU marker, while `python/tta-ut/torch_npu.py` only wrapped `Tensor.abs` and not top-level `torch.abs`.
+- 2026-03-11: Adding `abs` to the top-level fake-NPU propagation wrapper list in `python/tta-ut/torch_npu.py` fixed that marker-loss path without touching lowering or kernel outputs. Validation succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, a direct probe confirming `torch.abs(...)` and `torch.empty_like(...)` stay tagged on fake-NPU tensors, `pytest -v third_party/ascend/unittest/pytest_ut/test_precise_sqrt.py -k test_sqrtrn_fp32` (`1 passed`), and a bounded rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_precise_sqrt.py third_party/ascend/unittest/pytest_ut/test_ptr_add.py` (`2 passed`).
+- 2026-03-11: Advancing the next bounded float32 window into `test_rand.py`, `test_range.py`, `test_ravel.py`, `test_reduce_count_vector.py`, and `test_reduce_maximum.py` found a fresh deterministic blocker in `test_reduce_count_vector.py`: the float32 file now crashes during `output.cpu().to(torch.int32)` at `third_party/ascend/unittest/pytest_ut/torch_npu.py:409` inside `_tensor_cpu`.
+- 2026-03-11: The new `reduce_count_vector` failure is sequence-sensitive. The isolated `test_reduce_count_vector[32-32-dtype0-float32-countf-triton_lt-standard_lt-0.5]` case passes on its own, but both `pytest -v third_party/ascend/unittest/pytest_ut/test_reduce_count_vector.py` and `bash python/tta-ut/pytest_one.sh` (now repointed to that whole file) crash on the second selected float32 case, so the next round should reduce that abort before changing the CPU shim.
 
 # Next Options
 
-- Inspect `test_precise_sqrt.py::test_sqrtrn_fp32` against `python/tta-ut/torch_npu.py`, starting with a direct probe of `torch.empty_like(y)` under the fake-NPU shim to see why the existing top-level wrapper is not preserving the fake-NPU marker.
-- Add the narrowest repo-owned propagation fix for the `precise_sqrt` output tensor, then validate with `bash python/tta-ut/pytest_one.sh` repointed to `test_precise_sqrt.py -k test_sqrtrn_fp32`.
-- After `test_precise_sqrt.py` is green, resume the same bounded float32 slice from `test_precise_sqrt.py` onward (`test_ptr_add.py`, then the next `p*` files) and stop again at the first deterministic failure.
-- Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh single-test repro makes it deterministic again.
+- Inspect the sequence-sensitive `test_reduce_count_vector.py` abort around `output.cpu().to(torch.int32)`, starting with the fake-NPU `Tensor.cpu()` and `Tensor.to()` wrappers in `python/tta-ut/torch_npu.py`.
+- Reduce the whole-file crash to a small direct Python reproducer that runs the float32 `counti` / `countf` kernels in sequence, so the next shim change can be validated without relying on a broader slice.
+- After `test_reduce_count_vector.py` is stable, resume the bounded float32 window from `test_rand.py` through `test_reduce_maximum.py` and stop again at the first deterministic failure.
+- Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh repro reintroduces them.
 
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
+- The new `test_reduce_count_vector.py` crash is sequence-sensitive: the isolated `triton_lt` float32 case passes, but the whole file and the repointed `python/tta-ut/pytest_one.sh` target segfault in `_tensor_cpu`, so the next round still needs a smaller direct reproducer before a low-risk shim change.
 - The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under a fresh single-test repro.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.

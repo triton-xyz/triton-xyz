@@ -22,8 +22,7 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_pointer_type.py
-  -k "test_pointer_type[0-dtype_str5]"
+  third_party/ascend/unittest/pytest_ut/test_reduce_count_vector.py
   #
 )
 pushd third_party/triton-ascend
