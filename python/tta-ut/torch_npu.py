@@ -291,8 +291,25 @@ def _is_npu_device(device):
     return device is not None and "npu" in str(device)
 
 
+def _pad_fake_npu_scalar_storage(value, min_elems=128):
+    if not isinstance(value, torch.Tensor):
+        return value
+    if value.ndim != 0 or value.numel() != 1:
+        return value
+    storage = value.untyped_storage()
+    if storage.nbytes() >= value.element_size() * min_elems:
+        return value
+    backing = torch.empty((min_elems,), dtype=value.dtype, device="cpu")
+    backing.zero_()
+    backing[0] = value.detach()
+    if value.requires_grad:
+        backing.requires_grad_(True)
+    return torch.as_strided(backing, size=(), stride=())
+
+
 def _mark_fake_npu(value):
     if isinstance(value, torch.Tensor):
+        value = _pad_fake_npu_scalar_storage(value)
         value._ttx_fake_npu = True
     return value
 
