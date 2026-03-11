@@ -403,6 +403,9 @@ def _tensor_npu(self, *args, **kwargs):
 
 
 def _tensor_cpu(self, *args, **kwargs):
+    if getattr(self, _FAKE_NPU_ATTR, False):
+        kwargs = dict(kwargs)
+        kwargs["copy"] = True
     return _clear_fake_npu(_orig_tensor_to(self, "cpu", *args, **kwargs))
 
 
@@ -1031,6 +1034,34 @@ def _libdevice_hypot(x, y):  # ty:ignore
     return result
 
 
+@triton.jit
+def _libdevice_nearbyint(x):  # ty:ignore
+    floor_x = tl.floor(x)
+    ceil_x = tl.ceil(x)
+    frac = x - floor_x
+    floor_half = tl.floor(floor_x * 0.5)
+    floor_is_even = floor_half + floor_half == floor_x
+    ties = tl.where(floor_is_even, floor_x, ceil_x)
+    rounded = tl.where(frac < 0.5, floor_x, tl.where(frac > 0.5, ceil_x, ties))
+    return tl.where(x == x, rounded, x)
+
+
+@triton.jit
+def _libdevice_nextafter(x, y):  # ty:ignore
+    bitwidth: tl.constexpr = x.dtype.primitive_bitwidth
+    uint_ty: tl.constexpr = triton_standard._get_int_dtype(bitwidth=bitwidth, signed=False)
+    one = tl.full(x.shape, 1, uint_ty)
+    bits = x.to(uint_ty, bitcast=True)
+    advance = (y > x) == (x > 0)
+    stepped = tl.where(advance, bits + one, bits - one)
+    sign = (y < 0).to(uint_ty) << (bitwidth - 1)
+    tiny = (sign | one).to(x.dtype, bitcast=True)
+    moved = tl.where(x == 0, tiny, stepped.to(x.dtype, bitcast=True))
+    same = x == y
+    nan_mask = (x != x) | (y != y)
+    return tl.where(nan_mask, x + y, tl.where(same, y, moved))
+
+
 def _require_libdevice_fp16_fp32_bf16(arg0, _semantic):
     arg0 = _semantic.to_tensor(arg0)
     scalar_ty = arg0.type.scalar
@@ -1246,6 +1277,8 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "acosh": _libdevice_acosh,
     "asinh": _libdevice_asinh,
     "atanh": _libdevice_atanh,
+    "nearbyint": _libdevice_nearbyint,
+    "nextafter": _libdevice_nextafter,
     "finitef": _libdevice_finitef,
     "hypot": _libdevice_hypot,
     "erfinv": _libdevice_erfinv,

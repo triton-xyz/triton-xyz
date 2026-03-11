@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_mod.py
-  -k "test_case[param_list0]"
+  third_party/ascend/unittest/pytest_ut/test_npu_indexing2.py
+  -k "test_npu_indexing2"
   #
 )
 pushd third_party/triton-ascend

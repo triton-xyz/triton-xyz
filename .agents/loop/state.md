@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded float32 sweep is now green through `test_multiple_of.py`. The next round should keep moving forward from the next `n*` files with the same single-repro-first approach, only repointing `python/tta-ut/pytest_one.sh` after a fresh deterministic failure is identified.
+- The bounded float32 sweep is now green through `test_nearest.py`. The next round should stay on the freshly isolated `test_npu_indexing2.py::test_npu_indexing2` compile-time failure, inspect the nested-loop TTIR frontend path, and only widen beyond `n*` after that single repro is either fixed or proven blocked.
 
 # Evidence
 
@@ -203,13 +203,20 @@
 - 2026-03-11: Inspecting the live `test_mod` path in a direct Python probe showed the mismatch was shim-side rather than lowering-side: `test_mod.torch_pointwise(...)` intentionally upcasts the float32 reference tensors to `torch.float64`, while the Triton kernel writes back into a float32 `y_cal`, so the fake-NPU path hit raw CPU `torch.isclose` dtype checks and failed before comparing values.
 - 2026-03-11: `python/tta-ut/torch_npu.py` now promotes fake-NPU tensor pairs to a common dtype before calling top-level `torch.isclose` and `torch.allclose`, matching the mixed-dtype comparison behavior expected by the Ascend pytest corpus without changing kernel output dtypes or lowering.
 - 2026-03-11: Validation for the `test_mod` mixed-dtype comparison checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, a direct Python probe confirming `torch.isclose(y_cal, y_ref, ...)` no longer raises on fake-NPU float32 vs float64 tensors, `bash python/tta-ut/pytest_one.sh` on `test_mod.py::test_case[param_list0]` (`1 passed`), `pytest -v third_party/ascend/unittest/pytest_ut/test_mod.py` (`1 passed, 2 skipped` under the float32 filter), and a widened float32 rerun over `test_mean_dim0.py`, `test_mean_dim1.py`, `test_mean_vector.py`, `test_min_dim0.py`, `test_min_dim1.py`, `test_minimum.py`, `test_mod.py`, `test_mul.py`, and `test_multiple_of.py` (`20 passed, 43 skipped`).
+- 2026-03-11: Re-running the bounded float32 `n*` slice over `test_ne.py`, `test_nearbyint.py`, `test_nearest.py`, `test_neg.py`, `test_nextafter.py`, `test_not.py`, `test_npu_indexing.py`, and `test_npu_indexing2.py` first exposed repo-owned fake-NPU compatibility gaps in `test_nearbyint.py` / `test_nextafter.py` rather than lowering regressions: JIT dependency discovery found `xyz.libdevice` missing `nearbyint` and `nextafter`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now installs repo-owned fake-NPU `xyz.libdevice.nearbyint` and `xyz.libdevice.nextafter` implementations. `nearbyint` uses an in-shim tie-to-even floor/ceil formulation instead of CUDA extern lowering, and `nextafter` uses bitcast stepping toward the destination value so the fake-NPU path stays out of unsupported `tt.extern_elementwise` lowering.
+- 2026-03-11: Validation for the `nearbyint` / `nextafter` checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_nearbyint.py::test_nearbyint[float32-shape0]` (`1 passed` before repointing), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_nextafter.py` (`1 passed, 1 skipped`).
+- 2026-03-11: The same widened `n*` slice then failed in `test_nearest.py::test_nearest[shapes0]` because fake-NPU tensors are CPU-backed, so `Tensor.cpu()` returned `self`; the repo-owned `_tensor_cpu(...)` shim cleared the fake-NPU marker on that returned tensor and accidentally stripped the original launch argument too.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now forces `copy=True` for fake-NPU `Tensor.cpu()` calls before clearing the marker, so `.cpu()` produces an untagged CPU copy without mutating the original fake-NPU tensor. A direct Python probe confirmed `img_src.cpu()` and `img_dst.cpu()` return distinct untagged copies while the originals stay tagged.
+- 2026-03-11: Validation for the `nearest` compatibility checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_nearest.py::test_nearest[shapes0]` (`1 passed` before repointing), and a refreshed bounded `n*` float32 slice over `test_ne.py` through `test_npu_indexing2.py` (`6 passed, 10 skipped, 1 failed`).
+- 2026-03-11: After the `nearbyint` / `nextafter` / `nearest` fixes, the first live blocker in the bounded `n*` slice is now `test_npu_indexing2.py::test_npu_indexing2`. The failure is compile-time, not runtime: fake-NPU TTIR frontend compilation aborts with `TypeError("cannot convert int32[] of type <class 'triton.language.core.tensor'> to tensor")` while lowering the nested-loop kernel body.
 
 # Next Options
 
-- Continue the bounded float32 sweep into the next `n*` files (`test_ne.py`, `test_nearbyint.py`, `test_nearest.py`, `test_neg.py`, `test_nextafter.py`, `test_not.py`, `test_npu_indexing*.py`) and stop at the first fresh deterministic failure.
-- Repoint `python/tta-ut/pytest_one.sh` only after that next failure is identified, so the single-test harness stays aligned with the current blocker instead of the now-green `test_mod` repro.
-- If the next failure is another host-side fake-NPU compatibility gap, keep the fix in `python/tta-ut/torch_npu.py` or `python/tta-ut/conftest.py` and validate with one targeted rerun before widening again.
-- If the next failure reaches lowering or runtime code, capture the smallest deterministic compiler repro and add focused regression coverage before continuing the alphabetical sweep.
+- Stay on `bash python/tta-ut/pytest_one.sh`, which is now repointed to `test_npu_indexing2.py::test_npu_indexing2`, and isolate which nested-loop expression triggers the `int32[]` to tensor conversion failure in the fake-NPU frontend.
+- Compare the active frontend behavior for `test_npu_indexing2.py` against the Ascend fork's codegen or emitted TTIR to decide whether the next fix belongs in `python/tta-ut/torch_npu.py` compatibility patches or in active Triton frontend code.
+- If the `npu_indexing2` failure is another repo-owned fake-NPU compatibility gap, keep the fix in `python/tta-ut/torch_npu.py` and rerun the single repro before widening the bounded `n*` slice again.
+- Once `test_npu_indexing2.py` is green, rerun the same bounded float32 `n*` slice to confirm it clears fully before moving on to the next alphabetical window.
 
 # Blockers
 
