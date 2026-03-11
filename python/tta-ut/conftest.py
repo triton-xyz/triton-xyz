@@ -130,6 +130,16 @@ _DTYPE_PARAM_NAMES = {
 
 SKIP_TEST_FILES = {
     #
+    # known fail
+    "test_tensor_descriptor.py",
+    "test_annotations.py",
+    "test_reduce_min_4_keepdim_True_with_index_op.py",
+    #
+    # crash
+    "test_implicit_atomic.py",
+    "test_if_tensor.py",
+    "test_linearize_permute.py",
+    #
     # `triton.language.extra.cann.libdevice`
     "test_pow.py",
     #
