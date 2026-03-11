@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The host-side reduce `all` constructor gap is fixed by normalizing nested tensor inputs for fake-NPU `torch.tensor(...)` / `torch.as_tensor(...)`. The next round should resume the bounded float32 sweep after the cleared `test_reduce_maximum.py` / `test_reduce_minimum.py` slice, choose the next deterministic failing file, and only then repoint `python/tta-ut/pytest_one.sh`.
+- The bounded float32 sweep now clears `test_reduce_sum.py`, `test_relu.py`, and `test_reshape.py` up to the newly isolated `test_rint.py::test_rint[param_list0]` blocker. `python/tta-ut/pytest_one.sh` is already repointed to that single repro, so the next round should stay on the missing `xyz.libdevice.rint` compatibility gap instead of rediscovering the post-`reduce_minimum` sweep.
 # Evidence
 
 - 2026-03-11: `python/tta-ut/setup.sh` clones `third_party/triton-ascend` and wires `python/tta-ut/conftest.py` plus `python/tta-ut/torch_npu.py` into `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/` via symlinks.
@@ -236,17 +236,21 @@
 - 2026-03-11: A direct harness-local probe showed the constructor issue was slightly broader than the initial fake-NPU diagnosis: once `python/tta-ut/torch_npu.py` is loaded, nested 0-d tensor inputs to `torch.tensor(...)` fail even after clearing the fake-NPU marker, so the durable fix had to coerce nested tensor elements to Python scalars / plain lists rather than only converting fake tensors back to CPU tensors.
 - 2026-03-11: `python/tta-ut/torch_npu.py` now gives `torch.tensor(...)` and `torch.as_tensor(...)` a constructor-specific wrapper that normalizes nested tensor inputs before calling the underlying CPU constructor, while still honoring fake-NPU inheritance for the result tensor when the call logically stays on fake NPU.
 - 2026-03-11: Validation for the nested-constructor checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, a direct harness probe confirming `torch.tensor([torch.tensor(1.23)], ...)` and `torch.tensor([torch.max(x0)], ...)` both succeed under the shim, `bash python/tta-ut/pytest_one.sh` for `test_reduce_maximum.py::test_max[float32-triton_max_5d_all-3-11-1-3-42-all]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_reduce_maximum.py` (`10 passed, 70 skipped`), and the sibling regression file `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_reduce_minimum.py` (`10 passed, 70 skipped`).
+- 2026-03-11: Resuming the bounded float32 sweep after `test_reduce_minimum.py` with `pytest -v --maxfail=1` over `test_reduce_sum.py`, `test_relu.py`, `test_reshape.py`, `test_rint.py`, `test_rms_norm.py`, `test_rotary_embedding.py`, `test_rotatry_gpt.py`, `test_rotaty_embedding_gpt.py`, `test_rshift.py`, and `test_rsqrt.py` advanced the first live blocker to `test_relu.py::test_relu[param_list0]`, where JIT dependency discovery failed with `AttributeError: module 'triton.language.extra.xyz.libdevice' has no attribute 'relu'`.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now installs a repo-owned fake-NPU `xyz.libdevice.relu` shim backed by `tl.maximum(x, 0.0)`, covering the Ascend pytest kernel without editing vendored Triton Python sources.
+- 2026-03-11: Validation for the `relu` compatibility checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_relu.py::test_relu[param_list0]` (`1 passed` before repointing), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_relu.py` (`1 passed, 1 skipped`), and a refreshed bounded sweep through `test_rsqrt.py` that now reaches `test_rint.py::test_rint[param_list0]`.
+- 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_rint.py -k test_rint[param_list0]`, and `bash python/tta-ut/pytest_one.sh` reproduces the next deterministic blocker directly as `AttributeError: module 'triton.language.extra.xyz.libdevice' has no attribute 'rint'`.
 
 # Next Options
 
-- Resume the bounded float32 sweep after `test_reduce_minimum.py`, stopping at the first deterministic failure instead of widening broadly.
-- Once the next failing file is identified, repoint `python/tta-ut/pytest_one.sh` to that single repro and inspect `debug/tmp-pytest_one` before changing code.
-- If the next failure again comes from host-side tensor construction or comparison, extend the fake-NPU shim in `python/tta-ut/torch_npu.py` before touching compiler lowering.
+- Implement a repo-owned fake-NPU `xyz.libdevice.rint` shim in `python/tta-ut/torch_npu.py`, then revalidate `test_rint.py::test_rint[param_list0]` with `python/tta-ut/pytest_one.sh`.
+- After the isolated `rint` repro passes, rerun `pytest -v third_party/ascend/unittest/pytest_ut/test_rint.py` under the float32 filter and then resume the same bounded `r*` sweep with `--maxfail=1`.
+- If `rint` behaves like `nearbyint`, prefer a pure Triton shim that avoids unsupported CUDA extern lowering instead of aliasing a CUDA libdevice wrapper directly.
 - Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh repro reintroduces them.
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- There is no new deterministic post-`reduce_maximum` blocker recorded yet; the next round has to rediscover the next failing file in the bounded sweep before narrowing with `pytest_one.sh`.
+- The current live blocker is `test_rint.py::test_rint[param_list0]`, which fails during JIT dependency discovery because fake-NPU `xyz.libdevice` still lacks `rint`.
 - The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under a fresh single-test repro.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.

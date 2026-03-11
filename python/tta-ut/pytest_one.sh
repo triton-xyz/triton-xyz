@@ -22,9 +22,9 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_reduce_maximum.py
+  third_party/ascend/unittest/pytest_ut/test_rint.py
   -k
-  "test_max[float32-triton_max_5d_all-3-11-1-3-42-all]"
+  "test_rint[param_list0]"
   #
 )
 pushd third_party/triton-ascend

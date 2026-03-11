@@ -1142,6 +1142,11 @@ def _libdevice_nextafter(x, y):  # ty:ignore
     return tl.where(nan_mask, x + y, tl.where(same, y, moved))
 
 
+@triton.jit
+def _libdevice_relu(x):  # ty:ignore
+    return tl.maximum(x, 0.0)
+
+
 def _require_libdevice_fp16_fp32_bf16(arg0, _semantic):
     arg0 = _semantic.to_tensor(arg0)
     scalar_ty = arg0.type.scalar
@@ -1359,6 +1364,7 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "atanh": _libdevice_atanh,
     "nearbyint": _libdevice_nearbyint,
     "nextafter": _libdevice_nextafter,
+    "relu": _libdevice_relu,
     "finitef": _libdevice_finitef,
     "hypot": _libdevice_hypot,
     "erfinv": _libdevice_erfinv,
