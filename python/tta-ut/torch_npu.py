@@ -438,6 +438,7 @@ for name in [
     "cos",
     "cosh",
     "exp",
+    "flatten",
     "log",
     "log10",
     "log1p",

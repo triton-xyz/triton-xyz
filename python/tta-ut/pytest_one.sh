@@ -22,8 +22,8 @@ args=(
   -v
   # -q -r fE
   #
-  third_party/ascend/unittest/pytest_ut/test_npu_indexing2.py
-  -k "test_npu_indexing2"
+  third_party/ascend/unittest/pytest_ut/test_pointer_type.py
+  -k "test_pointer_type[0-dtype_str5]"
   #
 )
 pushd third_party/triton-ascend

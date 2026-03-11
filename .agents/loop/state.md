@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded float32 sweep is now green through the full `n*` window. The next round should advance into the next alphabetical slice with the same single-test discipline, starting from `test_or.py` and only widening until the next deterministic blocker is isolated.
+- The bounded float32 sweep is now green through `test_paged_kvcache_krope.py`. The next round should stay on the freshly isolated `test_pointer_type.py::test_pointer_type[0-dtype_str5]` compiler-lowering blocker, using the captured single-test dump before touching C++.
 
 # Evidence
 
@@ -213,12 +213,17 @@
 - 2026-03-11: Instrumenting active `triton.language.semantic.TritonSemantic.to_tensor` during the isolated `test_npu_indexing2.py::test_npu_indexing2` repro showed the compile-time failure came from a nested-loop bound reaching `to_tensor` as `constexpr[int32[]]`; the active method unwrapped `tl.constexpr` only after its tensor-instance fast path, so `constexpr`-wrapped tensors fell through to `TypeError`, while the Ascend fork recursively re-ran `to_tensor` on `constexpr.value`.
 - 2026-03-11: `python/tta-ut/torch_npu.py` now patches fake-NPU `triton.language.semantic.TritonSemantic.to_tensor` to unwrap `tl.constexpr` before the tensor-instance check, matching the Ascend-era nested-loop frontend behavior without editing vendored Triton Python sources.
 - 2026-03-11: Validation for the `npu_indexing2` nested-loop frontend checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` on `test_npu_indexing2.py::test_npu_indexing2` (`1 passed`), and a refreshed bounded float32 `n*` slice over `test_ne.py`, `test_nearbyint.py`, `test_nearest.py`, `test_neg.py`, `test_nextafter.py`, `test_not.py`, `test_npu_indexing.py`, and `test_npu_indexing2.py` (`7 passed, 10 skipped`).
+- 2026-03-11: Advancing the next bounded float32 slice from `test_or.py` showed `test_or.py` is still skipped under the dtype filter, then hit a repo-owned fake-NPU compatibility gap in `test_paged_kvcache_krope.py::test_bubbleup_extract_nonzero_offset`: both `kv_cache.flatten()` and `output.flatten()` lost the fake-NPU marker, so the launcher rejected the resulting plain CPU tensors with `ValueError("Pointer argument cannot be accessed from Triton (cpu tensor?)")`.
+- 2026-03-11: Adding `flatten` to the fake-NPU tensor-method propagation list in `python/tta-ut/torch_npu.py` fixed that marker-loss path. Validation succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, `bash python/tta-ut/pytest_one.sh` for `test_paged_kvcache_krope.py::test_bubbleup_extract_nonzero_offset`, `pytest -v third_party/ascend/unittest/pytest_ut/test_paged_kvcache_krope.py` (`1 passed`), and a bounded rerun of `pytest -v third_party/ascend/unittest/pytest_ut/test_or.py third_party/ascend/unittest/pytest_ut/test_paged_kvcache_krope.py` (`1 passed, 1 skipped`).
+- 2026-03-11: Widening the same float32 slice through `test_parallel.py`, `test_permute*.py`, and `test_pointer_type.py` advanced the first live blocker to `test_pointer_type.py::test_pointer_type[0-dtype_str5]`. The failure is in compiler lowering, not the shim: `mlir-translate` rejects a surviving `tt.int_to_ptr` in LLVM-stage MLIR (`Dialect 'tt' not found for custom op 'tt.int_to_ptr'`).
+- 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_pointer_type.py -k test_pointer_type[0-dtype_str5]` reproduces the same failure in the single-test harness. Inspecting `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/.../9_triton-ptr-to-memref.mlir` shows `TritonPtrToMemrefPass` still leaves an extracted `i64` -> `tt.int_to_ptr` -> `builtin.unrealized_conversion_cast` path when the kernel loads a runtime pointer from `ans_tensor`; the lowered LLVM dump under `debug/tmp-pytest_one/_pass_dump__2_xyz_to_llvm/.../11_cse.mlir` still contains the same `tt.int_to_ptr`, so the next round should focus on that ptr-to-memref gap.
+- 2026-03-11: The current pointer-type repro artifacts are copied into `debug_agent/pointer_type_round/` (`pytest_one.log`, `9_triton-ptr-to-memref.mlir`, `11_cse.mlir`) so the next C++ investigation can start from a stable single-test snapshot instead of regenerating the failure first.
 
 # Next Options
 
-- Repoint `python/tta-ut/pytest_one.sh` to the next bounded float32 discovery window starting at `test_or.py`, and stop at the first deterministic failure instead of preselecting a fix category.
-- If the next blocker is frontend-only, compare the active Triton Python behavior against `third_party/triton-ascend/python/triton/` first so repo-owned shim patches stay minimal and targeted.
-- If the next blocker is in repo-owned compiler lowering instead of the fake-NPU shim, capture the failing pass dump under a dedicated `debug_agent/` directory before editing C++.
+- Inspect `test_pointer_type.py::test_pointer_type[0-dtype_str5]` against `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` and the earlier scalar-pointer recovery fixes, then teach ptr-to-memref recovery how to fold runtime-loaded pointer integers back to memrefs.
+- Add a focused lit regression near `test/Conversion/triton-ptr-to-memref.mlir` once the `tt.int_to_ptr` escape hatch is understood, so this pointer-type case stays covered outside pytest.
+- After the pointer-type blocker is fixed, resume the bounded float32 slice from `test_pointer_type.py` onward (`test_pow.py`, `test_precise_div.py`, `test_precise_sqrt.py`, `test_ptr_add.py`) and stop again at the first deterministic failure.
 - Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh single-test repro makes it deterministic again.
 
 # Blockers
