@@ -362,6 +362,42 @@ def _wrap_tensor_method_result(method):
     return wrapper
 
 
+def _normalize_fake_npu_constructor_input(value, nested=False):
+    if isinstance(value, torch.Tensor):
+        if getattr(value, _FAKE_NPU_ATTR, False):
+            value = _tensor_cpu(value)
+        if nested:
+            if value.ndim == 0:
+                return value.item()
+            return value.detach().cpu().tolist()
+        return value
+    if isinstance(value, list):
+        return [_normalize_fake_npu_constructor_input(elem, nested=True) for elem in value]
+    if isinstance(value, tuple):
+        return tuple(_normalize_fake_npu_constructor_input(elem, nested=True) for elem in value)
+    if isinstance(value, set):
+        return {_normalize_fake_npu_constructor_input(elem, nested=True) for elem in value}
+    if isinstance(value, dict):
+        return {key: _normalize_fake_npu_constructor_input(elem, nested=True) for key, elem in value.items()}
+    return value
+
+
+def _wrap_tensor_constructor(func):
+    def wrapper(*args, **kwargs):
+        requested_npu = _is_npu_device(kwargs.get("device"))
+        inherited_npu = _inherits_fake_npu(args, kwargs)
+        if requested_npu:
+            kwargs["device"] = "cpu"
+        args = tuple(_normalize_fake_npu_constructor_input(arg) for arg in args)
+        kwargs = {key: _normalize_fake_npu_constructor_input(value) for key, value in kwargs.items()}
+        result = func(*args, **kwargs)
+        if requested_npu or inherited_npu:
+            return _mark_fake_npu(result)
+        return result
+
+    return wrapper
+
+
 def _promote_fake_npu_tensor_pair(args, kwargs, lhs_name, rhs_name):
     lhs = rhs = None
     if len(args) >= 2:
@@ -476,7 +512,6 @@ for name in [
 for name in [
     "abs",
     "arange",
-    "as_tensor",
     "atan2",
     "cat",
     "clamp",
@@ -500,7 +535,6 @@ for name in [
     "sin",
     "stack",
     "sqrt",
-    "tensor",
     "where",
     "zeros",
     "zeros_like",
@@ -516,6 +550,14 @@ for name in [
 ]:
     if hasattr(torch, name):
         setattr(torch, name, _wrap_tensor_result(getattr(torch, name)))
+
+
+for name in [
+    "as_tensor",
+    "tensor",
+]:
+    if hasattr(torch, name):
+        setattr(torch, name, _wrap_tensor_constructor(getattr(torch, name)))
 
 
 _orig_torch_isclose = torch.isclose

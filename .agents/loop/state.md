@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The `test_reduce_count_vector.py` scalar-output heap corruption is fixed by padding fake-NPU 0-d tensor storage. The next round should stay on `test_reduce_maximum.py::test_max[float32-triton_max_5d_all-3-11-1-3-42-all]`, where host-side `torch.tensor([torch.max(x0)], ...)` still receives a fake-NPU 0-d tensor and fails before kernel launch.
+- The host-side reduce `all` constructor gap is fixed by normalizing nested tensor inputs for fake-NPU `torch.tensor(...)` / `torch.as_tensor(...)`. The next round should resume the bounded float32 sweep after the cleared `test_reduce_maximum.py` / `test_reduce_minimum.py` slice, choose the next deterministic failing file, and only then repoint `python/tta-ut/pytest_one.sh`.
 # Evidence
 
 - 2026-03-11: `python/tta-ut/setup.sh` clones `third_party/triton-ascend` and wires `python/tta-ut/conftest.py` plus `python/tta-ut/torch_npu.py` into `third_party/triton-ascend/third_party/ascend/unittest/pytest_ut/` via symlinks.
@@ -233,17 +233,20 @@
 - 2026-03-11: Resuming the bounded float32 slice over `test_rand.py`, `test_range.py`, `test_ravel.py`, `test_reduce_count_vector.py`, and `test_reduce_maximum.py` now reaches `15 passed, 96 skipped, 1 failed`, advancing the first live blocker to `test_reduce_maximum.py::test_max[float32-triton_max_5d_all-3-11-1-3-42-all]`.
 - 2026-03-11: The new `reduce_maximum` blocker is a repo-owned fake-NPU compatibility gap rather than a lowering failure: host-side reference construction does `torch.tensor([torch.max(x0)], dtype=torch.float32)`, but the fake-NPU wrapper forwards the inner 0-d fake-NPU tensor into the CPU `torch.tensor` constructor, which raises `TypeError("len() of a 0-d tensor")` before kernel launch.
 - 2026-03-11: `python/tta-ut/pytest_one.sh` is now repointed to `test_reduce_maximum.py -k test_max[float32-triton_max_5d_all-3-11-1-3-42-all]`, and `bash python/tta-ut/pytest_one.sh` reproduces the host-side `TypeError("len() of a 0-d tensor")` as a stable single-test repro.
+- 2026-03-11: A direct harness-local probe showed the constructor issue was slightly broader than the initial fake-NPU diagnosis: once `python/tta-ut/torch_npu.py` is loaded, nested 0-d tensor inputs to `torch.tensor(...)` fail even after clearing the fake-NPU marker, so the durable fix had to coerce nested tensor elements to Python scalars / plain lists rather than only converting fake tensors back to CPU tensors.
+- 2026-03-11: `python/tta-ut/torch_npu.py` now gives `torch.tensor(...)` and `torch.as_tensor(...)` a constructor-specific wrapper that normalizes nested tensor inputs before calling the underlying CPU constructor, while still honoring fake-NPU inheritance for the result tensor when the call logically stays on fake NPU.
+- 2026-03-11: Validation for the nested-constructor checkpoint succeeded with `python -m py_compile python/tta-ut/torch_npu.py`, a direct harness probe confirming `torch.tensor([torch.tensor(1.23)], ...)` and `torch.tensor([torch.max(x0)], ...)` both succeed under the shim, `bash python/tta-ut/pytest_one.sh` for `test_reduce_maximum.py::test_max[float32-triton_max_5d_all-3-11-1-3-42-all]` (`1 passed`), `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_reduce_maximum.py` (`10 passed, 70 skipped`), and the sibling regression file `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_reduce_minimum.py` (`10 passed, 70 skipped`).
 
 # Next Options
 
-- Inspect `torch.tensor` and adjacent constructor wrappers in `python/tta-ut/torch_npu.py` so list construction with fake-NPU 0-d tensors coerces them to CPU scalars or plain CPU tensors before calling the underlying CPU constructor.
-- Validate the next fake-NPU constructor fix with `bash python/tta-ut/pytest_one.sh` on `test_reduce_maximum.py::test_max[float32-triton_max_5d_all-3-11-1-3-42-all]`, then widen to `pytest -v third_party/ascend/unittest/pytest_ut/test_reduce_maximum.py` under `TTX_PYTEST_DTYPE=float32`.
-- After `test_reduce_maximum.py` is stable, resume the bounded float32 window past `test_reduce_maximum.py` and stop again at the first deterministic failure.
+- Resume the bounded float32 sweep after `test_reduce_minimum.py`, stopping at the first deterministic failure instead of widening broadly.
+- Once the next failing file is identified, repoint `python/tta-ut/pytest_one.sh` to that single repro and inspect `debug/tmp-pytest_one` before changing code.
+- If the next failure again comes from host-side tensor construction or comparison, extend the fake-NPU shim in `python/tta-ut/torch_npu.py` before touching compiler lowering.
 - Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh repro reintroduces them.
 # Blockers
 
 - The broad `python/tta-ut/pytest.sh` path is not a safe tight-loop command because it can hang and mixes many unrelated failures into one noisy log.
-- The current deterministic blocker is host-side: `test_reduce_maximum.py::test_max[float32-triton_max_5d_all-3-11-1-3-42-all]` fails before kernel launch because `torch.tensor([torch.max(x0)], ...)` still sees a fake-NPU 0-d tensor and raises `TypeError("len() of a 0-d tensor")`.
+- There is no new deterministic post-`reduce_maximum` blocker recorded yet; the next round has to rediscover the next failing file in the bounded sweep before narrowing with `pytest_one.sh`.
 - The earlier `test_implicit_permute.py` / `test_implicit_atomic.py` segfaults remain stale or non-deterministic, so they should not drive the next round unless they reappear under a fresh single-test repro.
 - `test_flip.py` still imports `triton.runtime.libentry`, but that file is intentionally skipped in this mission and should not distract the next round.
 - The active `third_party/triton/` source tree used by the pytest flow is currently untracked in git, so durable preservation inside this repository needs tracked helper scripts and state updates rather than relying on the local checkout diff alone.
