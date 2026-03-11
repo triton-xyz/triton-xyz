@@ -1127,6 +1127,11 @@ def _libdevice_nearbyint(x):  # ty:ignore
 
 
 @triton.jit
+def _libdevice_rint(x):  # ty:ignore
+    return _libdevice_nearbyint(x)
+
+
+@triton.jit
 def _libdevice_nextafter(x, y):  # ty:ignore
     bitwidth: tl.constexpr = x.dtype.primitive_bitwidth
     uint_ty: tl.constexpr = triton_standard._get_int_dtype(bitwidth=bitwidth, signed=False)
@@ -1145,6 +1150,15 @@ def _libdevice_nextafter(x, y):  # ty:ignore
 @triton.jit
 def _libdevice_relu(x):  # ty:ignore
     return tl.maximum(x, 0.0)
+
+
+@triton.jit
+def _libdevice_signbit(x):  # ty:ignore
+    bitwidth: tl.constexpr = x.dtype.primitive_bitwidth
+    uint_ty: tl.constexpr = triton_standard._get_int_dtype(bitwidth=bitwidth, signed=False)
+    bits = x.to(uint_ty, bitcast=True)
+    sign_mask = tl.full(x.shape, 1, uint_ty) << (bitwidth - 1)
+    return (bits & sign_mask) != 0
 
 
 def _require_libdevice_fp16_fp32_bf16(arg0, _semantic):
@@ -1363,8 +1377,10 @@ _XYZ_LIBDEVICE_JIT_COMPAT_OPS = {
     "asinh": _libdevice_asinh,
     "atanh": _libdevice_atanh,
     "nearbyint": _libdevice_nearbyint,
+    "rint": _libdevice_rint,
     "nextafter": _libdevice_nextafter,
     "relu": _libdevice_relu,
+    "signbit": _libdevice_signbit,
     "finitef": _libdevice_finitef,
     "hypot": _libdevice_hypot,
     "erfinv": _libdevice_erfinv,
