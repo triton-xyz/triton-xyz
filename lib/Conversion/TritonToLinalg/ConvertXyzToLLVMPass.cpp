@@ -44,6 +44,10 @@ convertAtomicOrdering(ptr::AtomicOrdering ordering) {
   return LLVM::AtomicOrdering::not_atomic;
 }
 
+static bool isOneToOneCast(UnrealizedConversionCastOp op) {
+  return op.getInputs().size() == 1 && op->getNumResults() == 1;
+}
+
 static void
 addPtrAwareMemRefAddressSpaceConversions(LLVMTypeConverter &typeConverter) {
   typeConverter.addTypeAttributeConversion(
@@ -111,6 +115,73 @@ struct PtrStoreOpConversion : public ConvertOpToLLVMPattern<ptr::StoreOp> {
   }
 };
 
+struct IntToUnrankedMemrefCastConversion
+    : public ConvertOpToLLVMPattern<UnrealizedConversionCastOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(UnrealizedConversionCastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!isOneToOneCast(op)) {
+      return failure();
+    }
+
+    Type srcType = op.getInputs().front().getType();
+    auto dstType = dyn_cast<UnrankedMemRefType>(op.getResult(0).getType());
+    if (!dstType || !isa<IntegerType, IndexType>(srcType)) {
+      return failure();
+    }
+
+    auto rankedType =
+        MemRefType::get({1}, dstType.getElementType(),
+                        MemRefLayoutAttrInterface(), dstType.getMemorySpace());
+    auto maybeAddrSpace = getTypeConverter()->getMemRefAddressSpace(rankedType);
+    if (failed(maybeAddrSpace)) {
+      return rewriter.notifyMatchFailure(op,
+                                         "failed to resolve memref address space");
+    }
+
+    auto loc = op.getLoc();
+    auto llvmPtrType =
+        LLVM::LLVMPointerType::get(rewriter.getContext(), *maybeAddrSpace);
+    Value rawPtr = LLVM::IntToPtrOp::create(rewriter, loc, llvmPtrType,
+                                            adaptor.getOperands().front());
+
+    Type rankedDescType = getTypeConverter()->convertType(rankedType);
+    if (!rankedDescType) {
+      return rewriter.notifyMatchFailure(op,
+                                         "failed to convert ranked memref type");
+    }
+
+    MemRefDescriptor rankedDesc =
+        MemRefDescriptor::poison(rewriter, loc, rankedDescType);
+    rankedDesc.setAllocatedPtr(rewriter, loc, rawPtr);
+    rankedDesc.setAlignedPtr(rewriter, loc, rawPtr);
+    rankedDesc.setConstantOffset(rewriter, loc, 0);
+    rankedDesc.setConstantSize(rewriter, loc, 0, 1);
+    rankedDesc.setConstantStride(rewriter, loc, 0, 1);
+
+    Type unrankedDescType = getTypeConverter()->convertType(dstType);
+    if (!unrankedDescType) {
+      return rewriter.notifyMatchFailure(
+          op, "failed to convert unranked memref type");
+    }
+
+    UnrankedMemRefDescriptor unrankedDesc =
+        UnrankedMemRefDescriptor::poison(rewriter, loc, unrankedDescType);
+    Value rank = LLVM::ConstantOp::create(rewriter, loc,
+                                          getTypeConverter()->getIndexType(),
+                                          rewriter.getIndexAttr(1));
+    unrankedDesc.setRank(rewriter, loc, rank);
+    Value promoted =
+        getTypeConverter()->promoteOneMemRefDescriptor(loc, rankedDesc, rewriter);
+    unrankedDesc.setMemRefDescPtr(rewriter, loc, promoted);
+
+    rewriter.replaceOp(op, static_cast<Value>(unrankedDesc));
+    return success();
+  }
+};
+
 class ConvertXyzToLLVMPass
     : public triton::impl::ConvertXyzToLLVMBase<ConvertXyzToLLVMPass> {
   using Base = triton::impl::ConvertXyzToLLVMBase<ConvertXyzToLLVMPass>;
@@ -137,10 +208,18 @@ public:
 
     populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
     ptr::populatePtrToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<PtrLoadOpConversion, PtrStoreOpConversion>(typeConverter);
+    patterns.add<PtrLoadOpConversion, PtrStoreOpConversion,
+                 IntToUnrankedMemrefCastConversion>(typeConverter);
 
     target.addIllegalOp<ptr::LoadOp, ptr::StoreOp>();
-    target.addLegalOp<UnrealizedConversionCastOp>();
+    target.addDynamicallyLegalOp<UnrealizedConversionCastOp>(
+        [](UnrealizedConversionCastOp op) {
+      if (!isOneToOneCast(op)) {
+        return true;
+      }
+      return !(isa<IntegerType, IndexType>(op.getInputs().front().getType()) &&
+               isa<UnrankedMemRefType>(op.getResult(0).getType()));
+    });
 
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();

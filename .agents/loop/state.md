@@ -14,7 +14,7 @@
 
 # Current Strategy
 
-- The bounded float32 sweep is now green through `test_paged_kvcache_krope.py`. The next round should stay on the freshly isolated `test_pointer_type.py::test_pointer_type[0-dtype_str5]` compiler-lowering blocker, using the captured single-test dump before touching C++.
+- The `test_pointer_type.py::test_pointer_type[0-dtype_str5]` lowering blocker is fixed. The next round should stay on the newly isolated `test_precise_sqrt.py::test_sqrtrn_fp32` fake-NPU marker gap, starting from the bounded `pointer_type` -> `pow` -> `precise_*` -> `ptr_add` slice instead of rediscovering the pointer-cast fix.
 
 # Evidence
 
@@ -218,12 +218,17 @@
 - 2026-03-11: Widening the same float32 slice through `test_parallel.py`, `test_permute*.py`, and `test_pointer_type.py` advanced the first live blocker to `test_pointer_type.py::test_pointer_type[0-dtype_str5]`. The failure is in compiler lowering, not the shim: `mlir-translate` rejects a surviving `tt.int_to_ptr` in LLVM-stage MLIR (`Dialect 'tt' not found for custom op 'tt.int_to_ptr'`).
 - 2026-03-11: Repointing `python/tta-ut/pytest_one.sh` to `test_pointer_type.py -k test_pointer_type[0-dtype_str5]` reproduces the same failure in the single-test harness. Inspecting `debug/tmp-pytest_one/_pass_dump__1_ttir_to_linalg/.../9_triton-ptr-to-memref.mlir` shows `TritonPtrToMemrefPass` still leaves an extracted `i64` -> `tt.int_to_ptr` -> `builtin.unrealized_conversion_cast` path when the kernel loads a runtime pointer from `ans_tensor`; the lowered LLVM dump under `debug/tmp-pytest_one/_pass_dump__2_xyz_to_llvm/.../11_cse.mlir` still contains the same `tt.int_to_ptr`, so the next round should focus on that ptr-to-memref gap.
 - 2026-03-11: The current pointer-type repro artifacts are copied into `debug_agent/pointer_type_round/` (`pytest_one.log`, `9_triton-ptr-to-memref.mlir`, `11_cse.mlir`) so the next C++ investigation can start from a stable single-test snapshot instead of regenerating the failure first.
+- 2026-03-11: The `test_pointer_type` fix landed in the TTA/LLVM pipeline rather than `TritonPtrToMemrefPass`: `lib/Pipelines/TritonToLinalgTTA.cpp` now runs `createTritonToPtr()`, `createTritonTtPtrToPtr()`, and `createReconcilePtrCasts()` after `createTritonPtrToMemref()`, so the TTA route can legally process residual scalar pointer casts before backend lowering.
+- 2026-03-11: A first attempt to reconcile the runtime-loaded pointer via `ReconcilePtrCastsPass` and `ptr.from_ptr` was not backend-safe and was reverted. The durable fix is now in `lib/Conversion/TritonToLinalg/ConvertXyzToLLVMPass.cpp`, which lowers one-to-one `builtin.unrealized_conversion_cast` ops from integer/index values to unranked memrefs into explicit LLVM memref descriptors during `--convert-xyz-to-llvm`, eliminating the surviving runtime `i64 -> memref<*>` pointer cast before `mlir-translate`.
+- 2026-03-11: Added `test/e2e/tta-pointer-int-cast.mlir` to lock the full TTA-to-LLVM lowering path for runtime `tt.int_to_ptr` stores. The regression checks the LLVM-stage `llvm.inttoptr` reconstruction and guards against `ptr.from_ptr` / `builtin.unrealized_conversion_cast` surviving the full command sequence.
+- 2026-03-11: Validation for the `pointer_type` checkpoint succeeded with `cmake --build build --target triton-xyz-opt`, `lit -v test/Conversion/triton-to-ptr.mlir test/e2e/tta-pointer-int-cast.mlir` (`2 passed`), `bash python/tta-ut/pytest_one.sh` on `test_pointer_type.py::test_pointer_type[0-dtype_str5]` (`1 passed`), and `cd third_party/triton-ascend && TTX_PYTEST_DTYPE=float32 pytest -v third_party/ascend/unittest/pytest_ut/test_pointer_type.py` (`1 passed, 5 skipped`).
+- 2026-03-11: Resuming the bounded float32 slice over `test_pointer_type.py`, `test_pow.py`, `test_precise_div.py`, `test_precise_sqrt.py`, and `test_ptr_add.py` now advances the first live blocker to `test_precise_sqrt.py::test_sqrtrn_fp32`. The failure is a repo-owned fake-NPU compatibility gap rather than lowering: `torch.empty_like(y)` inside `sqrtrn(...)` produces an untagged CPU-backed output tensor, so the launcher rejects `output_ptr` with `ValueError("Pointer argument cannot be accessed from Triton (cpu tensor?)")`.
 
 # Next Options
 
-- Inspect `test_pointer_type.py::test_pointer_type[0-dtype_str5]` against `lib/Conversion/TritonToLinalg/TritonPtrToMemrefPass.cpp` and the earlier scalar-pointer recovery fixes, then teach ptr-to-memref recovery how to fold runtime-loaded pointer integers back to memrefs.
-- Add a focused lit regression near `test/Conversion/triton-ptr-to-memref.mlir` once the `tt.int_to_ptr` escape hatch is understood, so this pointer-type case stays covered outside pytest.
-- After the pointer-type blocker is fixed, resume the bounded float32 slice from `test_pointer_type.py` onward (`test_pow.py`, `test_precise_div.py`, `test_precise_sqrt.py`, `test_ptr_add.py`) and stop again at the first deterministic failure.
+- Inspect `test_precise_sqrt.py::test_sqrtrn_fp32` against `python/tta-ut/torch_npu.py`, starting with a direct probe of `torch.empty_like(y)` under the fake-NPU shim to see why the existing top-level wrapper is not preserving the fake-NPU marker.
+- Add the narrowest repo-owned propagation fix for the `precise_sqrt` output tensor, then validate with `bash python/tta-ut/pytest_one.sh` repointed to `test_precise_sqrt.py -k test_sqrtrn_fp32`.
+- After `test_precise_sqrt.py` is green, resume the same bounded float32 slice from `test_precise_sqrt.py` onward (`test_ptr_add.py`, then the next `p*` files) and stop again at the first deterministic failure.
 - Keep ignoring the stale `implicit_permute` / `implicit_atomic` segfault history unless a fresh single-test repro makes it deterministic again.
 
 # Blockers

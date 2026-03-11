@@ -32,7 +32,10 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
 
   pm.addPass(createTTAToMemref());
   pm.addPass(createTritonPtrToMemref());
+  pm.addPass(createTritonToPtr());
+  pm.addPass(createTritonTtPtrToPtr());
   pm.addPass(createReconcileUnrealizedCastsPass());
+  pm.addPass(createReconcilePtrCasts());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createVerifyTTALowered());
 }
