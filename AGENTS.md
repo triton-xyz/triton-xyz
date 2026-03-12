@@ -92,3 +92,12 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 - Recent commit messages are short, imperative, and mostly lowercase (for example, `sort includes`, `lit test`).
 - Keep commits focused; avoid mixing formatting with functional changes unless required.
 - In PRs, describe the behavioral change, link related issues, and include test commands or output when applicable.
+
+## Workspace Hygiene and `.gitignore` Policy
+
+The repository uses a narrow `.gitignore` strategy (targeted ignores), not a global deny-all pattern like `*` + whitelist.
+
+- Keep src inputs such as `third_party/` readable and visible to normal workflows.
+- Do not switch to a deny-all ignore pattern unless explicitly requested.
+- Assume `.gitignore` controls Git tracking only; it does not block local file reading by agents.
+- Prefer putting disposable outputs in `debug_agent/` instead of expanding broad ignore rules.
