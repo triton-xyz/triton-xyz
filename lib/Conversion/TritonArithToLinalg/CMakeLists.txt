@@ -19,6 +19,5 @@ add_triton_library(TritonArithToLinalg
   TritonIR
   TritonTransforms
   TritonTilingExtIR
-  TritonStructuredIR
   TritonSharedUtils
 )

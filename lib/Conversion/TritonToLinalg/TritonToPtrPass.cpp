@@ -23,7 +23,6 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Analysis/AnalysisStructured.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Utils/Utils.h"

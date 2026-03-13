@@ -6,7 +6,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "llvm/Support/Casting.h"
@@ -614,75 +613,6 @@ LogicalResult MaskState::parseLoopIterArg(Value v, const Location loc,
   if (it == forOp.getRegionIterArgs().end()) {
     return failure();
   }
-
-  // This is a bit of a hack!!
-  //
-  // The offset (MaskState::start) of a mask can now depend on a loop's
-  // iter-arg like the following example:
-  //
-  // idx = offset + tl.arange(0, 4)
-  // for it in range(n):
-  //   mask = idx < size
-  //   x = tl.load(x_ptr + idx, mask=mask)
-  //   tl.store(y_ptr + idx, x, mask=mask)
-  //   idx += 4
-  //
-  // See
-  // test/Conversion/TritonToStructured/mask_loop_iter_arg.mlir and
-  // and
-  // python/examples/test_mask_loop_iter_arg.py
-  // for IR and full triton code.
-  //
-  // To support this case, we first make the following assumptions:
-  //  - MaskAnalysis is runs after PtrAnalysis's prepass finishes, which means
-  //    the offset for the load and store pointers have already been set up
-  //    at `argIndex + 1`
-  //  - The tensor of indices used by the load / store and the mask are the same
-  //    (see above where `idx` appears in both the mask and the pointer
-  //    arithmetic). This allows us to use the offset at `argIndex + 1` in the
-  //    above assumption. In the future, to make this more robust, we need to
-  //    verify that the offsets are indeed the same. Or alternatively, make sure
-  //    to generate a separate start and end offset for each mask that is being
-  //    updated in loops.
-  //
-  // Now to generate the mask state in each loop iteration, we first construct
-  // the mask state *before* coming into the loop by parsing the init-arg. A
-  // mask dimensions stay consistent throughout each loop iteration, but its
-  // starting offset (`MaskState::start`) will change. So to construct the mask
-  // state for each iteration, we need to make MaskState::state be the offset
-  // iter-arg at `argIndex + 1`. Now for `MaskState::end`, we can first compute
-  // the distance between `start` and `end` before coming into the loop, then
-  // use this distance to compute the actual `end` in each loop.
-  auto argIndex = std::distance(forOp.getRegionIterArgs().begin(), it);
-  auto initArg = forOp.getInitArgs()[argIndex];
-  if (auto getStateOp = initArg.getDefiningOp<tts::GetStructuredStateOp>()) {
-    auto tritonValue = getStateOp->getOperand(0);
-    MaskState lhsState;
-
-    {
-      OpBuilder::InsertionGuard guard(builder);
-      // Make sure all ops generated for the mask state are inserted before
-      // the current loop
-      builder.setInsertionPoint(forOp);
-      if (failed(lhsState.parse(tritonValue, loc, builder))) {
-        return failure();
-      }
-    }
-
-    if (!lhsState.start && !lhsState.end) {
-      assert(lhsState.scalar && "MaskState must have a scalar");
-      lhsState.start = builder.getIndexAttr(0);
-      lhsState.end = lhsState.scalar;
-    }
-
-    auto dist = subOFRs(lhsState.end, lhsState.start, loc, builder);
-    this->start = forOp.getRegionIterArg(argIndex + 1);
-    this->end = addOFRs(this->start, dist, loc, builder);
-    this->dims = lhsState.dims;
-
-    return success();
-  }
-
   return failure();
 }
 

@@ -1,6 +1,5 @@
 add_triton_library(TritonSharedAnalysis
   AnalysisAddress.cpp
-  AnalysisStructured.cpp
   MaskAnalysis.cpp
   OpFoldResultUtils.cpp
   PtrExprAnalysis.cpp
@@ -8,10 +7,9 @@ add_triton_library(TritonSharedAnalysis
   DEPENDS
   TritonAddressTableGen
   TritonTableGen
-  TritonStructuredTableGen
 
   LINK_LIBS PUBLIC
   TritonAddressIR
-  TritonStructuredIR
+  TritonSharedUtils
   MLIRAnalysis
 )
