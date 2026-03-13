@@ -1,23 +1,16 @@
 add_triton_library(TritonToLinalg
   LowerProtonCpuInstrumentationPass.cpp
-  StructuredToMemref.cpp
-  StructuredToMemrefPass.cpp
   TritonPtrToMemrefPass.cpp
   ReconcilePtrCastsPass.cpp
   ConvertXyzToLLVMPass.cpp
   TritonToPtrPass.cpp
   CollapseShape.cpp
-  TritonToStructuredPass.cpp
-  TritonToUnstructuredPass.cpp
-  UnstructuredToMemrefPass.cpp
 
   TritonUnstructuredFallbackPass.cpp
   TritonTensorPtrToLinalgPass.cpp
-  NormalizeTensorPtrOrderPass.cpp
   TritonPtrToPtrPass.cpp
 
   DEPENDS
-  TritonStructuredTableGen
   TritonToLinalgConversionPassIncGen
 
   LINK_LIBS PUBLIC
@@ -37,7 +30,6 @@ add_triton_library(TritonToLinalg
   TritonTransforms
   TritonTilingExtIR
   TritonAddressIR
-  TritonStructuredIR
   TritonSharedAnalysis
   TritonSharedUtils
   TritonArithToLinalg

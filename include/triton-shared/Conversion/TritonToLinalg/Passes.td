@@ -3,63 +3,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TritonToStructured : Pass<"triton-to-structured", "mlir::ModuleOp"> {
-  let summary = "Convert Triton non-block pointer to TritonStructured dialect";
-  let options = [
-      Option<"enableMakeGatherScatterTensorPtr", "enable-make-gather-scatter", "bool", "true",
-             "Enable make_gather_scatter_tptr support">,
-      Option<"runPrepassOnly", "run-prepass-only", "bool", "false",
-             "Only run the pre-processing pass which inserts tts.get_structured_state ops used in scf.for">,
-      Option<"skipPrepass", "skip-prepass", "bool", "false",
-             "Skip the prepass">,
-      Option<"useUnsafeMask", "use-unsafe-mask", "bool", "false",
-             "Assume that the mask bounds are never less than starting offsets. May produce incorrect results.">
-  ];
-  let dependentDialects = [
-    "scf::SCFDialect",
-    "tts::TritonStructuredDialect"
-  ];
-}
-
-def StructuredToMemref : Pass<"structured-to-memref", "mlir::ModuleOp"> {
-  let summary = "Convert triton structured pointer ops to memref";
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "linalg::LinalgDialect",
-    "scf::SCFDialect",
-    "tensor::TensorDialect",
-    "bufferization::BufferizationDialect",
-    "memref::MemRefDialect"
-  ];
-}
-
-def TritonToUnstructured : Pass<"triton-to-unstructured", "mlir::ModuleOp"> {
-  let summary = "Transforms tt.addptr ops into offset accumulation ops";
-  let options = [
-      Option<"offsetBitWidth", "offset-bit-width", "size_t", "32",
-             "Bitwidth used for the starting offset of each pointer">
-  ];
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "scf::SCFDialect",
-    "triton::TritonDialect",
-    "tts::TritonStructuredDialect"
-  ];
-}
-
-def UnstructuredToMemref : Pass<"unstructured-to-memref", "mlir::ModuleOp"> {
-  let summary = "Convert unstructured triton ptr (gather / scatter) to memref";
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "affine::AffineDialect",
-    "linalg::LinalgDialect",
-    "scf::SCFDialect",
-    "tensor::TensorDialect",
-    "bufferization::BufferizationDialect",
-    "memref::MemRefDialect"
-  ];
-}
-
 def TritonPtrToMemref : Pass<"triton-ptr-to-memref", "mlir::ModuleOp"> {
   let summary = "Convert triton pointer to unranked memref";
   let dependentDialects = [
@@ -123,16 +66,6 @@ def TritonTensorPtrToLinalg : Pass<"triton-tensor-ptr-to-linalg", "mlir::ModuleO
     "linalg::LinalgDialect",
     "tensor::TensorDialect",
     "triton::TritonDialect"
-  ];
-}
-
-def NormalizeTensorPtrOrder : Pass<"normalize-tensor-ptr-order", "mlir::ModuleOp"> {
-  let summary = "Normalize block pointer order for tts.make_tptr";
-  let dependentDialects = [
-    "linalg::LinalgDialect",
-    "tensor::TensorDialect",
-    "triton::TritonDialect",
-    "tts::TritonStructuredDialect"
   ];
 }
 

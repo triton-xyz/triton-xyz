@@ -12,9 +12,9 @@ else
 fi
 
 # for tests only more than one checks
-MLIR=test/Conversion/triton-to-structured-prepass.mlir
+MLIR=test/Conversion/triton-to-linalg-tta-lowering.mlir
 # get `ARGS` from `MLIR`
-ARGS=(--split-input-file --triton-to-structured --remove-dead-values --canonicalize)
+ARGS=(--split-input-file --triton-to-linalg-tta)
 # defalut `CHECK`
 PREFIX="CHECK"
 SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'
@@ -23,7 +23,7 @@ if triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_de
 else
   echo "error in $(utils/generate-test-checks.py), needs recheck"
 fi
-ARGS=(--split-input-file --triton-to-structured="run-prepass-only=true")
+ARGS=(--split-input-file --triton-to-linalg-tta="tta-pre-rewrite-tensor-pointer=false")
 # another check `PREPASS`
 PREFIX="PREPASS"
 SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'

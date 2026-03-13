@@ -204,9 +204,7 @@ class XYZBackend(BaseBackend):
             src_path = os.path.join(tmpdir, "ttir.mlir")
             dst_path = os.path.join(tmpdir, "linalg.mlir")
             Path(src_path).write_text(ttir_code)
-            pipeline = "triton-to-linalg"
-            if options.use_tta:
-                pipeline = "triton-to-linalg-tta"
+            pipeline = "triton-to-linalg-tta"
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("ttir_to_linalg"))
             if options.instrumentation_mode:

@@ -7,7 +7,7 @@
 #include "triton-shared/Analysis/MaskAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
-#include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
+#include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -982,14 +982,7 @@ FailureOr<AddressDescriptor> AnalysisAddress::analyzeFromPtrStateSeed(
     const AddressAnalysisOptions &options,
     std::optional<StringRef> *failureReason) {
   ptrexpr::PtrState state;
-  if (auto makeTPtr = ptrLike.getDefiningOp<tts::MakeTensorPtrOp>()) {
-    state.source = makeTPtr.getBase();
-    state.offsets = makeTPtr.getMixedOffsets();
-    state.sizes = makeTPtr.getMixedSizes();
-    state.strides = makeTPtr.getMixedStrides();
-    state.shape = makeTPtr.getMixedShape();
-    state.order = SmallVector<int32_t>(makeTPtr.getOrder());
-  } else if (failed(ptrAnalysis.visitOperand(ptrLike, state, loc, builder))) {
+  if (failed(ptrAnalysis.visitOperand(ptrLike, state, loc, builder))) {
     setFailureReason(failureReason, "ptr_expr_analysis_failed");
     return failure();
   }
@@ -1350,7 +1343,7 @@ FailureOr<Value> TTAEmitter::getScalarOther(Value other, Location loc,
     return Value();
   }
 
-  Value scalar = tts::utils::getScalarValue(other, loc, builder);
+  Value scalar = mlir::triton::getScalarValue(other, loc, builder);
   if (!scalar) {
     return failure();
   }

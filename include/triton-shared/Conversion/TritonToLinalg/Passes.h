@@ -14,8 +14,5 @@ namespace triton {
 #define GEN_PASS_REGISTRATION
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
 
-void populateStructuredToMemrefConversionPatterns(RewritePatternSet &patterns,
-                                                  TypeConverter &typeConverter);
-
 } // namespace triton
 } // namespace mlir
