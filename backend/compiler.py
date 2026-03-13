@@ -172,8 +172,19 @@ class XYZBackend(BaseBackend):
         return {"triton.language.extra.libdevice": None}
 
     def load_dialects(self, ctx):
-        # TODO
-        pass
+        try:
+            import triton
+
+            instrumentation_mode = triton.knobs.compilation.instrumentation_mode
+        except Exception:
+            instrumentation_mode = os.getenv("TRITON_INSTRUMENTATION_MODE", "")
+
+        if not instrumentation_mode:
+            return
+
+        from triton._C.libtriton import proton as triton_proton  # ty:ignore[unresolved-import]
+
+        triton_proton.load_dialects(ctx)
 
     @staticmethod
     def make_ttir(mod, metadata, options: CPUOptions):
@@ -204,6 +215,8 @@ class XYZBackend(BaseBackend):
                 pipeline = "triton-to-linalg-tta"
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("ttir_to_linalg"))
+            if options.instrumentation_mode:
+                cmd.append("--lower-proton-cpu-instrumentation")
             cmd.extend(
                 [
                     src_path,
@@ -281,6 +294,11 @@ class XYZBackend(BaseBackend):
                 libs.extend(["mlir_runner_utils", "mlir_c_runner_utils"])
                 for lib_dir in lib_dirs:
                     ccflags.extend(["-Wl,-rpath", lib_dir])
+            if options.instrumentation_mode:
+                proton_lib = _repo_root() / "build" / "third_party" / "proton" / "libproton.so"
+                if not proton_lib.exists():
+                    raise RuntimeError(f"CPU instrumentation requires {proton_lib}")
+                ccflags.extend([str(proton_lib), "-Wl,-rpath", str(proton_lib.parent)])
             so = _build("kernel", asm_path, tmpdir, lib_dirs, [], libs, ccflags)
             with open(so, "rb") as f:
                 return f.read()
