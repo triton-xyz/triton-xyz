@@ -13,7 +13,7 @@
 #define initProton protonXyzInitUpstreamBindings
 #pragma push_macro("PYBIND11_MODULE")
 #undef PYBIND11_MODULE
-#define PYBIND11_MODULE(name, variable)                                      \
+#define PYBIND11_MODULE(name, variable)                                        \
   static void protonXyzInitUpstreamModule(pybind11::module_ &variable)
 #include "../../third_party/triton/third_party/proton/csrc/Proton.cpp"
 #pragma pop_macro("PYBIND11_MODULE")

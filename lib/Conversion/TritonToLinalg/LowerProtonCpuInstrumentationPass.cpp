@@ -2,7 +2,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/Pass/Pass.h"
 #include "proton/Dialect/include/Analysis/ScopeIdAllocation.h"
 #include "proton/Dialect/include/Dialect/Proton/IR/Dialect.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
