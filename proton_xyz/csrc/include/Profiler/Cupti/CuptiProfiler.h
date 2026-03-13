@@ -1,5 +1,4 @@
-#ifndef PROTON_PROFILER_CUPTI_CUPTI_PROFILER_H_
-#define PROTON_PROFILER_CUPTI_CUPTI_PROFILER_H_
+#pragma once
 
 #include "Profiler/Cpu/CpuProfiler.h"
 
@@ -10,5 +9,3 @@ namespace proton {
 using CuptiProfiler = CpuProfiler;
 
 } // namespace proton
-
-#endif // PROTON_PROFILER_CUPTI_CUPTI_PROFILER_H_

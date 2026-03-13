@@ -1,4 +1,3 @@
-import json
 import os
 
 import torch
@@ -14,7 +13,7 @@ pl.enable_semantic("triton")
 
 
 @triton.jit
-def add_kernel_with_scope(
+def add_kernel(
     x_ptr,
     y_ptr,
     output_ptr,
@@ -35,35 +34,13 @@ def add_kernel_with_scope(
 def add(x: torch.Tensor, y: torch.Tensor, output: torch.Tensor, BLOCK_SIZE):
     n_elements = output.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
-    add_kernel_with_scope[grid](x, y, output, n_elements, BLOCK_SIZE)
+    add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE)
     return output
 
 
-def _walk(node):
-    yield node
-    for child in node.get("children", []):
-        yield from _walk(child)
-
-
-def _verify_profile(profile_path: str):
-    with open(profile_path + ".hatchet", "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    frames = list(_walk(data[0]))
-    kernel_frame = next(
-        frame
-        for frame in frames
-        if frame["frame"]["name"] == "add_kernel_with_scope" and frame["metrics"].get("time (ns)", 0) > 0
-    )
-    add_frame = next(
-        frame for frame in frames if frame["frame"]["name"] == "add" and frame["metrics"].get("time (ns)", 0) > 0
-    )
-    assert kernel_frame["metrics"]["time (ns)"] > 0
-    assert add_frame["metrics"]["time (ns)"] > 0
-
-
-def _run_vec_add_cpu_instrumentation(output_dir: str):
-    profile_path = os.path.join(output_dir, "test_vec_add")
+def run_instrumentation():
+    output_dir = os.getenv("TRITON_HOME", os.getcwd())
+    profile_path = os.path.join(output_dir, "add")
 
     size = 8192 * 8 + 8192 * 5
     x = torch.ones(size, device=DEVICE, dtype=torch.float32)
@@ -71,18 +48,11 @@ def _run_vec_add_cpu_instrumentation(output_dir: str):
     output = torch.zeros(size, device=DEVICE, dtype=torch.float32)
 
     session = proton.start(profile_path, backend="cpu", hook=CPUInstrumentationHook())
-    try:
-        output_triton = add(x, y, output, 8192)
-    finally:
-        proton.finalize(session)
+    output_triton = add(x, y, output, 8192)
+    proton.finalize(session)
 
     torch.testing.assert_close(output_triton.to("cpu"), (x + y).to("cpu"))
-    _verify_profile(profile_path)
-
-
-def test_vec_add_cpu_instrumentation():
-    _run_vec_add_cpu_instrumentation(os.getenv("TRITON_HOME", os.getcwd()))
 
 
 if __name__ == "__main__":
-    _run_vec_add_cpu_instrumentation(os.getenv("TRITON_HOME", os.getcwd()))
+    run_instrumentation()

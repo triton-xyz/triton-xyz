@@ -1,7 +1,5 @@
 #include "Profiler/Cpu/CpuProfiler.h"
 
-// triton-xyz local file: CPU-only profiler built into proton_xyz.
-
 #include "Data/Metric.h"
 #include "Device.h"
 

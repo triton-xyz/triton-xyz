@@ -289,7 +289,8 @@ class XYZBackend(BaseBackend):
                 for lib_dir in lib_dirs:
                     ccflags.extend(["-Wl,-rpath", lib_dir])
             if options.instrumentation_mode:
-                proton_lib = _repo_root() / "build" / "third_party" / "proton" / "libproton.so"
+                # TODO: rm fixed path
+                proton_lib = _repo_root() / "build" / "libproton.so"
                 if not proton_lib.exists():
                     raise RuntimeError(f"CPU instrumentation requires {proton_lib}")
                 ccflags.extend([str(proton_lib), "-Wl,-rpath", str(proton_lib.parent)])

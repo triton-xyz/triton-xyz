@@ -1,19 +1,4 @@
-try:
-    import pytest
-except ModuleNotFoundError:
-
-    class _Mark:
-        def parametrize(self, *args, **kwargs):
-            def decorator(fn):
-                return fn
-
-            return decorator
-
-    class _PytestStub:
-        mark = _Mark()
-
-    pytest = _PytestStub()
-
+import pytest
 import torch
 
 import triton

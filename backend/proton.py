@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 import triton
 import triton.profiler as proton_api
+from triton import knobs
 from triton._C.libproton import proton as libproton
 from triton._C.libtriton import getenv
 from triton._C.libtriton import ir as triton_ir
@@ -30,15 +31,15 @@ def _patch_cpu_backend() -> None:
     def cpu_aware_check_env(backend: str) -> None:
         target_backend = triton.runtime.driver.active.get_current_target().backend
         if backend == INTERNAL_CPU_BACKEND and target_backend == PUBLIC_CPU_BACKEND:
-            for attr, desc in triton.knobs.proton.knob_descriptors.items():
+            for attr, desc in knobs.proton.knob_descriptors.items():
                 key = desc.key
                 if getenv(key, None) is not None:
                     continue
-                val = getattr(triton.knobs.proton, attr)
+                val = getattr(knobs.proton, attr)
                 if val is None:
                     continue
-                if env_val := triton.knobs.toenv(val):
-                    triton.knobs.setenv(key, env_val[0])
+                if env_val := knobs.toenv(val):
+                    knobs.setenv(key, env_val[0])
             return
         original_check_env(backend)
 
@@ -89,11 +90,11 @@ class CPUInstrumentationHook(Hook):
 
     def activate(self) -> None:
         flags.instrumentation_on = True
-        triton.knobs.compilation.instrumentation_mode = self.instrumentation_mode
+        knobs.compilation.instrumentation_mode = self.instrumentation_mode
 
     def deactivate(self) -> None:
         flags.instrumentation_on = False
-        triton.knobs.compilation.instrumentation_mode = ""
+        knobs.compilation.instrumentation_mode = ""
 
     def init_handle(self, module: Any, function: Any, name: str, metadata_group: Dict[str, str], hash: str) -> None:
         del module

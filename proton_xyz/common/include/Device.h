@@ -6,9 +6,6 @@
 
 namespace proton {
 
-// proton_xyz only profiles CPU kernels, but we keep the upstream GPU enum
-// values so shared proton data structures can still stringify legacy device
-// kinds without extra shims.
 enum class DeviceType { HIP, CUDA, CPU, COUNT };
 
 template <DeviceType T> struct DeviceTraits;
@@ -23,7 +20,6 @@ template <> struct DeviceTraits<DeviceType::HIP> {
   constexpr static const char *name = "HIP";
 };
 
-// triton-xyz local modification: describe the synthetic CPU device.
 template <> struct DeviceTraits<DeviceType::CPU> {
   constexpr static DeviceType type = DeviceType::CPU;
   constexpr static const char *name = "CPU";

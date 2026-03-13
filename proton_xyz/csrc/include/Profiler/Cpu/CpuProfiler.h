@@ -1,7 +1,4 @@
-#ifndef PROTON_PROFILER_CPU_CPU_PROFILER_H_
-#define PROTON_PROFILER_CPU_CPU_PROFILER_H_
-
-// triton-xyz local file: CPU-only profiler built into proton_xyz.
+#pragma once
 
 #include "Context/Context.h"
 #include "Data/Data.h"
@@ -63,5 +60,3 @@ private:
 };
 
 } // namespace proton
-
-#endif // PROTON_PROFILER_CPU_CPU_PROFILER_H_

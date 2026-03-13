@@ -1,11 +1,3 @@
-if(NOT TARGET Python3::Module)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
-endif()
-
-if(NOT TARGET pybind11::headers)
-  find_package(pybind11 CONFIG REQUIRED HINTS "${Python3_SITELIB}")
-endif()
-
 if(NOT JSON_INCLUDE_DIR)
   message(FATAL_ERROR "JSON_INCLUDE_DIR is required to build proton_xyz")
 endif()
@@ -37,18 +29,12 @@ set(PROTON_XYZ_SOURCES
 
 add_library(proton_xyz SHARED ${PROTON_XYZ_SOURCES})
 target_link_libraries(proton_xyz PRIVATE Python3::Module pybind11::headers)
-target_include_directories(
-    proton_xyz PRIVATE ${JSON_INCLUDE_DIR}
-                       ${CMAKE_CURRENT_SOURCE_DIR}/common/include
-                       ${CMAKE_CURRENT_SOURCE_DIR}/csrc/include
-                       ${PROTON_XYZ_COMMON_DIR}/include
-                       ${PROTON_XYZ_CSRC_DIR}/include)
-set_target_properties(
-    proton_xyz
+target_include_directories(proton_xyz PRIVATE
+    ${JSON_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/include
+    ${PROTON_XYZ_COMMON_DIR}/include
+    ${PROTON_XYZ_CSRC_DIR}/include)
+set_target_properties(proton_xyz
     PROPERTIES OUTPUT_NAME proton
-               LIBRARY_OUTPUT_DIRECTORY
-               "${CMAKE_BINARY_DIR}/third_party/proton"
-               RUNTIME_OUTPUT_DIRECTORY
-               "${CMAKE_BINARY_DIR}/third_party/proton"
-               PREFIX "lib"
-               SUFFIX ".so")
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/")
