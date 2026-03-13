@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict
 from types import ModuleType
 
+from triton import knobs
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
 from triton._C.libtriton import ir, llvm, passes  # ty:ignore[unresolved-import]
 from triton.runtime.build import _build
@@ -172,13 +173,7 @@ class XYZBackend(BaseBackend):
         return {"triton.language.extra.libdevice": None}
 
     def load_dialects(self, ctx):
-        try:
-            import triton
-
-            instrumentation_mode = triton.knobs.compilation.instrumentation_mode
-        except Exception:
-            instrumentation_mode = os.getenv("TRITON_INSTRUMENTATION_MODE", "")
-
+        instrumentation_mode = knobs.compilation.instrumentation_mode
         if not instrumentation_mode:
             return
 
