@@ -1,3 +1,5 @@
 [submodule "third_party/triton"]
 	path = third_party/triton
-	url = git@github.com:triton-lang/triton.git
+	# url = git@github.com:triton-lang/triton.git
+	url = git@github.com:triton-xyz/triton.git
+	branch = tt-xyz
