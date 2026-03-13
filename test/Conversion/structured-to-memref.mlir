@@ -71,9 +71,9 @@ module {
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @block_ptr_basic(%base: !tt.ptr<f16>) {
-    %ptr = tts.make_tptr %base to sizes: [2, 3], strides: [3, 1], offsets: [0, 0], shape: [2, 3], order: [1, 0] : <f16> to !tt.ptr<tensor<2x3xf16>>
-    %val = "tts.load"(%ptr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tt.ptr<tensor<2x3xf16>>) -> tensor<2x3xf16>
-    "tts.store"(%ptr, %val) <{static_mask_dims = array<i64>}> : (!tt.ptr<tensor<2x3xf16>>, tensor<2x3xf16>) -> ()
+    %ptr = tts.make_tptr %base to sizes: [2, 3], strides: [3, 1], offsets: [0, 0], shape: [2, 3], order: [1, 0] : <f16> to tensor<2x3x!tt.ptr<f16>>
+    %val = "tts.load"(%ptr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<2x3x!tt.ptr<f16>>) -> tensor<2x3xf16>
+    "tts.store"(%ptr, %val) <{static_mask_dims = array<i64>}> : (tensor<2x3x!tt.ptr<f16>>, tensor<2x3xf16>) -> ()
     tt.return
   }
 }
@@ -108,9 +108,9 @@ module {
 // CHECK:         }
   tt.func @gather_scatter_load_store(%src: !tt.ptr<f32>) {
     %offsets = arith.constant dense<[0, 1]> : tensor<2xi32>
-    %tptr = tts.make_gather_scatter_tptr %src to sizes: [2, 2] gather_scatter_dim: 0 gather_scatter_offset: %offsets, strides: [2, 1], offsets: [0, 0] : tensor<2xi32>  <f32> to !tt.ptr<tensor<2x2xf32>>
-    %val = "tts.load"(%tptr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tt.ptr<tensor<2x2xf32>>) -> tensor<2x2xf32>
-    "tts.store"(%tptr, %val) <{static_mask_dims = array<i64>}> : (!tt.ptr<tensor<2x2xf32>>, tensor<2x2xf32>) -> ()
+    %tptr = tts.make_gather_scatter_tptr %src to sizes: [2, 2] gather_scatter_dim: 0 gather_scatter_offset: %offsets, strides: [2, 1], offsets: [0, 0] : tensor<2xi32>  <f32> to tensor<2x2x!tt.ptr<f32>>
+    %val = "tts.load"(%tptr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<2x2x!tt.ptr<f32>>) -> tensor<2x2xf32>
+    "tts.store"(%tptr, %val) <{static_mask_dims = array<i64>}> : (tensor<2x2x!tt.ptr<f32>>, tensor<2x2xf32>) -> ()
     tt.return
   }
 }

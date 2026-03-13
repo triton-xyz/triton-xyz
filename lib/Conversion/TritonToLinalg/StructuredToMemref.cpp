@@ -48,19 +48,13 @@ static memref::SubViewOp getSubview(int rank, ArrayRef<OpFoldResult> dims,
 }
 
 static Type getElementTypeStructuredPtr(tts::MakeTensorPtrOp op) {
-  assert(!op.isBlockPtr());
-  // tensor<1024x!tt.ptr<f32>>
   auto ptrType = cast<triton::PointerType>(
       cast<RankedTensorType>(op.getType()).getElementType());
   return ptrType.getPointeeType();
 }
 
 static Type getElementTypeBlockPtr(tts::MakeTensorPtrOp op) {
-  assert(op.isBlockPtr());
-  // !tt.ptr<tensor<128x64xbf16>, 1>
-  auto shapedType = cast<ShapedType>(
-      cast<triton::PointerType>(op.getType()).getPointeeType());
-  return shapedType.getElementType();
+  return getElementTypeStructuredPtr(op);
 }
 
 static MemRefType getResultMemrefType(tts::MakeTensorPtrOp op, int64_t offset,
@@ -82,10 +76,9 @@ static MemRefType getResultMemrefType(tts::MakeGatherScatterTensorPtrOp op,
                                       ArrayRef<int64_t> resultShape) {
   auto layout = StridedLayoutAttr::get(op.getContext(), offset, staticStrides);
 
-  auto ptrType = cast<triton::PointerType>(op.getType());
-  Type elemType = ptrType.getPointeeType();
-
-  Type realEltTy = cast<RankedTensorType>(elemType).getElementType();
+  auto ptrType = cast<triton::PointerType>(
+      cast<RankedTensorType>(op.getType()).getElementType());
+  Type realEltTy = ptrType.getPointeeType();
   return MemRefType::get(resultShape, realEltTy, layout);
 }
 
@@ -222,19 +215,13 @@ private:
   using OpConversionPattern<tts::MakeTensorPtrOp>::OpConversionPattern;
 
   static Type getElementTypeStructuredPtr(tts::MakeTensorPtrOp op) {
-    assert(!op.isBlockPtr());
-    // tensor<1024x!tt.ptr<f32>>
     auto ptrType = cast<triton::PointerType>(
         cast<RankedTensorType>(op.getType()).getElementType());
     return ptrType.getPointeeType();
   }
 
   static Type getElementTypeBlockPtr(tts::MakeTensorPtrOp op) {
-    assert(op.isBlockPtr());
-    // !tt.ptr<tensor<128x64xbf16>, 1>
-    auto shapedType = cast<ShapedType>(
-        cast<triton::PointerType>(op.getType()).getPointeeType());
-    return shapedType.getElementType();
+    return getElementTypeStructuredPtr(op);
   }
 
   static MemRefType getResultMemrefType(tts::MakeTensorPtrOp op, int64_t offset,
@@ -559,13 +546,7 @@ private:
 
   LogicalResult rewriteBlockPtr(tts::MakeTensorPtrOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
-    // Block pointers are basically the same as structured pointers except that
-    // the return types are !tt.ptr<tensor<AxBxCxbf16>> instead of
-    // tensor<AxBxCx!tt.ptr<bf16>>
-    ArrayRef<int64_t> resultShape =
-        cast<ShapedType>(
-            cast<triton::PointerType>(op.getType()).getPointeeType())
-            .getShape();
+    ArrayRef<int64_t> resultShape = cast<ShapedType>(op.getType()).getShape();
     return rewritePtr(resultShape, true, op, adaptor, rewriter);
   }
 

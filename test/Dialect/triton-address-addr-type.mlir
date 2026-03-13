@@ -47,12 +47,12 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @from_block_ptr(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<tensor<2x3xi32>, 3>) {
-// CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : !tt.ptr<tensor<2x3xi32>, 3> to !tta.addr<i32, 2, 3>
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x3x!tt.ptr<i32, 3>>) {
+// CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : tensor<2x3x!tt.ptr<i32, 3>> to !tta.addr<i32, 2, 3>
 // CHECK:           tt.return
 // CHECK:         }
-  tt.func @from_block_ptr(%arg0: !tt.ptr<tensor<2x3xi32>, 3>) {
-    %0 = tta.from_tt_ptr %arg0 : !tt.ptr<tensor<2x3xi32>, 3> to !tta.addr<i32, 2, 3>
+  tt.func @from_block_ptr(%arg0: tensor<2x3x!tt.ptr<i32, 3>>) {
+    %0 = tta.from_tt_ptr %arg0 : tensor<2x3x!tt.ptr<i32, 3>> to !tta.addr<i32, 2, 3>
     tt.return
   }
 }

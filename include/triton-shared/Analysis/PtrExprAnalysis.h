@@ -112,10 +112,6 @@ public:
   LogicalResult visitOperandAddptr(triton::AddPtrOp addptrOp, PtrState &state,
                                    const Location loc, OpBuilder &builder);
 
-  LogicalResult visitOperandMakeTensorPtr(triton::MakeTensorPtrOp makeTPtrOp,
-                                          PtrState &state, const Location loc,
-                                          OpBuilder &builder);
-
   LogicalResult visitOperandIntToPtr(triton::IntToPtrOp intToPtrOp,
                                      PtrState &state, const Location loc,
                                      OpBuilder &builder);

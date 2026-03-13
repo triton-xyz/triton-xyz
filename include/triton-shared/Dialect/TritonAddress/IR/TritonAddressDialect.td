@@ -27,7 +27,6 @@ def Triton_Address_Dialect : Dialect {
   ];
 
   let useDefaultTypePrinterParser = 1;
-  let usePropertiesForAttributes = 1;
 }
 
 class TTA_Op<string mnemonic, list<Trait> traits = []> :

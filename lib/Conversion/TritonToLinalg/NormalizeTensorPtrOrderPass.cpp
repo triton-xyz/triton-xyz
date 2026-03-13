@@ -212,26 +212,6 @@ private:
       return success();
     }
 
-    if (auto advanceOp = dyn_cast<triton::AdvanceOp>(user)) {
-      SmallVector<Value> newOffsets;
-      newOffsets.reserve(info.reorderMap.size());
-      auto oldOffsets = advanceOp.getOffsets();
-      for (auto idx : info.reorderMap) {
-        newOffsets.push_back(oldOffsets[idx]);
-      }
-      auto newAdvance = triton::AdvanceOp::create(
-          builder, loc, newPtr.getType(), newPtr, newOffsets);
-
-      if (failed(rewriteUsers(advanceOp.getResult(), newAdvance.getResult(),
-                              info))) {
-        return failure();
-      }
-      if (advanceOp->use_empty()) {
-        advanceOp.erase();
-      }
-      return success();
-    }
-
     if (auto loopOp = dyn_cast<LoopLikeOpInterface>(user)) {
       auto iterArg = loopOp.getTiedLoopRegionIterArg(use);
       auto result = loopOp.getTiedLoopResult(use);

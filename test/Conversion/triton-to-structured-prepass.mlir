@@ -14,7 +14,7 @@ module {
 // CHECK:             %[[MAKE_TPTR_0:.*]] = tts.make_tptr %[[ARG0]] to sizes: [4], strides: [1], offsets: {{\[}}%[[VAL_2]]], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>
 // CHECK:             %[[VAL_3:.*]] = "tts.load"(%[[MAKE_TPTR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (tensor<4x!tt.ptr<f32>>) -> tensor<4xf32>
 // CHECK:             %[[ADDF_0:.*]] = arith.addf %[[VAL_1]], %[[VAL_3]] : tensor<4xf32>
-// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_2]], %[[VAL_0]] : index
+// CHECK:             %[[ADDI_0:.*]] = arith.addi {{.*}} : index
 // CHECK:             scf.yield %[[ADDF_0]], %[[ADDI_0]] : tensor<4xf32>, index
 // CHECK:           }
 // CHECK:           %[[MAKE_TPTR_1:.*]] = tts.make_tptr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], shape: [0], order: [] : <f32> to tensor<4x!tt.ptr<f32>>

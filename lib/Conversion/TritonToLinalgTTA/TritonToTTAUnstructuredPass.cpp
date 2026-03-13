@@ -15,8 +15,8 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/AnalysisAddress.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Utils/Utils.h"
@@ -919,12 +919,11 @@ public:
                   toDelete.push_back(select);
                   return success();
                 })
-                .Case<triton::LoadOp, triton::StoreOp, triton::MakeTensorPtrOp,
-                      triton::AtomicRMWOp, triton::AtomicCASOp>(
-                    [&](Operation *op) {
-                      ptrUsers.push_back(op);
-                      return success();
-                    })
+                .Case<triton::LoadOp, triton::StoreOp, triton::AtomicRMWOp,
+                      triton::AtomicCASOp>([&](Operation *op) {
+                  ptrUsers.push_back(op);
+                  return success();
+                })
                 .Case<scf::ForOp>([&](scf::ForOp forOp) {
                   // Index of the init-arg corresponding to this use, note that
                   // we have to subtract by 3 from the operand number because
@@ -1245,67 +1244,6 @@ public:
                 store->erase();
                 return success();
               })
-              .Case<triton::MakeTensorPtrOp>([&](triton::MakeTensorPtrOp
-                                                     makeTensorPtr) {
-                if (shouldSkipLowering(makeTensorPtr.getBase())) {
-                  markFallbackAndPreserve(makeTensorPtr,
-                                          "skip_due_to_fallback_root");
-                  return success();
-                }
-
-                // For block pointers, the base could come from a sequence of
-                // `tt.addptr`. Accumulate the target offset with the offset
-                // we have saved.
-                PtrOffset offsetInfo;
-                if (!tryGetOffsetInfoOrFallback(
-                        makeTensorPtr, makeTensorPtr.getBase(), offsetInfo)) {
-                  return success();
-                }
-                auto baseOffset = offsetInfo.offset;
-
-                makeTensorPtr.getBaseMutable().set(offsetInfo.ptr);
-
-                // Add the existing offset from the base to the offset
-                // operand in the ops.
-                auto &offsetOpnd = makeTensorPtr.getOffsetsMutable()[0];
-                auto currOffset = offsetOpnd.get();
-
-                auto baseOffType = baseOffset.getType();
-                auto currOffType = currOffset.getType();
-
-                if (baseOffType != currOffType) {
-                  if (currOffType.isIndex()) {
-                    baseOffset = arith::IndexCastOp::create(
-                                     b, loc, b.getIndexType(), baseOffset)
-                                     .getResult();
-                  } else if (currOffType.isInteger()) {
-                    if (baseOffType.getIntOrFloatBitWidth() <
-                        currOffType.getIntOrFloatBitWidth()) {
-                      baseOffset = arith::ExtSIOp::create(b, loc, currOffType,
-                                                          baseOffset)
-                                       .getResult();
-                    } else {
-                      // MakeTensorPtrOp only takes i32 offsets, so we need
-                      // to truncate if the offsets were already in i64
-                      makeTensorPtr.emitWarning(
-                          "truncating offsets which may result in data loss");
-                      baseOffset = arith::TruncIOp::create(b, loc, currOffType,
-                                                           baseOffset)
-                                       .getResult();
-                    }
-                  }
-                }
-
-                auto accumulatedOffset =
-                    arith::AddIOp::create(b, loc, currOffset.getType(),
-                                          baseOffset, currOffset)
-                        .getResult();
-
-                offsetOpnd.set(accumulatedOffset);
-
-                return success();
-              })
-
               .Case<triton::AtomicRMWOp>([&](triton::AtomicRMWOp atomic) {
                 if (shouldSkipLowering(atomic.getPtr())) {
                   markFallbackAndPreserve(atomic, "skip_due_to_fallback_root");
