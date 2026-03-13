@@ -6,7 +6,6 @@
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h"
 #include "triton-shared/Pipelines/Pipelines.h"
-#include "triton/Dialect/Triton/Transforms/Passes.h"
 
 void mlir::triton::buildTritonToLinalgTTAPipeline(
     OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
