@@ -2,7 +2,7 @@
 authors = ["Allen Guo <guosonglin001@gmail.com>"]
 channels = ["conda-forge"]
 name = "triton-xyz"
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-64"]
 version = "0.1.0"
 
 [tasks]
@@ -23,7 +23,16 @@ pybind11 = ">=3.0.1,<4"
 pybind11-global = ">=3.0.1,<4"
 
 scipy = ">=1.17.1,<2"
+nlohmann_json = ">=3.12.0,<4"
+
+[pypi-dependencies]
+llnl-hatchet = ">=2026.1.0, <2027"
 
 [activation.env]
 # needs llvm-triton
 PATH = "${PIXI_PROJECT_ROOT}/build/bin:${PIXI_PROJECT_ROOT}/llvm-triton/llvm-project/build/bin:${PATH}"
+
+[target.osx-arm64.activation.env]
+# lld is installed globaly, always prefer lld on osx
+# `llnl-hatchet` needs lld
+LDFLAGS = "-fuse-ld=lld"
