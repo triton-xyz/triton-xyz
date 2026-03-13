@@ -20,7 +20,6 @@
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
-#include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -2895,12 +2894,12 @@ public:
     RewritePatternSet patterns(&getContext());
     ConversionTarget target(getContext());
 
-    target.addLegalDialect<
-        func::FuncDialect, arith::ArithDialect, math::MathDialect,
-        linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
-        cf::ControlFlowDialect, tensor::TensorDialect,
-        bufferization::BufferizationDialect, ttx::TritonTilingExtDialect,
-        memref::MemRefDialect, tta::TritonAddressDialect>();
+    target.addLegalDialect<func::FuncDialect, arith::ArithDialect,
+                           math::MathDialect, linalg::LinalgDialect,
+                           affine::AffineDialect, scf::SCFDialect,
+                           cf::ControlFlowDialect, tensor::TensorDialect,
+                           bufferization::BufferizationDialect,
+                           memref::MemRefDialect, tta::TritonAddressDialect>();
 
     target.addIllegalOp<tta::LoadOp, tta::StoreOp, tta::AtomicOp,
                         tta::AtomicCASOp>();

@@ -8,7 +8,6 @@
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h"
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
-#include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton-shared/Pipelines/Pipelines.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/Transforms/Passes.h"
@@ -33,8 +32,7 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::triton::registerTritonToLinalgTTAPipelines();
 
   registry
-      .insert<mlir::ttx::TritonTilingExtDialect,
-              mlir::tta::TritonAddressDialect, mlir::triton::TritonDialect>();
+      .insert<mlir::tta::TritonAddressDialect, mlir::triton::TritonDialect>();
 #ifdef TRITON_XYZ_HAS_PROTON
   registry.insert<mlir::triton::proton::ProtonDialect>();
 #endif

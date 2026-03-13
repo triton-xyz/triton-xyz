@@ -24,8 +24,7 @@ def TritonArithToLinalg : Pass<"triton-arith-to-linalg", "mlir::ModuleOp"> {
     "scf::SCFDialect",
     "cf::ControlFlowDialect",
     "tensor::TensorDialect",
-    "bufferization::BufferizationDialect",
-    "ttx::TritonTilingExtDialect"
+    "bufferization::BufferizationDialect"
   ];
 }
 
