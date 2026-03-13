@@ -1,0 +1,16 @@
+default-channels = ["conda-forge"]
+
+[mirrors]
+"https://conda.anaconda.org/conda-forge" = [
+    "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge",
+    "https://prefix.dev/conda-forge",
+]
+"https://conda.anaconda.org/conda-forge/label" = [
+    "https://conda.anaconda.org/conda-forge/label",
+]
+"https://pypi.org/simple" = [
+    "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple",
+]
+
+[pypi-config]
+index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
