@@ -14,6 +14,12 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/Transforms/Passes.h"
 
+// TODO: add a macro
+#if __has_include("proton/Dialect/include/Dialect/Proton/IR/Dialect.h")
+#define TRITON_XYZ_HAS_PROTON 1
+#include "proton/Dialect/include/Dialect/Proton/IR/Dialect.h"
+#endif
+
 inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   mlir::registerAllDialects(registry);
   mlir::registerAllPasses();
@@ -31,4 +37,7 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
   registry.insert<
       mlir::ttx::TritonTilingExtDialect, mlir::tta::TritonAddressDialect,
       mlir::tts::TritonStructuredDialect, mlir::triton::TritonDialect>();
+#ifdef TRITON_XYZ_HAS_PROTON
+  registry.insert<mlir::triton::proton::ProtonDialect>();
+#endif
 }

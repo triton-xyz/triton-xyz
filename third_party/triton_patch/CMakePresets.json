@@ -1,0 +1,63 @@
+{
+  "version": 10,
+  "configurePresets": [
+    {
+      "name": "osx",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../build",
+      "description": "linux with mold",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../../build/install",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_FLAGS": "-Wno-error=deprecated-declarations",
+        "CMAKE_SYSROOT": "/",
+        "CMAKE_LINKER_TYPE": "MOLD",
+        "CMAKE_INSTALL_RPATH_USE_LINK_PATH": true,
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/../../build/bin",
+        "LLVM_SYSPATH": "${sourceDir}/../../llvm-triton/llvm-project/build",
+        "LLVM_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/llvm",
+        "MLIR_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/mlir",
+        "LLD_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/lld",
+        "TRITON_BUILD_PROTON": false,
+        "TRITON_BUILD_UT": false,
+        "TRITON_CODEGEN_BACKENDS": "nvidia;amd",
+        "TRITON_PLUGIN_DIRS": "${sourceDir}/../../",
+        "TRITON_BUILD_PYTHON_MODULE": true,
+        "TRITON_WHEEL_DIR": "${sourceDir}/../../build/bin",
+        "TRITON_CACHE_PATH": "${sourceDir}/../../build",
+        "LLVM_ENABLE_ASSERTIONS": true
+      }
+    },
+    {
+      "name": "osx_lld",
+      "inherits": "osx",
+      "description": "macos with lld",
+      "cacheVariables": {
+        "CMAKE_SYSROOT": "",
+        "CMAKE_LINKER_TYPE": "LLD"
+      }
+    },
+    {
+      "name": "osx_proton",
+      "inherits": "osx",
+      "cacheVariables": {
+        "TRITON_BUILD_PROTON": false,
+        "CUPTI_INCLUDE_DIR": "${sourceDir}/third_party/nvidia/backend/include",
+        "ROCTRACER_INCLUDE_DIR": "${sourceDir}/third_party/amd/backend/include",
+        "JSON_SYSPATH": "${sourceDir}/.pixi/envs/default"
+      }
+    },
+    {
+      "name": "osx_pixi",
+      "inherits": "osx",
+      "description": "linux with mold and pixi",
+      "cacheVariables": {
+        "CMAKE_SYSROOT": "$env{CONDA_BUILD_SYSROOT}",
+        "CMAKE_PREFIX_PATH": "$env{CMAKE_PREFIX_PATH}"
+      }
+    }
+  ]
+}

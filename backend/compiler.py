@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict
 from types import ModuleType
 
+from triton import knobs
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
 from triton._C.libtriton import ir, llvm, passes  # ty:ignore[unresolved-import]
 from triton.runtime.build import _build
@@ -172,15 +173,19 @@ class XYZBackend(BaseBackend):
         return {"triton.language.extra.libdevice": None}
 
     def load_dialects(self, ctx):
-        # TODO
-        pass
+        instrumentation_mode = knobs.compilation.instrumentation_mode
+        if not instrumentation_mode:
+            return
+
+        from triton._C.libtriton import proton as triton_proton  # ty:ignore[unresolved-import]
+
+        triton_proton.load_dialects(ctx)
 
     @staticmethod
     def make_ttir(mod, metadata, options: CPUOptions):
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
         passes.common.add_inliner(pm)
-        passes.ttir.add_rewrite_tensor_pointer(pm)
         passes.ttir.add_rewrite_tensor_descriptor_to_pointer(pm)
         passes.common.add_canonicalizer(pm)
         passes.ttir.add_combine(pm)
@@ -204,6 +209,8 @@ class XYZBackend(BaseBackend):
                 pipeline = "triton-to-linalg-tta"
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("ttir_to_linalg"))
+            if options.instrumentation_mode:
+                cmd.append("--lower-proton-cpu-instrumentation")
             cmd.extend(
                 [
                     src_path,
@@ -281,6 +288,12 @@ class XYZBackend(BaseBackend):
                 libs.extend(["mlir_runner_utils", "mlir_c_runner_utils"])
                 for lib_dir in lib_dirs:
                     ccflags.extend(["-Wl,-rpath", lib_dir])
+            if options.instrumentation_mode:
+                # TODO: rm fixed path
+                proton_lib = _repo_root() / "build" / "libproton.so"
+                if not proton_lib.exists():
+                    raise RuntimeError(f"CPU instrumentation requires {proton_lib}")
+                ccflags.extend([str(proton_lib), "-Wl,-rpath", str(proton_lib.parent)])
             so = _build("kernel", asm_path, tmpdir, lib_dirs, [], libs, ccflags)
             with open(so, "rb") as f:
                 return f.read()

@@ -1,0 +1,56 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aae75779c..fc23055eb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -120,7 +120,7 @@ execute_process(
+   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+   COMMAND_ERROR_IS_FATAL ANY
+ )
+-include("${TRITON_THIRD_PARTY_CMAKE_VARS_FILE}")
++# include("${TRITON_THIRD_PARTY_CMAKE_VARS_FILE}")
+
+ if(TRITON_BUILD_PYTHON_MODULE)
+   set_property(
+@@ -413,7 +413,9 @@ if(TRITON_BUILD_PYTHON_MODULE)
+     set_target_properties(triton PROPERTIES SUFFIX ".pyd")
+     set_target_properties(triton PROPERTIES PREFIX "lib")
+   else()
+-    target_link_libraries(triton PRIVATE z)
++    # target_link_libraries(triton PRIVATE z)
++    find_package(ZLIB)
++    target_link_libraries(triton PRIVATE ZLIB::ZLIB)
+   endif()
+   target_link_options(triton PRIVATE ${LLVM_LDFLAGS})
+
+diff --git a/python/build_helpers.py b/python/build_helpers.py
+index 492a24ec2..f6437d409 100644
+--- a/python/build_helpers.py
++++ b/python/build_helpers.py
+@@ -486,10 +486,10 @@ def main(argv=None):
+
+     parsed_args = parser.parse_args(argv)
+     helper_args = normalize_parsed_args(parsed_args)
+-    if parsed_args.command == "download_and_copy_dependencies":
+-        download_and_copy_dependencies(helper_args)
+-    elif parsed_args.command == "write_thirdparty_cmake_vars":
+-        write_thirdparty_cmake_vars(output=parsed_args.output, packages=parsed_args.packages, helper_args=helper_args)
++    # if parsed_args.command == "download_and_copy_dependencies":
++    #     download_and_copy_dependencies(helper_args)
++    # elif parsed_args.command == "write_thirdparty_cmake_vars":
++    #     write_thirdparty_cmake_vars(output=parsed_args.output, packages=parsed_args.packages, helper_args=helper_args)
+
+
+ if __name__ == "__main__":
+diff --git a/setup.py b/setup.py
+index 355d8f1ad..370417972 100644
+--- a/setup.py
++++ b/setup.py
+@@ -589,7 +589,7 @@ setup(
+         "__pycache__/*",
+         "*.py[cod]",
+     ]},
+-    ext_modules=[CMakeExtension("triton", "triton/_C/")],
++    # ext_modules=[CMakeExtension("triton", "triton/_C/")],
+     cmdclass={
+         "bdist_wheel": plugin_bdist_wheel,
+         "build_ext": CMakeBuild,

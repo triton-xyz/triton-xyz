@@ -1,4 +1,5 @@
 add_triton_library(TritonToLinalg
+  LowerProtonCpuInstrumentationPass.cpp
   StructuredToMemref.cpp
   StructuredToMemrefPass.cpp
   TritonPtrToMemrefPass.cpp
@@ -40,4 +41,6 @@ add_triton_library(TritonToLinalg
   TritonSharedAnalysis
   TritonSharedUtils
   TritonArithToLinalg
+  ProtonAnalysis
+  ProtonIR
 )

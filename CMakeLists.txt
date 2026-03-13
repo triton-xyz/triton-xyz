@@ -8,6 +8,7 @@ include_directories(${pybind11_INCLUDE_DIR})
 
 add_subdirectory(include)
 add_subdirectory(lib)
+add_subdirectory(proton_xyz)
 
 add_triton_plugin(TritonXyz triton_xyz.cc
     LINK_LIBS TritonSharedAnalysis TritonTilingExtIR)
