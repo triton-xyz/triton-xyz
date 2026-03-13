@@ -56,9 +56,9 @@ module {
 // -----
 
 module {
-  tt.func @from_block_ptr_space_mismatch(%arg0: !tt.ptr<tensor<2x3xi32>, 3>) {
+  tt.func @from_block_ptr_space_mismatch(%arg0: tensor<2x3x!tt.ptr<i32, 3>>) {
     // expected-error@+1 {{result address space must match source address space}}
-    %0 = tta.from_tt_ptr %arg0 : !tt.ptr<tensor<2x3xi32>, 3> to !tta.addr<i32, 2, 1>
+    %0 = tta.from_tt_ptr %arg0 : tensor<2x3x!tt.ptr<i32, 3>> to !tta.addr<i32, 2, 1>
     tt.return
   }
 }
@@ -66,9 +66,9 @@ module {
 // -----
 
 module {
-  tt.func @from_block_ptr_elem_mismatch(%arg0: !tt.ptr<tensor<2x3xi32>, 3>) {
+  tt.func @from_block_ptr_elem_mismatch(%arg0: tensor<2x3x!tt.ptr<i32, 3>>) {
     // expected-error@+1 {{result element type must match source pointee element type}}
-    %0 = tta.from_tt_ptr %arg0 : !tt.ptr<tensor<2x3xi32>, 3> to !tta.addr<f32, 2, 3>
+    %0 = tta.from_tt_ptr %arg0 : tensor<2x3x!tt.ptr<i32, 3>> to !tta.addr<f32, 2, 3>
     tt.return
   }
 }

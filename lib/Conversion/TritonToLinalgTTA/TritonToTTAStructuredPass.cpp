@@ -74,10 +74,6 @@ analyzeAndEmitAddress(Value ptrLike, Location loc, PatternRewriter &rewriter,
 
 template <typename OpTy>
 static std::optional<StringRef> getEarlyFallbackReason(OpTy op) {
-  if (!op.getBoundaryCheck().empty()) {
-    return "boundary_check_not_supported";
-  }
-
   if (Value mask = op.getMask()) {
     auto maskType = dyn_cast<RankedTensorType>(mask.getType());
     if (!maskType || maskType.getRank() != 1) {
@@ -181,43 +177,6 @@ struct ConvertTTStorePattern : OpRewritePattern<triton::StoreOp> {
   }
 };
 
-struct ConvertTTAdvancePattern : OpRewritePattern<triton::AdvanceOp> {
-  using OpRewritePattern<triton::AdvanceOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(triton::AdvanceOp op,
-                                PatternRewriter &rewriter) const override {
-    if (op->hasAttr(kFallbackAttrName)) {
-      return failure();
-    }
-
-    StringRef failureReason;
-    auto maybeAddress = analyzeAndEmitAddress(op.getResult(), op.getLoc(),
-                                              rewriter, failureReason);
-    if (failed(maybeAddress)) {
-      markFallback(op, failureReason, rewriter);
-      return success();
-    }
-
-    rewriter.replaceOp(op, *maybeAddress);
-    return success();
-  }
-};
-
-struct MarkUnhandledTensorPtrPattern
-    : OpRewritePattern<triton::MakeTensorPtrOp> {
-  using OpRewritePattern<triton::MakeTensorPtrOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(triton::MakeTensorPtrOp op,
-                                PatternRewriter &rewriter) const override {
-    if (op->hasAttr(kFallbackAttrName) &&
-        op->hasAttr(kFallbackReasonAttrName)) {
-      return failure();
-    }
-    markFallback(op, "tensor_ptr_unhandled", rewriter);
-    return success();
-  }
-};
-
 class TritonToTTAStructuredPass
     : public mlir::triton::impl::TritonToTTAStructuredBase<
           TritonToTTAStructuredPass> {
@@ -229,9 +188,7 @@ public:
   void runOnOperation() override {
     MLIRContext *context = &getContext();
     RewritePatternSet patterns(context);
-    patterns.add<ConvertTTLoadPattern, ConvertTTStorePattern,
-                 ConvertTTAdvancePattern, MarkUnhandledTensorPtrPattern>(
-        context);
+    patterns.add<ConvertTTLoadPattern, ConvertTTStorePattern>(context);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

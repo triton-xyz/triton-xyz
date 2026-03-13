@@ -8,7 +8,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
-#include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -209,26 +208,6 @@ private:
 
       tts::StoreOp::create(builder, loc, newPtr, valueToStore, newMask);
       storeOp.erase();
-      return success();
-    }
-
-    if (auto advanceOp = dyn_cast<triton::AdvanceOp>(user)) {
-      SmallVector<Value> newOffsets;
-      newOffsets.reserve(info.reorderMap.size());
-      auto oldOffsets = advanceOp.getOffsets();
-      for (auto idx : info.reorderMap) {
-        newOffsets.push_back(oldOffsets[idx]);
-      }
-      auto newAdvance = triton::AdvanceOp::create(
-          builder, loc, newPtr.getType(), newPtr, newOffsets);
-
-      if (failed(rewriteUsers(advanceOp.getResult(), newAdvance.getResult(),
-                              info))) {
-        return failure();
-      }
-      if (advanceOp->use_empty()) {
-        advanceOp.erase();
-      }
       return success();
     }
 

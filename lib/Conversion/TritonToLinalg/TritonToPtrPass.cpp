@@ -23,8 +23,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/AnalysisStructured.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -437,12 +437,8 @@ public:
     target.addIllegalOp<triton::AddPtrOp, triton::BitcastOp, triton::IntToPtrOp,
                         triton::PtrToIntOp>();
 
-    // We do not want to lower triton load and store on block pointers
     target.addDynamicallyLegalOp<triton::LoadOp, triton::StoreOp>([](auto op) {
       auto ptrType = op->getOperand(0).getType();
-      if (triton::isTensorPointerType(ptrType)) {
-        return true;
-      }
       return !triton::isPtrTypeLike(ptrType);
     });
 

@@ -63,33 +63,6 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   tt.func @block_ptr_basic(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4, 4], strides: {{\[}}%[[CONSTANT_0]], %[[CONSTANT_2]]], offsets: {{\[}}%[[CONSTANT_1]], %[[CONSTANT_2]]], layout: {{\[}}%[[CONSTANT_0]], %[[CONSTANT_0]]] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
-// CHECK:           %[[VAL_0:.*]] = "tta.load"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>) -> tensor<4x4xf16>
-// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG0]] to sizes: [4, 4], strides: {{\[}}%[[CONSTANT_0]], %[[CONSTANT_2]]], offsets: {{\[}}%[[CONSTANT_1]], %[[CONSTANT_1]]], layout: {{\[}}%[[CONSTANT_0]], %[[CONSTANT_0]]] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
-// CHECK:           "tta.store"(%[[MAKE_ADDR_1]], %[[VAL_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>, tensor<4x4xf16>) -> ()
-// CHECK:           tt.return
-// CHECK:         }
-  tt.func @block_ptr_basic(%arg0: !tt.ptr<f16>) {
-    %c4_i64 = arith.constant 4 : i64
-    %c1_i64 = arith.constant 1 : i64
-    %c0_i32 = arith.constant 0 : i32
-    %c1_i32 = arith.constant 1 : i32
-    %ptr = tt.make_tensor_ptr %arg0, [%c4_i64, %c4_i64], [%c4_i64, %c1_i64], [%c0_i32, %c0_i32] {order = array<i32: 1, 0>} : <tensor<4x4xf16>>
-    %adv = tt.advance %ptr, [%c0_i32, %c1_i32] : <tensor<4x4xf16>>
-    %val = tt.load %adv : !tt.ptr<tensor<4x4xf16>>
-    tt.store %ptr, %val : !tt.ptr<tensor<4x4xf16>>
-    tt.return
-  }
-}
-
-// -----
-
-module {
 // CHECK-LABEL:   tt.func @gather_scatter_2d(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
@@ -371,25 +344,3 @@ module {
 }
 
 // -----
-
-module {
-// CHECK-LABEL:   tt.func @advance_from_tts_make_tptr_block(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 8 : index
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [8, 4], strides: [4, 1], offsets: {{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]], layout: [8, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f32> to !tta.addr<f32, 2, 1>
-// CHECK:           %[[VAL_0:.*]] = "tta.load"(%[[MAKE_ADDR_0]]) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<8x4xf32>
-// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG0]] to sizes: [8, 4], strides: [4, 1], offsets: {{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]], layout: [8, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f32> to !tta.addr<f32, 2, 1>
-// CHECK:           "tta.store"(%[[MAKE_ADDR_1]], %[[VAL_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<8x4xf32>) -> ()
-// CHECK:           tt.return
-// CHECK:         }
-  tt.func @advance_from_tts_make_tptr_block(%base: !tt.ptr<f32>) {
-    %c2 = arith.constant 2 : i32
-    %c1 = arith.constant 1 : i32
-    %src = tts.make_tptr %base to sizes: [8, 4], strides: [4, 1], offsets: [0, 0], shape: [8, 4], order: [1, 0] : <f32> to !tt.ptr<tensor<8x4xf32>>
-    %adv = tt.advance %src, [%c2, %c1] : <tensor<8x4xf32>>
-    %val = tt.load %adv : !tt.ptr<tensor<8x4xf32>>
-    tt.store %adv, %val : !tt.ptr<tensor<8x4xf32>>
-    tt.return
-  }
-}
