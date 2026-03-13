@@ -11,5 +11,5 @@ add_subdirectory(lib)
 add_subdirectory(proton_xyz)
 
 add_triton_plugin(TritonXyz triton_xyz.cc
-    LINK_LIBS TritonSharedAnalysis TritonTilingExtIR)
+    LINK_LIBS TritonSharedAnalysis)
 target_link_libraries(TritonXyz PRIVATE Python3::Module pybind11::headers)

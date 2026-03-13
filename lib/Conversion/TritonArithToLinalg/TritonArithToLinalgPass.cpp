@@ -8,7 +8,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
-#include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
@@ -59,11 +58,11 @@ public:
     RewritePatternSet patterns(&getContext());
     ConversionTarget target(getContext());
 
-    target.addLegalDialect<
-        func::FuncDialect, arith::ArithDialect, math::MathDialect,
-        linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
-        cf::ControlFlowDialect, tensor::TensorDialect,
-        bufferization::BufferizationDialect, ttx::TritonTilingExtDialect>();
+    target.addLegalDialect<func::FuncDialect, arith::ArithDialect,
+                           math::MathDialect, linalg::LinalgDialect,
+                           affine::AffineDialect, scf::SCFDialect,
+                           cf::ControlFlowDialect, tensor::TensorDialect,
+                           bufferization::BufferizationDialect>();
 
     target.addLegalOp<ModuleOp>();
 

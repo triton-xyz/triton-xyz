@@ -104,29 +104,6 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   func.func @cumsum_1d() -> tensor<4xf32> {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f32
-// CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
-// CHECK:           %[[FILL_0:.*]] = linalg.fill ins(%[[CONSTANT_0]] : f32) outs(%[[EMPTY_0]] : tensor<4xf32>) -> tensor<4xf32>
-// CHECK:           %[[EMPTY_1:.*]] = tensor.empty() : tensor<4xf32>
-// CHECK:           %[[CUMSUM_0:.*]] = ttx.cumsum {axis = 0 : ui32, operandSegmentSizes = array<i32: 1, 1>} ins(%[[FILL_0]] : tensor<4xf32>) outs(%[[EMPTY_1]] : tensor<4xf32>) -> tensor<4xf32>
-// CHECK:           return %[[CUMSUM_0]] : tensor<4xf32>
-// CHECK:         }
-  tt.func @cumsum_1d() -> tensor<4xf32> {
-    %c1 = arith.constant 1.0 : f32
-    %input = tt.splat %c1 : f32 -> tensor<4xf32>
-    %res = "tt.scan"(%input) <{axis = 0 : i32, reverse = false}> ({
-    ^bb0(%arg0: f32, %arg1: f32):
-      %sum = arith.addf %arg0, %arg1 : f32
-      tt.scan.return %sum : f32
-    }) : (tensor<4xf32>) -> tensor<4xf32>
-    tt.return %res : tensor<4xf32>
-  }
-}
-
-// -----
-
-module {
 // CHECK-LABEL:   func.func @reduce_add() -> f32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32

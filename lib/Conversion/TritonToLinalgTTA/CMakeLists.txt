@@ -24,7 +24,6 @@ add_triton_library(TritonToLinalgTTA
   MLIRPtrToLLVM
   TritonIR
   TritonTransforms
-  TritonTilingExtIR
   TritonAddressIR
   TritonSharedAnalysis
   TritonSharedUtils

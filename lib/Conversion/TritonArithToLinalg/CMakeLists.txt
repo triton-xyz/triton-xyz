@@ -18,6 +18,5 @@ add_triton_library(TritonArithToLinalg
   MLIRSupport
   TritonIR
   TritonTransforms
-  TritonTilingExtIR
   TritonSharedUtils
 )
