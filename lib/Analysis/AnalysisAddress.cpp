@@ -974,45 +974,6 @@ AnalysisAddress::analyzeFromTTAChain(Value ptrLike, Location loc,
     return maybeDescriptor;
   }
 
-  if (auto advanceOp = ptrLike.getDefiningOp<triton::AdvanceOp>()) {
-    auto maybeDescriptor = analyzeSeedDescriptor(
-        advanceOp.getPtr(), loc, builder, options, failureReason);
-    if (failed(maybeDescriptor)) {
-      return failure();
-    }
-
-    SmallVector<OpFoldResult> deltas;
-    deltas.reserve(advanceOp.getOffsets().size());
-    for (Value delta : advanceOp.getOffsets()) {
-      if (delta.getType().isIndex()) {
-        deltas.push_back(delta);
-        continue;
-      }
-      if (!delta.getType().isIntOrIndex()) {
-        setFailureReason(failureReason, "advance delta type unsupported");
-        return failure();
-      }
-      Value cast = arith::IndexCastOp::create(builder, loc,
-                                              builder.getIndexType(), delta)
-                       .getResult();
-      deltas.push_back(cast);
-    }
-
-    if (static_cast<int64_t>(deltas.size()) != maybeDescriptor->rank) {
-      setFailureReason(failureReason, "advance rank mismatch");
-      return failure();
-    }
-
-    for (auto [index, delta] : llvm::enumerate(deltas)) {
-      OpFoldResult scaledDelta =
-          mulOFRs(delta, maybeDescriptor->dims[index].stride, loc, builder);
-      maybeDescriptor->dims[index].offset = addOFRs(
-          maybeDescriptor->dims[index].offset, scaledDelta, loc, builder);
-    }
-
-    return maybeDescriptor;
-  }
-
   return failure();
 }
 
@@ -1021,13 +982,7 @@ FailureOr<AddressDescriptor> AnalysisAddress::analyzeFromPtrStateSeed(
     const AddressAnalysisOptions &options,
     std::optional<StringRef> *failureReason) {
   ptrexpr::PtrState state;
-  if (auto makeTensorPtr = ptrLike.getDefiningOp<triton::MakeTensorPtrOp>()) {
-    if (failed(ptrAnalysis.visitOperandMakeTensorPtr(makeTensorPtr, state, loc,
-                                                     builder))) {
-      setFailureReason(failureReason, "ptr_expr_analysis_failed");
-      return failure();
-    }
-  } else if (auto makeTPtr = ptrLike.getDefiningOp<tts::MakeTensorPtrOp>()) {
+  if (auto makeTPtr = ptrLike.getDefiningOp<tts::MakeTensorPtrOp>()) {
     state.source = makeTPtr.getBase();
     state.offsets = makeTPtr.getMixedOffsets();
     state.sizes = makeTPtr.getMixedSizes();

@@ -18,8 +18,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton-shared/Analysis/AnalysisStructured.h"
+#include "triton-shared/Analysis/OpFoldResultUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -147,6 +147,13 @@ getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
   Location loc = ptrTensor.getLoc();
 
   while (true) {
+    auto currentTensorType =
+        dyn_cast<RankedTensorType>(currentTensor.getType());
+    auto currentElemPtrType =
+        currentTensorType
+            ? dyn_cast<triton::PointerType>(currentTensorType.getElementType())
+            : triton::PointerType();
+
     if (auto fillOp = currentTensor.getDefiningOp<linalg::FillOp>()) {
       Value basePtr = fillOp.getInputs().front();
       auto castOp = basePtr.getDefiningOp<UnrealizedConversionCastOp>();
@@ -185,6 +192,32 @@ getScalarMemrefAccessFromPtrTensor(Value ptrTensor, ValueRange indices,
     }
 
     Block &body = generic.getRegion().front();
+    if (body.without_terminator().empty()) {
+      if (!currentElemPtrType) {
+        return std::nullopt;
+      }
+
+      auto yieldOp = cast<linalg::YieldOp>(body.getTerminator());
+      if (yieldOp.getNumOperands() != 1) {
+        return std::nullopt;
+      }
+
+      auto rank1Type = MemRefType::get({ShapedType::kDynamic},
+                                       currentElemPtrType.getPointeeType());
+      auto maybeMemref = materializeValueAsType(yieldOp.getOperands().front(),
+                                                rank1Type, rewriter, loc);
+      if (failed(maybeMemref)) {
+        return std::nullopt;
+      }
+
+      if (!totalOffset) {
+        totalOffset =
+            arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0))
+                .getResult();
+      }
+      return ScalarMemrefAccess{*maybeMemref, totalOffset};
+    }
+
     Operation *payload = nullptr;
     for (auto &op : body.without_terminator()) {
       if (payload) {

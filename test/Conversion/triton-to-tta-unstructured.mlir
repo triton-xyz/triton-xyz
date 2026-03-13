@@ -339,59 +339,6 @@ module {
 // -----
 
 module {
-// CHECK-LABEL:   tt.func @make_tensor_ptr_accumulate_offset(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : i32
-// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
-// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[CONSTANT_1]] : i32 -> tensor<4xi32>
-// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f16> to !tta.addr<f16, 1, 1>
-// CHECK:           %[[VAL_0:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_0]], %[[ADDI_0]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f16, 1, 1>, tensor<4xi32>) -> !tta.addr<f16, 1, 1>
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0.000000e+00 : f16
-// CHECK:           %[[VAL_1:.*]] = "tta.load"(%[[VAL_0]], %[[CONSTANT_2]]) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f16, 1, 1>, f16) -> tensor<4xf16>
-// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : i64
-// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 1 : i64
-// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 0 : i32
-// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[CONSTANT_1]], %[[ARG2]] : i32
-// CHECK:           %[[ADDI_2:.*]] = arith.addi %[[ADDI_1]], %[[CONSTANT_5]] : i32
-// CHECK:           %[[MAKE_TENSOR_PTR_0:.*]] = tt.make_tensor_ptr %[[ARG0]], {{\[}}%[[CONSTANT_3]], %[[CONSTANT_3]]], {{\[}}%[[CONSTANT_3]], %[[CONSTANT_4]]], {{\[}}%[[ADDI_2]], %[[CONSTANT_5]]] {order = array<i32: 1, 0>} : <tensor<4x4xf16>>
-// CHECK:           %[[LOAD_0:.*]] = tt.load %[[MAKE_TENSOR_PTR_0]] : !tt.ptr<tensor<4x4xf16>>
-// CHECK:           tt.store %[[MAKE_TENSOR_PTR_0]], %[[LOAD_0]] : !tt.ptr<tensor<4x4xf16>>
-// CHECK:           %[[SPLAT_1:.*]] = tt.splat %[[CONSTANT_0]] : i32 -> tensor<4xi32>
-// CHECK:           %[[ADDI_3:.*]] = arith.addi %[[SPLAT_1]], %[[MAKE_RANGE_0]] : tensor<4xi32>
-// CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f16> to !tta.addr<f16, 1, 1>
-// CHECK:           %[[VAL_2:.*]] = "tta.indirect_reindex"(%[[MAKE_ADDR_1]], %[[ADDI_3]]) <{indirect_dim = 0 : i32}> : (!tta.addr<f16, 1, 1>, tensor<4xi32>) -> !tta.addr<f16, 1, 1>
-// CHECK:           "tta.store"(%[[VAL_2]], %[[VAL_1]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f16, 1, 1>, tensor<4xf16>) -> ()
-// CHECK:           tt.return
-// CHECK:         }
-  tt.func @make_tensor_ptr_accumulate_offset(%arg0: !tt.ptr<f16>, %arg1: !tt.ptr<f16>, %arg2: i32) {
-    %r = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
-
-    %seed = tt.splat %arg0 : !tt.ptr<f16> -> tensor<4x!tt.ptr<f16>>
-    %seed_ptrs = tt.addptr %seed, %r : tensor<4x!tt.ptr<f16>>, tensor<4xi32>
-    %seed_vals = tt.load %seed_ptrs : tensor<4x!tt.ptr<f16>>
-
-    %c4_i64 = arith.constant 4 : i64
-    %c1_i64 = arith.constant 1 : i64
-    %c0_i32 = arith.constant 0 : i32
-    %base2 = tt.addptr %arg0, %arg2 : !tt.ptr<f16>, i32
-    %tptr = tt.make_tensor_ptr %base2, [%c4_i64, %c4_i64], [%c4_i64, %c1_i64], [%c0_i32, %c0_i32] {order = array<i32: 1, 0>} : <tensor<4x4xf16>>
-    %loaded = tt.load %tptr : !tt.ptr<tensor<4x4xf16>>
-    tt.store %tptr, %loaded : !tt.ptr<tensor<4x4xf16>>
-
-    %outbase = tt.splat %arg1 : !tt.ptr<f16> -> tensor<4x!tt.ptr<f16>>
-    %outptrs = tt.addptr %outbase, %r : tensor<4x!tt.ptr<f16>>, tensor<4xi32>
-    tt.store %outptrs, %seed_vals : tensor<4x!tt.ptr<f16>>
-    tt.return
-  }
-}
-
-// -----
-
-module {
 // CHECK-LABEL:   tt.func @select_same_base_ptr_offsets_to_tta(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) -> tensor<4xi32> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32

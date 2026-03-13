@@ -111,6 +111,21 @@ struct SplatConverter : public OpConversionPattern<triton::SplatOp> {
     auto init = tensor::EmptyOp::create(rewriter, loc, opType.getShape(),
                                         opType.getElementType());
 
+    if (triton::isPtrTypeLike(opType.getElementType())) {
+      auto generic = linalg::GenericOp::create(
+          rewriter, loc, op->getResultTypes(), /*inputs=*/ValueRange{},
+          /*outputs=*/ValueRange{init},
+          /*indexingMaps=*/
+          SmallVector<AffineMap>{
+              rewriter.getMultiDimIdentityMap(opType.getRank())},
+          /*iteratorTypes=*/getNParallelLoopsAttrs(opType.getRank()),
+          [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange) {
+            linalg::YieldOp::create(nestedBuilder, nestedLoc, adaptor.getSrc());
+          });
+      rewriter.replaceOp(op, generic.getResults());
+      return success();
+    }
+
     auto filledTensor =
         linalg::FillOp::create(rewriter, loc, ValueRange{adaptor.getSrc()},
                                ValueRange{init})

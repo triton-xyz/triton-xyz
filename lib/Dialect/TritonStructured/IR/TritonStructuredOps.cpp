@@ -104,18 +104,8 @@ void MakeTensorPtrOp::build(OpBuilder &b, OperationState &state, Value base,
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
   dispatchIndexOpFoldResults(shape, dynamicShape, staticShape);
 
-  Type resType;
   auto basePtr = cast<triton::PointerType>(base.getType());
-  auto elemType = basePtr.getPointeeType();
-  // non-block pointer
-  if (order.empty()) {
-    resType = RankedTensorType::get(sizes, basePtr);
-  }
-  // block pointer
-  else {
-    resType = triton::PointerType::get(RankedTensorType::get(sizes, elemType),
-                                       basePtr.getAddressSpace());
-  }
+  Type resType = RankedTensorType::get(sizes, basePtr);
 
   build(b, state, resType, base, sizes, dynamicStrides, dynamicOffsets,
         dynamicShape, b.getDenseI64ArrayAttr(staticStrides),
@@ -139,12 +129,8 @@ void MakeGatherScatterTensorPtrOp::build(OpBuilder &b, OperationState &state,
   }
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
 
-  Type resType;
   auto basePtr = cast<triton::PointerType>(base.getType());
-  auto elemType = basePtr.getPointeeType();
-
-  resType = triton::PointerType::get(RankedTensorType::get(sizes, elemType),
-                                     basePtr.getAddressSpace());
+  Type resType = RankedTensorType::get(sizes, basePtr);
 
   build(b, state, resType, base, gatherScatterOffset,
         b.getI32IntegerAttr(gatherScatterDim), b.getDenseI64ArrayAttr(sizes),
@@ -166,19 +152,8 @@ void MakeGatherScatterTensorPtrOp::build(
   }
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
 
-  Type resType;
   auto basePtr = cast<triton::PointerType>(base.getType());
-  auto elemType = basePtr.getPointeeType();
-
-  if (gatherScatterOffset.getType().isIntOrIndex()) {
-    assert(sizes.size() == 1 && sizes[0] == 1 &&
-           "gatherScatterOffset should be a scalar for 1D gather/scatter");
-    resType = triton::PointerType::get(elemType, basePtr.getAddressSpace());
-
-  } else {
-    resType = triton::PointerType::get(RankedTensorType::get(sizes, elemType),
-                                       basePtr.getAddressSpace());
-  }
+  Type resType = RankedTensorType::get(sizes, basePtr);
 
   build(b, state, resType, base, gatherScatterOffset,
         b.getI32IntegerAttr(gatherScatterDim), b.getDenseI64ArrayAttr(sizes),
@@ -298,9 +273,7 @@ void LoadOp::build(OpBuilder &b, OperationState &state, Value ptr,
 
   dispatchIndexOpFoldResults(dims, dynamicDims, staticDims);
 
-  // non-block pointer type
   auto ptrTensorType = dyn_cast<RankedTensorType>(ptr.getType());
-  // block pointer type
   auto tensorPtrType = dyn_cast<triton::PointerType>(ptr.getType());
 
   Type resType;
@@ -310,9 +283,8 @@ void LoadOp::build(OpBuilder &b, OperationState &state, Value ptr,
     resType = RankedTensorType::get(ptrTensorType.getShape(), elemType);
 
   } else if (tensorPtrType) {
-    auto tensorType = cast<ShapedType>(tensorPtrType.getPointeeType());
-    resType = RankedTensorType::get(tensorType.getShape(),
-                                    tensorType.getElementType());
+    auto elemType = tensorPtrType.getPointeeType();
+    resType = RankedTensorType::get({1}, elemType);
   }
   build(b, state, resType, ptr, dynamicDims, b.getDenseI64ArrayAttr(staticDims),
         other);
@@ -389,19 +361,10 @@ GetStructuredStateOp::getOffsetAndStrideSegmentSizes(Type type) {
       // its strides, all of which has Index type.
       offsetSegmentSize = strideSegmentSize = tensorType.getRank();
     }
-  }
-  // Block pointers (!tt.ptr<tensor<type>> or !tt.ptr<type>)
-  else if (auto ptrType = llvm::dyn_cast<triton::PointerType>(type)) {
-    if (auto tensorType =
-            llvm::dyn_cast<RankedTensorType>(ptrType.getPointeeType())) {
-      // Each tensor of rank k gets k values for its offsets and k values for
-      // its strides, all of which has Index type.
-      offsetSegmentSize = strideSegmentSize = tensorType.getRank();
-    } else {
-      // The only relevant state that can be updated in loops for scalar
-      // pointers are offset. No need to include stride here.
-      offsetSegmentSize = 1;
-    }
+  } else if (llvm::isa<triton::PointerType>(type)) {
+    // The only relevant state that can be updated in loops for scalar
+    // pointers are offset. No need to include stride here.
+    offsetSegmentSize = 1;
   } else {
     return std::nullopt;
   }

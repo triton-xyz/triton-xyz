@@ -937,48 +937,6 @@ LogicalResult PtrExprAnalysis::visitOperandConstSplat(arith::ConstantOp op,
   return success();
 }
 
-LogicalResult
-PtrExprAnalysis::visitOperandMakeTensorPtr(triton::MakeTensorPtrOp makeTPtrOp,
-                                           PtrState &state, const Location loc,
-                                           OpBuilder &builder) {
-  assert(state.isEmpty());
-  state.source = makeTPtrOp.getBase();
-
-  if (makeTPtrOp.getOrder().empty()) {
-    LLVM_DEBUG(makeTPtrOp->emitRemark(
-        "PtrAnalysis: expect tt.make_tensor_ptr to have order field set"));
-    return failure();
-  }
-
-  auto resType = cast<triton::PointerType>(makeTPtrOp.getResult().getType());
-  auto pointeeType = cast<ShapedType>(resType.getPointeeType());
-  auto shape = pointeeType.getShape();
-
-  for (int64_t i = 0; i < pointeeType.getRank(); i++) {
-    state.sizes.push_back(builder.getIndexAttr(shape[i]));
-
-    auto strideCst = arith::IndexCastOp::create(
-        builder, loc, builder.getIndexType(), makeTPtrOp.getStrides()[i]);
-    state.strides.push_back(strideCst.getResult());
-
-    auto offsetCst = arith::IndexCastOp::create(
-        builder, loc, builder.getIndexType(), makeTPtrOp.getOffsets()[i]);
-
-    auto scaledOffset = arith::MulIOp::create(
-        builder, loc, offsetCst.getResult(), strideCst.getResult());
-    state.offsets.push_back(scaledOffset.getResult());
-
-    auto shapeCst = arith::IndexCastOp::create(
-        builder, loc, builder.getIndexType(), makeTPtrOp.getShape()[i]);
-    state.shape.push_back(shapeCst.getResult());
-  }
-  state.order = SmallVector<int32_t>(makeTPtrOp.getOrder());
-  assert(state.isBlockPtr() &&
-         "tt.make_tensor_ptr pointer state should describe a block pointer");
-
-  return success();
-}
-
 LogicalResult PtrExprAnalysis::visitOperandForOp(scf::ForOp forOp,
                                                  Value operand, PtrState &state,
                                                  const Location loc,
@@ -1062,8 +1020,6 @@ LogicalResult PtrExprAnalysis::visitOperand(Value operand, PtrState &state,
         return visitOperandBitcast(castOp, state, loc, builder);
       } else if (auto intToPtrOp = dyn_cast<triton::IntToPtrOp>(op)) {
         return visitOperandIntToPtr(intToPtrOp, state, loc, builder);
-      } else if (auto makeTensorOp = dyn_cast<triton::MakeTensorPtrOp>(op)) {
-        llvm_unreachable("Unexpected operand defining operation tts.make_tptr");
       } else if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
         state.source = operand;
         return success();
