@@ -1,4 +1,4 @@
-// RUN: triton-xyz-opt --lower-proton-cpu-instrumentation %s | FileCheck %s
+// RUN: triton-xyz-opt --proton-to-xyz %s | FileCheck %s
 
 module {
   // CHECK-DAG: func.func private @proton_cpu_record_start(i64)

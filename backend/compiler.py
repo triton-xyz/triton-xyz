@@ -208,7 +208,7 @@ class XYZBackend(BaseBackend):
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("ttir_to_linalg"))
             if options.instrumentation_mode:
-                cmd.append("--lower-proton-cpu-instrumentation")
+                cmd.append("--proton-to-xyz")
             cmd.extend(
                 [
                     src_path,

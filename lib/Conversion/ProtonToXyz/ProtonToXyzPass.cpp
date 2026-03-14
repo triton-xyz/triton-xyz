@@ -4,14 +4,16 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "proton/Dialect/include/Analysis/ScopeIdAllocation.h"
 #include "proton/Dialect/include/Dialect/Proton/IR/Dialect.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/ProtonToXyz/Passes.h" // IWYU pragma: keep
 
 using namespace mlir;
 
-namespace mlir::triton {
-#define GEN_PASS_DEF_LOWERPROTONCPUINSTRUMENTATION
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
-} // namespace mlir::triton
+namespace mlir {
+namespace triton {
+#define GEN_PASS_DEF_PROTONTOXYZ
+#include "triton-shared/Conversion/ProtonToXyz/Passes.h.inc"
+} // namespace triton
+} // namespace mlir
 
 namespace {
 
@@ -32,9 +34,8 @@ static func::FuncOp getOrCreateRuntimeHook(ModuleOp moduleOp, StringRef name) {
   return hook;
 }
 
-class LowerProtonCpuInstrumentationPass
-    : public mlir::triton::impl::LowerProtonCpuInstrumentationBase<
-          LowerProtonCpuInstrumentationPass> {
+class ProtonToXyzPass
+    : public mlir::triton::impl::ProtonToXyzBase<ProtonToXyzPass> {
 public:
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
