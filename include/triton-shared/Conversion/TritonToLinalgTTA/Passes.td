@@ -40,7 +40,7 @@ def TTAToMemref : Pass<"tta-to-memref", "mlir::ModuleOp"> {
   ];
 }
 
-def TTAAddressNormalize : Pass<"tta-address-normalize", "mlir::ModuleOp"> {
+def TTANormalize : Pass<"tta-normalize", "mlir::ModuleOp"> {
   let summary = "Canonicalize and compose tta address chains";
   let dependentDialects = [
     "arith::ArithDialect",
