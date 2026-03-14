@@ -13,3 +13,4 @@ third_party/.gitignore
 !.pixi/config.toml
 
 *.log
+.DS_Store
