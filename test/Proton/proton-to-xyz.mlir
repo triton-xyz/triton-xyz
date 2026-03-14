@@ -1,4 +1,5 @@
 // RUN: triton-xyz-opt --proton-to-xyz %s | FileCheck %s
+// REQUIRES: triton_xyz_build_proton
 
 module {
   // CHECK-DAG: func.func private @proton_cpu_record_start(i64)
