@@ -3,7 +3,7 @@
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 
 namespace mlir::triton {
-#define GEN_PASS_DEF_TTAADDRESSNORMALIZE
+#define GEN_PASS_DEF_TTANORMALIZE
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h.inc"
 } // namespace mlir::triton
 
@@ -11,11 +11,10 @@ using namespace mlir;
 
 namespace {
 
-class TTAAddressNormalizePass
-    : public mlir::triton::impl::TTAAddressNormalizeBase<
-          TTAAddressNormalizePass> {
+class TTANormalizePass
+    : public mlir::triton::impl::TTANormalizeBase<TTANormalizePass> {
   using Base =
-      mlir::triton::impl::TTAAddressNormalizeBase<TTAAddressNormalizePass>;
+      mlir::triton::impl::TTANormalizeBase<TTANormalizePass>;
   using Base::Base;
 
 public:

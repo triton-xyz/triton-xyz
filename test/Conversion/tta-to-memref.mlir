@@ -1,4 +1,4 @@
-// RUN: triton-xyz-opt --split-input-file --tta-address-normalize --tta-to-memref --canonicalize --cse %s | FileCheck %s
+// RUN: triton-xyz-opt --split-input-file --tta-normalize --tta-to-memref --canonicalize --cse %s | FileCheck %s
 
 module {
 // CHECK-LABEL:   tt.func @structured_basic(
