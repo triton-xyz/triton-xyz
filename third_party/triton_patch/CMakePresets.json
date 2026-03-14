@@ -21,6 +21,8 @@
         "LLVM_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/llvm",
         "MLIR_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/mlir",
         "LLD_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/lld",
+        "JSON_SYSPATH": "${sourceDir}/.pixi/envs/default",
+        "TRITON_XYZ_BUILD_PROTON": true,
         "TRITON_BUILD_PROTON": false,
         "TRITON_BUILD_UT": false,
         "TRITON_CODEGEN_BACKENDS": "nvidia;amd",
@@ -38,16 +40,6 @@
       "cacheVariables": {
         "CMAKE_SYSROOT": "",
         "CMAKE_LINKER_TYPE": "LLD"
-      }
-    },
-    {
-      "name": "osx_proton",
-      "inherits": "osx",
-      "cacheVariables": {
-        "TRITON_BUILD_PROTON": false,
-        "CUPTI_INCLUDE_DIR": "${sourceDir}/third_party/nvidia/backend/include",
-        "ROCTRACER_INCLUDE_DIR": "${sourceDir}/third_party/amd/backend/include",
-        "JSON_SYSPATH": "${sourceDir}/.pixi/envs/default"
       }
     },
     {
