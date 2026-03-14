@@ -33,4 +33,5 @@ target_include_directories(proton_xyz PRIVATE
     ${PROTON_DIR}/csrc/include)
 set_target_properties(proton_xyz
     PROPERTIES OUTPUT_NAME proton
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/")
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/"
+    PREFIX "lib" SUFFIX ".so")
