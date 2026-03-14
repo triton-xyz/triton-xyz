@@ -78,13 +78,4 @@ def TritonTtPtrToPtr : Pass<"triton-tt-ptr-to-ptr", "mlir::ModuleOp"> {
   ];
 }
 
-// TODO: mv out
-def LowerProtonCpuInstrumentation : Pass<"lower-proton-cpu-instrumentation", "mlir::ModuleOp"> {
-  let summary = "Lower proton.record ops to CPU runtime calls";
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "func::FuncDialect"
-  ];
-}
-
 #endif

@@ -4,6 +4,7 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
+#include "triton-shared/Conversion/ProtonToXyz/Passes.h"
 #include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h"
 #include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h"
@@ -26,6 +27,7 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
 
   mlir::triton::registerTritonPasses();
 
+  mlir::triton::registerProtonToXyzPasses();
   mlir::triton::registerTritonToLinalgPasses();
   mlir::triton::registerTritonToLinalgTTAPasses();
   mlir::triton::registerTritonArithToLinalgPasses();

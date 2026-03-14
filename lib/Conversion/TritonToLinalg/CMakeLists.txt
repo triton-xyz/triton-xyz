@@ -1,5 +1,4 @@
 add_triton_library(TritonToLinalg
-  LowerProtonCpuInstrumentationPass.cpp
   TritonPtrToMemrefPass.cpp
   ReconcilePtrCastsPass.cpp
   ConvertXyzToLLVMPass.cpp
@@ -32,6 +31,4 @@ add_triton_library(TritonToLinalg
   TritonSharedAnalysis
   TritonSharedUtils
   TritonArithToLinalg
-  ProtonAnalysis
-  ProtonIR
 )
