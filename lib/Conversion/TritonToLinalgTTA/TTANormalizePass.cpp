@@ -13,8 +13,7 @@ namespace {
 
 class TTANormalizePass
     : public mlir::triton::impl::TTANormalizeBase<TTANormalizePass> {
-  using Base =
-      mlir::triton::impl::TTANormalizeBase<TTANormalizePass>;
+  using Base = mlir::triton::impl::TTANormalizeBase<TTANormalizePass>;
   using Base::Base;
 
 public:
