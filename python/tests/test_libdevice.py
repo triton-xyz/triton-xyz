@@ -1,7 +1,7 @@
 import torch
 import triton
 import triton.language as tl
-from triton._C.libtriton import ir  # ty:ignore[unresolved-import]
+from triton._C.libtriton import ir  # ty:ignore
 from triton.backends.compiler import GPUTarget
 from triton.compiler.compiler import ASTSource
 from triton.language.extra import libdevice
@@ -13,7 +13,7 @@ from triton.backends.xyz.compiler import XYZBackend
 def kernel(in_ptr, out_ptr, BLOCK: tl.constexpr):
     offs = tl.arange(0, BLOCK)
     x = tl.load(in_ptr + offs)
-    y = libdevice.nop(x)  # ty:ignore[unresolved-attribute]
+    y = libdevice.nop(x)  # ty:ignore
     tl.store(out_ptr + offs, y)
 
 
