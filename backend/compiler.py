@@ -14,7 +14,7 @@ from types import ModuleType
 
 from triton import knobs
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
-from triton._C.libtriton import ir, llvm, passes  # ty:ignore[unresolved-import]
+from triton._C.libtriton import ir, llvm, passes  # ty:ignore
 from triton.runtime.build import _build
 
 _DUMP_INDEX = 1
@@ -174,7 +174,7 @@ class XYZBackend(BaseBackend):
         return {"triton.language.extra.libdevice": libdevice}
 
     def load_dialects(self, ctx):
-        from triton._C.libtriton import xyz as triton_xyz  # ty:ignore[unresolved-import]
+        from triton._C.libtriton import xyz as triton_xyz  # ty:ignore
 
         triton_xyz.load_dialects(ctx)
 
@@ -182,7 +182,7 @@ class XYZBackend(BaseBackend):
         if not instrumentation_mode:
             return
 
-        from triton._C.libtriton import proton as triton_proton  # ty:ignore[unresolved-import]
+        from triton._C.libtriton import proton as triton_proton  # ty:ignore
 
         triton_proton.load_dialects(ctx)
 
@@ -301,7 +301,7 @@ class XYZBackend(BaseBackend):
             with open(so, "rb") as f:
                 return f.read()
 
-    def add_stages(self, stages, options, language):  # ty:ignore[invalid-method-override]
+    def add_stages(self, stages, options, language):  # ty:ignore
         if language == Language.GLUON:
             raise Exception("GLUON is not supported")
         stages["ttir"] = lambda src, metadata: self.make_ttir(src, metadata, options)

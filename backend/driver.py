@@ -264,7 +264,7 @@ class XYZDriver(DriverBase):
         self.get_current_stream = torch.cpu.current_stream
 
     @staticmethod
-    def is_active():  # ty:ignore[invalid-method-override]
+    def is_active():  # ty:ignore
         return True
 
     def get_device_interface(self):
