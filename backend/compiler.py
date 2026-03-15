@@ -169,10 +169,15 @@ class XYZBackend(BaseBackend):
         return {"min_dot_size": lambda lhs, rhs: (1, 1, 1)}
 
     def get_module_map(self) -> Dict[str, ModuleType]:
-        # TODO
-        return {"triton.language.extra.libdevice": None}
+        from triton.language.extra.xyz import libdevice
+
+        return {"triton.language.extra.libdevice": libdevice}
 
     def load_dialects(self, ctx):
+        from triton._C.libtriton import xyz as triton_xyz  # ty:ignore[unresolved-import]
+
+        triton_xyz.load_dialects(ctx)
+
         instrumentation_mode = knobs.compilation.instrumentation_mode
         if not instrumentation_mode:
             return

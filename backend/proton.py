@@ -10,6 +10,7 @@ from triton._C.libproton import proton as libproton
 from triton._C.libtriton import getenv
 from triton._C.libtriton import ir as triton_ir
 from triton._C.libtriton import proton as triton_proton
+from triton._C.libtriton import xyz as triton_xyz
 from triton.profiler.flags import flags
 from triton.profiler.hooks.hook import Hook
 
@@ -108,6 +109,7 @@ class CPUInstrumentationHook(Hook):
 
         context = triton_ir.context()
         triton_ir.load_dialects(context)
+        triton_xyz.load_dialects(context)
         triton_proton.load_dialects(context)
         module = triton_ir.parse_mlir_module(ir_path, context)
         module.context = context

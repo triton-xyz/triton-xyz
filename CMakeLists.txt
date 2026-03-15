@@ -23,5 +23,5 @@ if(TRITON_XYZ_BUILD_PROTON)
 endif()
 
 add_triton_plugin(TritonXyz triton_xyz.cc
-    LINK_LIBS TritonSharedAnalysis)
+    LINK_LIBS TritonDialectXyz TritonSharedAnalysis)
 target_link_libraries(TritonXyz PRIVATE Python3::Module pybind11::headers)
