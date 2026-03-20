@@ -24,7 +24,7 @@ if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler"
     tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
         tempfile.TemporaryDirectory,
         dir=MLIR_ENABLE_DUMP_DIR,
-        prefix = "_tt_xyz_compiler_",
+        prefix="_tt_xyz_compiler_",
         delete=False,
     )
     tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
@@ -199,8 +199,8 @@ def _generate_launcher_wrapper(kernel_name: str, flat_signature: list[str], inst
             'extern "C" void proton_cpu_instrumentation_enter(uint64_t functionId);\n'
             'extern "C" void proton_cpu_instrumentation_exit(uint64_t functionId);\n'
         )
-        worker_enter = f"  proton_cpu_instrumentation_enter(" f"reinterpret_cast<uint64_t>(&{launch_symbol}));\n"
-        worker_exit = f"  proton_cpu_instrumentation_exit(" f"reinterpret_cast<uint64_t>(&{launch_symbol}));\n"
+        worker_enter = f"  proton_cpu_instrumentation_enter(reinterpret_cast<uint64_t>(&{launch_symbol}));\n"
+        worker_exit = f"  proton_cpu_instrumentation_exit(reinterpret_cast<uint64_t>(&{launch_symbol}));\n"
 
     return f"""#include <algorithm>
 #include <atomic>
@@ -478,7 +478,7 @@ class XYZBackend(BaseBackend):
         with tempfile.TemporaryDirectory() as tmpdir:
             linalg_path = os.path.join(tmpdir, "linalg.mlir")
             llvm_path = os.path.join(tmpdir, "llvm.mlir")
-            llir_path = os.path.join(tmpdir, "ll.ir")
+            llir_path = os.path.join(tmpdir, "ll.ll")
             Path(linalg_path).write_text(src)
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("xyz_to_llvm"))
