@@ -15,9 +15,19 @@ from types import ModuleType
 from triton import knobs
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
 from triton._C.libtriton import ir, llvm, passes  # ty:ignore
-from triton.runtime.build import _build
 
 _DUMP_INDEX = 1
+
+MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
+
+if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler", False):
+    tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
+        tempfile.TemporaryDirectory,
+        dir=MLIR_ENABLE_DUMP_DIR,
+        prefix="_tt_xyz_compiler_",
+        delete=False,
+    )
+    tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -35,7 +45,7 @@ def _next_dump_dir(stage: str) -> str | None:
     base = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
     if not base:
         return None
-    dump_dir = f"{base}__{_DUMP_INDEX}_{stage}"
+    dump_dir = f"{base}/_pass_dump_{_DUMP_INDEX}_{stage}"
     _DUMP_INDEX += 1
     Path(dump_dir).mkdir(parents=True, exist_ok=True)
     return dump_dir
@@ -98,6 +108,241 @@ def _default_target_triple() -> str:
     if system == "windows":
         return f"{machine}-pc-windows-msvc"
     return machine
+
+
+def _launcher_symbol(name: str) -> str:
+    return f"__tt_xyz_launch_{name}"
+
+
+def _cxx_scalar_type(ty: str) -> str:
+    mapping = {
+        "i1": "int8_t",
+        "i8": "int8_t",
+        "i16": "int16_t",
+        "i32": "int32_t",
+        "i64": "int64_t",
+        "u1": "uint8_t",
+        "u8": "uint8_t",
+        "u16": "uint16_t",
+        "u32": "uint32_t",
+        "u64": "uint64_t",
+        "fp16": "float",
+        "bf16": "float",
+        "fp32": "float",
+        "f32": "float",
+        "fp64": "double",
+    }
+    if ty not in mapping:
+        raise ValueError(f"Unsupported launcher scalar type: {ty}")
+    return mapping[ty]
+
+
+def _wrapper_arg_specs(flat_signature: list[str]) -> list[tuple[str, str]]:
+    specs: list[tuple[str, str]] = []
+    arg_idx = 0
+    for ty in flat_signature:
+        if ty.startswith("*"):
+            specs.append(("int64_t", f"arg{arg_idx}_rank"))
+            specs.append(("void*", f"arg{arg_idx}_desc"))
+        else:
+            specs.append((_cxx_scalar_type(ty), f"arg{arg_idx}"))
+        arg_idx += 1
+    return specs
+
+
+def _flatten_signature_types(sig, output: list[str]) -> None:
+    if isinstance(sig, tuple):
+        for entry in sig:
+            _flatten_signature_types(entry, output)
+        return
+    output.append(sig)
+
+
+def _generate_launcher_wrapper(kernel_name: str, flat_signature: list[str], instrumentation_enabled: bool) -> str:
+    arg_specs = _wrapper_arg_specs(flat_signature)
+    arg_decl = ", ".join(f"{ty} {name}" for ty, name in arg_specs)
+    kernel_arg_decl = (
+        ", ".join(
+            [
+                arg_decl,
+                "int32_t num_p0",
+                "int32_t num_p1",
+                "int32_t num_p2",
+                "int32_t pid_x",
+                "int32_t pid_y",
+                "int32_t pid_z",
+            ]
+        )
+        if arg_decl
+        else ", ".join(
+            ["int32_t num_p0", "int32_t num_p1", "int32_t num_p2", "int32_t pid_x", "int32_t pid_y", "int32_t pid_z"]
+        )
+    )
+    launcher_arg_decl = (
+        ", ".join([arg_decl, "int32_t num_p0", "int32_t num_p1", "int32_t num_p2", "int32_t requested_threads"])
+        if arg_decl
+        else ", ".join(["int32_t num_p0", "int32_t num_p1", "int32_t num_p2", "int32_t requested_threads"])
+    )
+    field_decl = "\n".join(f"  {ty} {name};" for ty, name in arg_specs)
+    context_init = ", ".join([name for _, name in arg_specs] + ["num_p0", "num_p1", "num_p2"])
+    kernel_arg_names = ", ".join(
+        [f"ctx.{name}" for _, name in arg_specs] + ["ctx.num_p0", "ctx.num_p1", "ctx.num_p2", "pid_x", "pid_y", "pid_z"]
+    )
+    instrumentation_decl = ""
+    launcher_decl = ""
+    worker_enter = ""
+    worker_exit = ""
+    launch_symbol = _launcher_symbol(kernel_name)
+    launcher_decl = f'extern "C" void {launch_symbol}({launcher_arg_decl});\n'
+    if instrumentation_enabled:
+        instrumentation_decl = (
+            'extern "C" void proton_cpu_instrumentation_enter(uint64_t functionId);\n'
+            'extern "C" void proton_cpu_instrumentation_exit(uint64_t functionId);\n'
+        )
+        worker_enter = f"  proton_cpu_instrumentation_enter(reinterpret_cast<uint64_t>(&{launch_symbol}));\n"
+        worker_exit = f"  proton_cpu_instrumentation_exit(reinterpret_cast<uint64_t>(&{launch_symbol}));\n"
+
+    return f"""#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <thread>
+#include <vector>
+
+extern "C" void {kernel_name}({kernel_arg_decl});
+{launcher_decl}{instrumentation_decl}
+namespace {{
+
+struct LaunchContext {{
+{field_decl}
+  int32_t num_p0;
+  int32_t num_p1;
+  int32_t num_p2;
+}};
+
+inline int32_t resolve_num_threads(int32_t requested_threads, int64_t total_programs) {{
+  int32_t num_threads = requested_threads;
+  if (num_threads <= 0) {{
+    auto detected = std::thread::hardware_concurrency();
+    num_threads = detected == 0 ? 1 : static_cast<int32_t>(detected);
+  }}
+  num_threads = std::max<int32_t>(1, num_threads);
+  if (total_programs < num_threads) {{
+    num_threads = static_cast<int32_t>(total_programs);
+  }}
+  return std::max<int32_t>(1, num_threads);
+}}
+
+inline void invoke_program(const LaunchContext &ctx, int64_t linear_pid) {{
+  const int64_t programs_per_plane =
+      static_cast<int64_t>(ctx.num_p0) * static_cast<int64_t>(ctx.num_p1);
+  const int32_t pid_z =
+      static_cast<int32_t>(linear_pid / programs_per_plane);
+  const int64_t rem = linear_pid % programs_per_plane;
+  const int32_t pid_y = static_cast<int32_t>(rem / ctx.num_p0);
+  const int32_t pid_x = static_cast<int32_t>(rem % ctx.num_p0);
+  {kernel_name}({kernel_arg_names});
+}}
+
+void launch_worker(const LaunchContext &ctx, std::atomic<int64_t> &next_program,
+                   int64_t total_programs) {{
+{worker_enter}  while (true) {{
+    const int64_t linear_pid =
+        next_program.fetch_add(1, std::memory_order_relaxed);
+    if (linear_pid >= total_programs) {{
+      break;
+    }}
+    invoke_program(ctx, linear_pid);
+  }}
+{worker_exit}}}
+
+}} // namespace
+
+extern "C" void {_launcher_symbol(kernel_name)}({launcher_arg_decl}) {{
+  const int64_t total_programs = static_cast<int64_t>(num_p0) *
+                                 static_cast<int64_t>(num_p1) *
+                                 static_cast<int64_t>(num_p2);
+  if (total_programs <= 0) {{
+    return;
+  }}
+
+  const LaunchContext ctx{{{context_init}}};
+  const int32_t num_threads =
+      resolve_num_threads(requested_threads, total_programs);
+  if (num_threads <= 1) {{
+    std::atomic<int64_t> next_program{{0}};
+    launch_worker(ctx, next_program, total_programs);
+    return;
+  }}
+
+  std::atomic<int64_t> next_program{{0}};
+  std::vector<std::thread> workers;
+  workers.reserve(static_cast<size_t>(num_threads - 1));
+  for (int32_t thread_idx = 1; thread_idx < num_threads; ++thread_idx) {{
+    workers.emplace_back([&ctx, &next_program, total_programs]() {{
+      launch_worker(ctx, next_program, total_programs);
+    }});
+  }}
+  launch_worker(ctx, next_program, total_programs);
+  for (auto &worker : workers) {{
+    worker.join();
+  }}
+}}
+"""
+
+
+def _build_native_cpu_library(
+    name: str,
+    asm_src: str,
+    wrapper_src: str,
+    srcdir: str,
+    library_dirs: list[str],
+    libraries: list[str],
+    ccflags: list[str],
+) -> str:
+    suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    so = os.path.join(srcdir, f"{name}{suffix}")
+    asm_obj = os.path.join(srcdir, "kernel.o")
+    wrapper_obj = os.path.join(srcdir, "launcher.o")
+    cxx = shutil.which("clang++")
+
+    compile_asm_cmd = [
+        cxx,
+        "-c",
+        asm_src,
+        # "-O3",
+        "-fPIC",
+        "-o",
+        asm_obj,
+    ]
+    compile_wrapper_cmd = [
+        cxx,
+        "-c",
+        wrapper_src,
+        "-O3",
+        "-std=c++17",
+        "-fPIC",
+        "-pthread",
+        "-o",
+        wrapper_obj,
+    ]
+    link_cmd = [
+        cxx,
+        "-shared",
+        "-fPIC",
+        "-pthread",
+        "-o",
+        so,
+        asm_obj,
+        wrapper_obj,
+    ]
+    link_cmd += [f"-l{lib}" for lib in libraries]
+    link_cmd += [f"-L{libdir}" for libdir in library_dirs]
+    link_cmd.extend(ccflags)
+
+    subprocess.check_call(compile_asm_cmd)
+    subprocess.check_call(compile_wrapper_cmd)
+    subprocess.check_call(link_cmd)
+    return so
 
 
 @dataclass(frozen=True)
@@ -188,6 +433,9 @@ class XYZBackend(BaseBackend):
 
     @staticmethod
     def make_ttir(mod, metadata, options: CPUOptions):
+        entry_name = mod.get_entry_func_name()
+        entry_func = mod.get_function(entry_name)
+        metadata["signature"] = list(mod.get_function_signature(entry_func))
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
         passes.common.add_inliner(pm)
@@ -230,7 +478,7 @@ class XYZBackend(BaseBackend):
         with tempfile.TemporaryDirectory() as tmpdir:
             linalg_path = os.path.join(tmpdir, "linalg.mlir")
             llvm_path = os.path.join(tmpdir, "llvm.mlir")
-            llir_path = os.path.join(tmpdir, "ll.ir")
+            llir_path = os.path.join(tmpdir, "ll.ll")
             Path(linalg_path).write_text(src)
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("xyz_to_llvm"))
@@ -281,7 +529,15 @@ class XYZBackend(BaseBackend):
     def make_library(src, metadata, options: CPUOptions):
         with tempfile.TemporaryDirectory() as tmpdir:
             asm_path = os.path.join(tmpdir, "kernel.s")
+            wrapper_path = os.path.join(tmpdir, "launcher.cpp")
             Path(asm_path).write_text(src)
+            flat_signature: list[str] = []
+            for sig in metadata["signature"]:
+                _flatten_signature_types(sig, flat_signature)
+            wrapper_src = _generate_launcher_wrapper(
+                metadata["name"], flat_signature, bool(options.instrumentation_mode)
+            )
+            Path(wrapper_path).write_text(wrapper_src)
             lib_dirs = []
             libs = []
             ccflags = []
@@ -297,7 +553,7 @@ class XYZBackend(BaseBackend):
                 if not proton_lib.exists():
                     raise RuntimeError(f"CPU instrumentation requires {proton_lib}")
                 ccflags.extend([str(proton_lib), "-Wl,-rpath", str(proton_lib.parent)])
-            so = _build("kernel", asm_path, tmpdir, lib_dirs, [], libs, ccflags)
+            so = _build_native_cpu_library("kernel", asm_path, wrapper_path, tmpdir, lib_dirs, libs, ccflags)
             with open(so, "rb") as f:
                 return f.read()
 

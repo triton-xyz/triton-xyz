@@ -1,8 +1,8 @@
 exclude: |
   (?x)(
-      .vscode/(.)* |
-      utils/generate-test-checks.py |
-      LICENSE
+    .vscode/(.)* |
+    utils/generate-test-checks.py |
+    LICENSE
   )
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

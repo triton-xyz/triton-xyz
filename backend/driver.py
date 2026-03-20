@@ -1,4 +1,5 @@
 import ctypes
+import functools
 import os
 import platform
 import tempfile
@@ -8,6 +9,21 @@ import triton
 
 from triton.backends.driver import DriverBase
 from triton.backends.compiler import GPUTarget
+
+MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
+
+if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_driver", False):
+    tempfile.NamedTemporaryFile = functools.partial(  # ty:ignore
+        tempfile.NamedTemporaryFile,
+        dir=MLIR_ENABLE_DUMP_DIR,
+        prefix="_tt_xyz_driver_",
+        delete=False,
+    )
+    tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
+
+
+def _launcher_symbol(name: str) -> str:
+    return f"__tt_xyz_launch_{name}"
 
 
 def _flatten_signature(sig, output):
@@ -102,6 +118,17 @@ def _to_c_arg(ty, arg):
     return ty(arg)
 
 
+def _get_launch_num_threads(total_programs: int) -> int:
+    env_value = os.getenv("TRITON_XYZ_NUM_THREADS")
+    if env_value:
+        requested = int(env_value)
+    else:
+        requested = max(1, os.cpu_count() or 1)
+    if total_programs <= 0:
+        return 1
+    return max(1, min(requested, total_programs))
+
+
 class Utils(object):
     def __new__(cls):
         if not hasattr(cls, "instance"):
@@ -117,7 +144,8 @@ class Utils(object):
             f.flush()
             os.fsync(f.fileno())
             lib = ctypes.cdll.LoadLibrary(f.name)
-            fn_ptr = getattr(lib, name)
+            symbol_name = _launcher_symbol(name) if hasattr(lib, _launcher_symbol(name)) else name
+            fn_ptr = getattr(lib, symbol_name)
             fn_ptr_as_void_p = ctypes.cast(fn_ptr, ctypes.c_void_p).value
             return (lib, fn_ptr_as_void_p, 1, 0, max(1, os.cpu_count() or 1))
 
@@ -204,8 +232,6 @@ class Launcher(object):
             ctypes.c_int32,
             ctypes.c_int32,
             ctypes.c_int32,
-            ctypes.c_int32,
-            ctypes.c_int32,
         )
 
     def __call__(
@@ -243,10 +269,9 @@ class Launcher(object):
         gridY = int(gridY)
         gridZ = int(gridZ)
         num_p0, num_p1, num_p2 = gridX, gridY, gridZ
-        for pid_z in range(gridZ):
-            for pid_y in range(gridY):
-                for pid_x in range(gridX):
-                    cfunc(*base_args, num_p0, num_p1, num_p2, pid_x, pid_y, pid_z)
+        total_programs = gridX * gridY * gridZ
+        num_threads = _get_launch_num_threads(total_programs)
+        cfunc(*base_args, num_p0, num_p1, num_p2, num_threads)
 
         if launch_exit_hook is not None:
             launch_exit_hook(launch_metadata)

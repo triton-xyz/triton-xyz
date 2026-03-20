@@ -12,19 +12,21 @@
 
 namespace proton {
 
-class CpuProfiler : public Profiler,
-                    public OpInterface,
-                    public Singleton<CpuProfiler> {
+class CpuInstrumentationProfiler
+    : public Profiler,
+      public OpInterface,
+      public ScopeInterface,
+      public Singleton<CpuInstrumentationProfiler> {
 public:
-  using Singleton<CpuProfiler>::instance;
-  CpuProfiler() = default;
-  ~CpuProfiler() override = default;
+  using Singleton<CpuInstrumentationProfiler>::instance;
+  CpuInstrumentationProfiler() = default;
+  ~CpuInstrumentationProfiler() override = default;
 
 protected:
   void doStart() override {}
   void doStop() override {}
   void doFlush() override {}
-  void doSetMode(const std::vector<std::string> &) override {}
+  void doSetMode(const std::vector<std::string> &modeAndOptions) override;
   void doAddMetrics(
       size_t scopeId,
       const std::map<std::string, MetricValueType> &scalarMetrics,
@@ -32,10 +34,18 @@ protected:
 
   void startOp(const Scope &scope) override;
   void stopOp(const Scope &scope) override;
+  void enterScope(const Scope &scope) override;
+  void exitScope(const Scope &scope) override;
 
 private:
   using Clock = std::chrono::steady_clock;
   using TimePoint = Clock::time_point;
+
+  struct ActiveScopeState {
+    Scope scope{};
+    TimePoint startTime{};
+    DataToEntryMap dataToEntry{};
+  };
 
   static uint64_t toNs(TimePoint t);
   static void emitKernelMetric(DataToEntryMap &dataToEntry, TimePoint start,
@@ -44,9 +54,10 @@ private:
       const DataToEntryMap &dataToEntry,
       const std::map<std::string, MetricValueType> &scalarMetrics);
 
-  static thread_local TimePoint activeOpStart;
-  static thread_local DataToEntryMap activeOpDataToEntry;
-  static thread_local bool activeOpValid;
+  static thread_local TimePoint activeKernelStart;
+  static thread_local DataToEntryMap activeKernelDataToEntry;
+  static thread_local bool activeKernelValid;
+  static thread_local std::vector<ActiveScopeState> activeScopeStack;
 };
 
 } // namespace proton

@@ -17,10 +17,15 @@ set(PROTON_XYZ_SOURCES
     ${PROTON_DIR}/csrc/lib/Data/Metric.cpp
     ${PROTON_DIR}/csrc/lib/Data/TraceData.cpp
     ${PROTON_DIR}/csrc/lib/Data/TreeData.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Data/CpuInstrumentationTraceData.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Data/CpuInstrumentationTreeData.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Driver/Device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Profiler/Cpu/CpuProfiler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Profiler/Instrumentation/CpuInstrumentationProfiler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Profiler/Instrumentation/CpuInstrumentationState.cpp
     ${PROTON_DIR}/csrc/lib/Profiler/Profiler.cpp
-    ${PROTON_DIR}/csrc/lib/Session/Session.cpp
+    # TODO: can we use upsteam version ?
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Session/Session.cpp
     ${PROTON_DIR}/csrc/lib/Utility/MsgPackWriter.cpp)
 
 add_library(proton_xyz SHARED ${PROTON_XYZ_SOURCES})
