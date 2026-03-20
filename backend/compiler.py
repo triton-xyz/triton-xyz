@@ -24,7 +24,7 @@ if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler"
     tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
         tempfile.TemporaryDirectory,
         dir=MLIR_ENABLE_DUMP_DIR,
-        prefix = "tt_xyz_compiler_",
+        prefix = "_tt_xyz_compiler_",
         delete=False,
     )
     tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore

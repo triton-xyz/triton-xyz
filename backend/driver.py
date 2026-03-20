@@ -16,7 +16,7 @@ if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_driver", 
     tempfile.NamedTemporaryFile = functools.partial(  # ty:ignore
         tempfile.NamedTemporaryFile,
         dir=MLIR_ENABLE_DUMP_DIR,
-        prefix="tt_xyz_driver_",
+        prefix="_tt_xyz_driver_",
         delete=False,
     )
     tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
