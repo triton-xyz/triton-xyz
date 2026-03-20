@@ -23,7 +23,7 @@ if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_driver", 
 
 
 def _launcher_symbol(name: str) -> str:
-    return f"__triton_xyz_launch_{name}"
+    return f"__tt_xyz_launch_{name}"
 
 
 def _flatten_signature(sig, output):
