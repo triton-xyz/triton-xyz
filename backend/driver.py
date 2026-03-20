@@ -1,4 +1,5 @@
 import ctypes
+import functools
 import os
 import platform
 import tempfile
@@ -8,6 +9,17 @@ import triton
 
 from triton.backends.driver import DriverBase
 from triton.backends.compiler import GPUTarget
+
+MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
+
+if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_driver", False):
+    tempfile.NamedTemporaryFile = functools.partial(  # ty:ignore
+        tempfile.NamedTemporaryFile,
+        dir=MLIR_ENABLE_DUMP_DIR,
+        prefix="tt_xyz_driver_",
+        delete=False,
+    )
+    tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
 
 
 def _launcher_symbol(name: str) -> str:

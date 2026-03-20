@@ -18,6 +18,17 @@ from triton._C.libtriton import ir, llvm, passes  # ty:ignore
 
 _DUMP_INDEX = 1
 
+MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
+
+if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler", False):
+    tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
+        tempfile.TemporaryDirectory,
+        dir=MLIR_ENABLE_DUMP_DIR,
+        prefix = "tt_xyz_compiler_",
+        delete=False,
+    )
+    tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
+
 
 def _env_truthy(name: str, default: bool = False) -> bool:
     val = os.getenv(name)
@@ -34,7 +45,7 @@ def _next_dump_dir(stage: str) -> str | None:
     base = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
     if not base:
         return None
-    dump_dir = f"{base}__{_DUMP_INDEX}_{stage}"
+    dump_dir = f"{base}/_pass_dump_{_DUMP_INDEX}_{stage}"
     _DUMP_INDEX += 1
     Path(dump_dir).mkdir(parents=True, exist_ok=True)
     return dump_dir
@@ -69,17 +80,6 @@ def _find_tool(name: str, env_var: str | None = None) -> str:
     raise RuntimeError(f"Unable to locate {name}. Set {env_var} or build the tool.")
 
 
-def _find_host_cxx() -> str:
-    cxx = os.environ.get("CXX")
-    if cxx:
-        return cxx
-    for candidate in ("c++", "g++", "clang++"):
-        path = shutil.which(candidate)
-        if path:
-            return path
-    raise RuntimeError("Unable to locate a C++ compiler. Set CXX to continue.")
-
-
 def _get_llvm_lib_dir() -> str | None:
     libdir = os.getenv("LLVM_LIBRARY_DIR")
     if libdir:
@@ -111,7 +111,7 @@ def _default_target_triple() -> str:
 
 
 def _launcher_symbol(name: str) -> str:
-    return f"__triton_xyz_launch_{name}"
+    return f"__tt_xyz_launch_{name}"
 
 
 def _cxx_scalar_type(ty: str) -> str:
@@ -303,9 +303,17 @@ def _build_native_cpu_library(
     so = os.path.join(srcdir, f"{name}{suffix}")
     asm_obj = os.path.join(srcdir, "kernel.o")
     wrapper_obj = os.path.join(srcdir, "launcher.o")
-    cxx = _find_host_cxx()
+    cxx = shutil.which("clang++")
 
-    compile_asm_cmd = [cxx, "-c", asm_src, "-O3", "-fPIC", "-o", asm_obj]
+    compile_asm_cmd = [
+        cxx,
+        "-c",
+        asm_src,
+        # "-O3",
+        "-fPIC",
+        "-o",
+        asm_obj,
+    ]
     compile_wrapper_cmd = [
         cxx,
         "-c",
@@ -317,7 +325,16 @@ def _build_native_cpu_library(
         "-o",
         wrapper_obj,
     ]
-    link_cmd = [cxx, "-shared", "-fPIC", "-pthread", "-o", so, asm_obj, wrapper_obj]
+    link_cmd = [
+        cxx,
+        "-shared",
+        "-fPIC",
+        "-pthread",
+        "-o",
+        so,
+        asm_obj,
+        wrapper_obj,
+    ]
     link_cmd += [f"-l{lib}" for lib in libraries]
     link_cmd += [f"-L{libdir}" for libdir in library_dirs]
     link_cmd.extend(ccflags)
