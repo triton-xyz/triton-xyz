@@ -95,29 +95,6 @@ module {
 // -----
 
 module {
-  tt.func @loop_carried_addr_unsupported_derived_indirect_use(%src: !tt.ptr<f32>, %dst: !tt.ptr<f32>, %n: i32) {
-    %c0 = arith.constant 0 : i32
-    %c1 = arith.constant 1 : i32
-    %idx = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
-    %out0 = tta.make_addr %dst to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
-    %res:2 = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %addr0, %out = %out0) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) : i32 {
-      %use = "tta.indirect_reindex"(%addr, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
-      // expected-error@+2 {{tta-to-memref: unsupported address chain}}
-      // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
-      %v = "tta.load"(%use) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
-      "tta.store"(%out, %v) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>, tensor<4xf32>) -> ()
-      %next = "tta.advance"(%addr) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
-      %next_out = "tta.advance"(%out) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
-      scf.yield %next, %next_out : !tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>
-    }
-    tt.return
-  }
-}
-
-// -----
-
-module {
   tt.func @unsupported_address_chain(%src: !tt.ptr<f32>) {
     %range = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %base = tt.splat %src : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>

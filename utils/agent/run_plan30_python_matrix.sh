@@ -24,6 +24,8 @@ run_pytest_case "plan30_tta_to_memref_loop_indirect_seed" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_seed"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_recurrence" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_recurrence"
+run_pytest_case "plan30_tta_to_memref_loop_derived_indirect_use" \
+  "python/tests/test_tta_to_memref.py::test_loop_derived_indirect_use"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_dynamic_lower_bound" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_no_seed_dynamic_lower_bound"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_dynamic_step" \

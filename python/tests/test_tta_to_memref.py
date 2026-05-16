@@ -61,6 +61,18 @@ def loop_indirect_recurrence_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
 
 
 @triton.jit
+def loop_derived_indirect_use_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + tl.arange(0, 4)
+    out_ptrs = dst_ptr + tl.arange(0, 4)
+    for _ in range(n_iters):
+        values = tl.load(in_ptrs + idx)
+        tl.store(out_ptrs + idx, values)
+        in_ptrs = in_ptrs + 1
+        out_ptrs = out_ptrs + 1
+
+
+@triton.jit
 def loop_indirect_no_seed_dynamic_lower_bound_kernel(src_ptr, dst_ptr, idx_ptr,
                                                      lb: int, n_iters: int):
     idx = tl.load(idx_ptr + tl.arange(0, 4))
@@ -198,6 +210,25 @@ def test_loop_indirect_recurrence():
         out_offsets = out_offsets + 4
         in_offsets = in_offsets + step
         out_offsets = out_offsets + step
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_derived_indirect_use():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([0, 1, 2, 3], device=DEVICE, dtype=torch.int32)
+
+    loop_derived_indirect_use_kernel[(1,)](src, dst, idx, 2)
+
+    expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    in_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    out_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    step_offsets = idx.to(torch.int64)
+    for _ in range(2):
+        expected[out_offsets + step_offsets] = src[in_offsets + step_offsets]
+        in_offsets = in_offsets + 1
+        out_offsets = out_offsets + 1
 
     torch.testing.assert_close(dst, expected)
 

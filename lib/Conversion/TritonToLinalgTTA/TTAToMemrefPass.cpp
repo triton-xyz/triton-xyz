@@ -145,9 +145,6 @@ struct AddressStepInfo {
 static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value);
 static FailureOr<LoopProgression>
 getSupportedLoopProgression(ForIterArgInfo info);
-static FailureOr<SmallVector<OpFoldResult>>
-collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
-                           ConversionPatternRewriter &rewriter);
 static FailureOr<AddressStepInfo>
 collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
                        ConversionPatternRewriter &rewriter);
@@ -523,70 +520,6 @@ static FailureOr<Rank1WrapSegments> buildRank1WrapSegments(
   return segments;
 }
 
-static FailureOr<SmallVector<OpFoldResult>>
-collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
-                           ConversionPatternRewriter &rewriter) {
-  auto collectDeltas =
-      [&](auto &&self, Value current) -> FailureOr<SmallVector<OpFoldResult>> {
-    if (current == root) {
-      SmallVector<OpFoldResult> zeros;
-      zeros.reserve(rank);
-      for (int64_t i = 0; i < rank; ++i) {
-        zeros.push_back(rewriter.getIndexAttr(0));
-      }
-      return zeros;
-    }
-
-    if (auto imported = current.getDefiningOp<tta::FromTTPtrOp>()) {
-      return self(self, imported.getSource());
-    }
-
-    if (auto advance = current.getDefiningOp<tta::AdvanceOp>()) {
-      auto maybeOffsets = self(self, advance.getAddress());
-      if (failed(maybeOffsets)) {
-        return failure();
-      }
-
-      auto deltas = advance.getMixedDeltas();
-      if (static_cast<int64_t>(deltas.size()) != rank) {
-        return failure();
-      }
-
-      SmallVector<OpFoldResult> composed = *maybeOffsets;
-      for (auto [i, delta] : llvm::enumerate(deltas)) {
-        composed[i] = addOFRs(composed[i], delta, loc, rewriter);
-      }
-      return composed;
-    }
-
-    if (auto reindex = current.getDefiningOp<tta::ReindexOp>()) {
-      auto maybeOffsets = self(self, reindex.getAddress());
-      if (failed(maybeOffsets)) {
-        return failure();
-      }
-
-      auto reindexOffsets = reindex.getMixedOffsets();
-      if (static_cast<int64_t>(reindexOffsets.size()) != rank) {
-        return failure();
-      }
-
-      SmallVector<OpFoldResult> composed = *maybeOffsets;
-      for (auto [i, offset] : llvm::enumerate(reindexOffsets)) {
-        composed[i] = addOFRs(composed[i], offset, loc, rewriter);
-      }
-      return composed;
-    }
-
-    if (current.getDefiningOp<tta::IndirectReindexOp>()) {
-      return failure();
-    }
-
-    return failure();
-  };
-
-  return collectDeltas(collectDeltas, value);
-}
-
 static FailureOr<AddressStepInfo>
 collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
                        ConversionPatternRewriter &rewriter) {
@@ -655,6 +588,105 @@ collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
   };
 
   return collectStep(collectStep, value);
+}
+
+static FailureOr<AddressDescriptor> applyAddressStepInfoToDescriptor(
+    AddressDescriptor descriptor, const AddressStepInfo &stepInfo, Location loc,
+    ConversionPatternRewriter &rewriter,
+    std::optional<StringRef> *failureReason = nullptr) {
+  int64_t rank = static_cast<int64_t>(descriptor.dims.size());
+  if (static_cast<int64_t>(stepInfo.offsets.size()) != rank) {
+    setFailureReason(failureReason, "unsupported address chain");
+    return failure();
+  }
+
+  for (auto [i, offset] : llvm::enumerate(stepInfo.offsets)) {
+    descriptor.dims[i].offset =
+        addOFRs(descriptor.dims[i].offset, offset, loc, rewriter);
+  }
+
+  for (const IndirectDimInfo &info : stepInfo.indirects) {
+    int64_t dim = info.dim;
+    if (dim < 0 || dim >= rank) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    auto maybeIndex = castIndirectIndexToIndex(info.index, loc, rewriter);
+    if (failed(maybeIndex)) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    auto indexType = dyn_cast<RankedTensorType>((*maybeIndex).getType());
+    if (!indexType || indexType.getRank() != 1 ||
+        !indexType.getElementType().isIndex()) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    Value mergedMask = info.mask;
+    if (mergedMask) {
+      auto maskType = dyn_cast<RankedTensorType>(mergedMask.getType());
+      if (!maskType || maskType.getRank() != 1 ||
+          !maskType.getElementType().isInteger(1) ||
+          maskType.getShape() != indexType.getShape()) {
+        setFailureReason(failureReason, "unsupported address chain");
+        return failure();
+      }
+    }
+
+    auto &dimRule = descriptor.dims[dim];
+    if (!dimRule.indirect.has_value()) {
+      dimRule.indirect =
+          mlir::triton::address::IndirectIndexRule{*maybeIndex, mergedMask};
+      continue;
+    }
+
+    auto maybeSeedIndex =
+        castIndirectIndexToIndex(dimRule.indirect->indexTensor, loc, rewriter);
+    if (failed(maybeSeedIndex)) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    auto seedType = dyn_cast<RankedTensorType>((*maybeSeedIndex).getType());
+    if (!seedType || seedType.getRank() != 1 ||
+        !seedType.getElementType().isIndex() ||
+        seedType.getShape() != indexType.getShape()) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    dimRule.indirect->indexTensor =
+        arith::AddIOp::create(rewriter, loc, *maybeSeedIndex, *maybeIndex)
+            .getResult();
+
+    Value seedMask = dimRule.indirect->maskTensor;
+    if (!seedMask) {
+      dimRule.indirect->maskTensor = mergedMask;
+      continue;
+    }
+    if (!mergedMask) {
+      continue;
+    }
+
+    auto seedMaskType = dyn_cast<RankedTensorType>(seedMask.getType());
+    auto mergedMaskType = dyn_cast<RankedTensorType>(mergedMask.getType());
+    if (!seedMaskType || !mergedMaskType || seedMaskType.getRank() != 1 ||
+        mergedMaskType.getRank() != 1 ||
+        !seedMaskType.getElementType().isInteger(1) ||
+        !mergedMaskType.getElementType().isInteger(1) ||
+        seedMaskType.getShape() != mergedMaskType.getShape()) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    dimRule.indirect->maskTensor =
+        arith::AndIOp::create(rewriter, loc, seedMask, mergedMask).getResult();
+  }
+
+  return descriptor;
 }
 
 static FailureOr<AddressDescriptor> collectAddressDescriptorWithCommonAnalysis(
@@ -1044,14 +1076,15 @@ collectAddressDescriptor(Value address, Location loc,
       }
 
       int64_t rank = static_cast<int64_t>(maybeRootDescriptor->dims.size());
-      auto maybeViewOffsets =
-          collectAddressOffsetDeltas(address, root, rank, loc, rewriter);
-      if (succeeded(maybeViewOffsets)) {
-        for (auto [i, offset] : llvm::enumerate(*maybeViewOffsets)) {
-          maybeRootDescriptor->dims[i].offset = addOFRs(
-              maybeRootDescriptor->dims[i].offset, offset, loc, rewriter);
+      auto maybeViewStepInfo =
+          collectAddressStepInfo(address, root, rank, loc, rewriter);
+      if (succeeded(maybeViewStepInfo)) {
+        auto maybeViewDescriptor = applyAddressStepInfoToDescriptor(
+            *maybeRootDescriptor, *maybeViewStepInfo, loc, rewriter,
+            failureReason);
+        if (succeeded(maybeViewDescriptor)) {
+          return *maybeViewDescriptor;
         }
-        return *maybeRootDescriptor;
       }
     }
   }
