@@ -2320,11 +2320,6 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
     if (gatherDim < 0 || gatherDim >= loadedInfo->rank) {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(
-          op.getOperation(),
-          "indirect reindex on block pointer is unsupported");
-    }
     OpFoldResult gatherBaseOffset = descriptor.dims[gatherDim].offset;
 
     auto maybeIndirectIndex =
@@ -2592,11 +2587,6 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
     int64_t gatherDim = singleIndirect->dim;
     if (gatherDim < 0 || gatherDim >= loadedInfo->rank) {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
-    }
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(
-          op.getOperation(),
-          "indirect reindex on block pointer is unsupported");
     }
     OpFoldResult gatherBaseOffset = descriptor.dims[gatherDim].offset;
 

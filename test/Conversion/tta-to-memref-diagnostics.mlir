@@ -19,20 +19,6 @@ module {
 // -----
 
 module {
-  tt.func @indirect_on_block_ptr(%base: !tt.ptr<f16>) {
-    %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %addr = tta.make_addr %base to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [4, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
-    %idx = "tta.indirect_reindex"(%addr, %offsets) <{indirect_dim = 0 : i32}> : (!tta.addr<f16, 2, 1>, tensor<4xi32>) -> !tta.addr<f16, 2, 1>
-    // expected-error@+2 {{tta-to-memref: indirect reindex on block pointer is unsupported}}
-    // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
-    %val = "tta.load"(%idx) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>) -> tensor<4x4xf16>
-    tt.return
-  }
-}
-
-// -----
-
-module {
   tt.func @loop_carried_addr_unsupported_seed(%seed: !tta.addr<f32, 1, 1>, %n: i32) {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
