@@ -23,6 +23,7 @@ export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-1}"
 export TRITON_KERNEL_DUMP="${TRITON_KERNEL_DUMP:-1}"
 export TRITON_DUMP_DIR="$DIR/triton_dump"
 export MLIR_ENABLE_DUMP_DIR="$DIR/triton_xyz_mlir_dump"
+mkdir -p "$TRITON_DUMP_DIR" "$MLIR_ENABLE_DUMP_DIR"
 
 # use TTA pipeline by default; set 0 to disable.
 export TRITON_XYZ_USE_TTA="${TRITON_XYZ_USE_TTA:-1}"

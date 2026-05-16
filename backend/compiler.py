@@ -18,7 +18,10 @@ from triton._C.libtriton import ir, llvm, passes  # ty:ignore
 
 _DUMP_INDEX = 1
 
-MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
+MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "").strip()
+
+if MLIR_ENABLE_DUMP_DIR:
+    Path(MLIR_ENABLE_DUMP_DIR).mkdir(parents=True, exist_ok=True)
 
 if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler", False):
     tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
@@ -27,7 +30,7 @@ if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler"
         prefix="_tt_xyz_compiler_",
         delete=False,
     )
-    tempfile._tt_xyz_tmp_wrapped = True  # ty:ignore
+    tempfile._tt_xyz_tmp_wrapped_compiler = True  # ty:ignore
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
