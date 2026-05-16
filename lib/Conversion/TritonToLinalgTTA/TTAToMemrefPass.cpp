@@ -134,7 +134,7 @@ struct ForIterArgInfo {
 
 struct LoopProgression {
   Value lowerBound;
-  int64_t step;
+  Value step;
 };
 
 struct AddressStepInfo {
@@ -144,7 +144,7 @@ struct AddressStepInfo {
 
 static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value);
 static FailureOr<LoopProgression>
-getConstantLoopProgression(ForIterArgInfo info);
+getSupportedLoopProgression(ForIterArgInfo info);
 static FailureOr<SmallVector<OpFoldResult>>
 collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
                            ConversionPatternRewriter &rewriter);
@@ -691,10 +691,10 @@ collectAddressDescriptor(Value address, Location loc,
       succeeded(maybeIterArgInfo)) {
     ForIterArgInfo iterArgInfo = *maybeIterArgInfo;
     FailureOr<LoopProgression> maybeProgression =
-        getConstantLoopProgression(iterArgInfo);
+        getSupportedLoopProgression(iterArgInfo);
     if (failed(maybeProgression)) {
       if (failureReason) {
-        *failureReason = StringRef("non-constant or non-positive loop step");
+        *failureReason = StringRef("non-positive constant loop step");
       }
       return failure();
     }
@@ -753,11 +753,13 @@ collectAddressDescriptor(Value address, Location loc,
           arith::SubIOp::create(rewriter, loc, loopIndexInt, lowerBound)
               .getResult();
     }
-    if (progression.step != 1) {
-      Value step = arith::ConstantOp::create(
-                       rewriter, loc,
-                       rewriter.getIntegerAttr(workIntType, progression.step))
-                       .getResult();
+    auto maybeStep = getConstantIntValue(progression.step);
+    if (!maybeStep || *maybeStep != 1) {
+      Value step = progression.step;
+      if (step.getType().isIndex()) {
+        step = arith::IndexCastOp::create(rewriter, loc, workIntType, step)
+                   .getResult();
+      }
       loopIndexInt =
           arith::DivSIOp::create(rewriter, loc, loopIndexInt, step).getResult();
     }
@@ -1101,13 +1103,14 @@ static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value) {
 }
 
 static FailureOr<LoopProgression>
-getConstantLoopProgression(ForIterArgInfo info) {
-  auto step = getConstantIntValue(info.forOp.getStep());
-  if (!step || *step <= 0) {
+getSupportedLoopProgression(ForIterArgInfo info) {
+  Value step = info.forOp.getStep();
+  auto maybeStep = getConstantIntValue(step);
+  if (maybeStep && *maybeStep <= 0) {
     return failure();
   }
 
-  return LoopProgression{info.forOp.getLowerBound(), *step};
+  return LoopProgression{info.forOp.getLowerBound(), step};
 }
 
 static Value stripAddressViewLikeChain(Value address) {
@@ -1190,7 +1193,7 @@ static bool hasUnsupportedLoopCarriedAddr(Value ptr) {
   }
 
   ForIterArgInfo iterArgInfo = *maybeIterArgInfo;
-  if (failed(getConstantLoopProgression(iterArgInfo))) {
+  if (failed(getSupportedLoopProgression(iterArgInfo))) {
     return true;
   }
 

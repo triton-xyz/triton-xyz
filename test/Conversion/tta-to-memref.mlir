@@ -274,16 +274,16 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 3 : i64
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 2 : i64
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 2 : i64
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 3 : i64
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 3 : index
 // CHECK:           %[[CONSTANT_3:.*]] = arith.constant 2 : index
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG1]] to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
 // CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[ARG2]] step %[[CONSTANT_3]] iter_args(%[[VAL_1:.*]] = %[[MAKE_ADDR_0]], %[[VAL_2:.*]] = %[[MAKE_ADDR_1]]) -> (!tta.addr<f32, 1, 1>, !tta.addr<f32, 1, 1>) {
 // CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[VAL_0]] : index to i64
-// CHECK:             %[[SUBI_0:.*]] = arith.subi %[[INDEX_CAST_0]], %[[CONSTANT_0]] : i64
-// CHECK:             %[[DIVSI_0:.*]] = arith.divsi %[[SUBI_0]], %[[CONSTANT_1]] : i64
+// CHECK:             %[[SUBI_0:.*]] = arith.subi %[[INDEX_CAST_0]], %[[CONSTANT_1]] : i64
+// CHECK:             %[[DIVSI_0:.*]] = arith.divsi %[[SUBI_0]], %[[CONSTANT_0]] : i64
 // CHECK:             %[[INDEX_CAST_1:.*]] = arith.index_cast %[[DIVSI_0]] : i64 to index
 // CHECK:             %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
 // CHECK:             %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
