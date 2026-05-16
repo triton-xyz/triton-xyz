@@ -1458,7 +1458,7 @@ buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
           .getResult();
     }
     if (kind == "xchg") {
-      return value;
+      return std::nullopt;
     }
     return std::nullopt;
   }
@@ -1483,7 +1483,7 @@ buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
       return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
     }
     if (kind == "xchg") {
-      return value;
+      return std::nullopt;
     }
     return std::nullopt;
   }
@@ -2705,19 +2705,66 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                                 rankedType, *maybeBaseMemref)
                              .getResult();
 
+    StringRef kind = adaptor.getKindAttr().getValue();
+    if (kind == "xchg") {
+      if (Value mask = adaptor.getMask()) {
+        if (!mask.getType().isInteger(1)) {
+          return emitTTAToMemrefError(op.getOperation(),
+                                      "tta.atomic mask must be scalar i1");
+        }
+
+        if (auto constMask = mask.getDefiningOp<arith::ConstantOp>()) {
+          if (auto boolAttr = dyn_cast<BoolAttr>(constMask.getValue())) {
+            if (boolAttr.getValue()) {
+              auto atomic = memref::AtomicRMWOp::create(
+                  rewriter, op.getLoc(), arith::AtomicRMWKind::assign,
+                  adaptor.getValue(), rankedMemref, ValueRange{totalOffset});
+              rewriter.replaceOp(op, atomic.getResult());
+              return success();
+            }
+
+            Value current =
+                memref::LoadOp::create(rewriter, op.getLoc(), rankedMemref,
+                                       ValueRange{totalOffset})
+                    .getResult();
+            rewriter.replaceOp(op, current);
+            return success();
+          }
+        }
+
+        auto generic = memref::GenericAtomicRMWOp::create(
+            rewriter, op.getLoc(), rankedMemref, totalOffset);
+        Block &body = generic.getRegion().front();
+        rewriter.setInsertionPointToStart(&body);
+        Value current = body.getArgument(0);
+        Value finalValue = arith::SelectOp::create(
+                               rewriter, op.getLoc(), mask, adaptor.getValue(),
+                               current)
+                               .getResult();
+        memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+        rewriter.replaceOp(op, generic.getResult());
+        return success();
+      }
+
+      auto atomic = memref::AtomicRMWOp::create(
+          rewriter, op.getLoc(), arith::AtomicRMWKind::assign,
+          adaptor.getValue(), rankedMemref, ValueRange{totalOffset});
+      rewriter.replaceOp(op, atomic.getResult());
+      return success();
+    }
+
     auto generic = memref::GenericAtomicRMWOp::create(
         rewriter, op.getLoc(), rankedMemref, totalOffset);
     Block &body = generic.getRegion().front();
     rewriter.setInsertionPointToStart(&body);
 
     Value current = body.getArgument(0);
-    auto maybeUpdated = buildAtomicUpdateFromKind(
-        rewriter, op.getLoc(), adaptor.getKindAttr().getValue(), current,
-        adaptor.getValue());
+    auto maybeUpdated = buildAtomicUpdateFromKind(rewriter, op.getLoc(), kind,
+                                                  current, adaptor.getValue());
     if (!maybeUpdated.has_value()) {
       rewriter.eraseOp(generic);
       std::string message = "atomic kind is unsupported: ";
-      message += adaptor.getKindAttr().getValue().str();
+      message += kind.str();
       return emitTTAToMemrefError(op.getOperation(), message);
     }
 

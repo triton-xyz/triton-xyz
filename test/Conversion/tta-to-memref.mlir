@@ -1276,10 +1276,7 @@ module {
 // CHECK:             %[[SELECT_0:.*]] = arith.select %[[ARG3]], %[[ADDI_0]], %[[VAL_0]] : i32
 // CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
 // CHECK:           }
-// CHECK:           %[[GENERIC_ATOMIC_RMW_1:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_1:.*]]: i32):
-// CHECK:             memref.atomic_yield %[[GENERIC_ATOMIC_RMW_0]] : i32
-// CHECK:           }
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw assign %[[GENERIC_ATOMIC_RMW_0]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_basic(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %mask: i1) {
