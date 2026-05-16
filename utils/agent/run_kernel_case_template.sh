@@ -13,25 +13,13 @@ set -euo pipefail
 AGENT_DUMP_DIR="${AGENT_DUMP_DIR:-run_kernel_case}"
 KERNEL_PY="${KERNEL_PY:-python/tests/test_vec_add.py}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
-
-DIR="debug_agent/${AGENT_DUMP_DIR}"
-mkdir -p "$DIR"
-
-export TRITON_HOME="$DIR"
-export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
-export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-1}"
-export TRITON_KERNEL_DUMP="${TRITON_KERNEL_DUMP:-1}"
-export TRITON_DUMP_DIR="$DIR/triton_dump"
-export MLIR_ENABLE_DUMP_DIR="$DIR/triton_xyz_mlir_dump"
-mkdir -p "$TRITON_DUMP_DIR" "$MLIR_ENABLE_DUMP_DIR"
-
-# use TTA pipeline by default; set 0 to disable.
-export TRITON_XYZ_USE_TTA="${TRITON_XYZ_USE_TTA:-1}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/python_test_env.sh"
 
 echo "[run-kernel-template] AGENT_DUMP_DIR=$AGENT_DUMP_DIR"
 echo "[run-kernel-template] KERNEL_PY=$KERNEL_PY"
-echo "[run-kernel-template] LOG=$DIR/compile.log"
+echo "[run-kernel-template] LOG=$AGENT_DUMP_ROOT/compile.log"
 echo "[run-kernel-template] TRITON_DUMP_DIR=$TRITON_DUMP_DIR"
 echo "[run-kernel-template] MLIR_ENABLE_DUMP_DIR=$MLIR_ENABLE_DUMP_DIR"
 
-"$PYTHON_BIN" "$KERNEL_PY" "$@" 2>&1 | tee "$DIR/compile.log"
+"$PYTHON_BIN" "$KERNEL_PY" "$@" 2>&1 | tee "$AGENT_DUMP_ROOT/compile.log"
