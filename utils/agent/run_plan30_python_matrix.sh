@@ -20,6 +20,8 @@ run_pytest_case "plan30_tta_to_memref_atomic_cas_scalar" \
   "python/tests/test_tta_to_memref.py::test_atomic_cas_scalar"
 run_pytest_case "plan30_tta_to_memref_indirect_reindex_2d" \
   "python/tests/test_tta_to_memref.py::test_indirect_reindex_2d"
+run_pytest_case "plan30_tta_to_memref_from_tt_ptr_indirect" \
+  "python/tests/test_tta_to_memref.py::test_from_tt_ptr_indirect"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_seed" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_seed"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_recurrence" \

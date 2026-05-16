@@ -692,7 +692,9 @@ static FailureOr<AddressDescriptor> applyAddressStepInfoToDescriptor(
 static FailureOr<AddressDescriptor> collectAddressDescriptorWithCommonAnalysis(
     Value address, Location loc, ConversionPatternRewriter &rewriter,
     std::optional<StringRef> *failureReason = nullptr) {
-  if (!isAddressChainRootedAtMakeAddr(address)) {
+  bool rootedAtMakeAddr = isAddressChainRootedAtMakeAddr(address);
+  auto imported = address.getDefiningOp<tta::FromTTPtrOp>();
+  if (!rootedAtMakeAddr && !imported) {
     if (failureReason) {
       *failureReason = StringRef("unsupported address chain");
     }
@@ -715,6 +717,7 @@ static FailureOr<AddressDescriptor>
 collectAddressDescriptor(Value address, Location loc,
                          ConversionPatternRewriter &rewriter,
                          std::optional<StringRef> *failureReason = nullptr) {
+  Value analysisAddress = address;
   if (auto imported = address.getDefiningOp<tta::FromTTPtrOp>()) {
     address = imported.getSource();
   }
@@ -1090,7 +1093,7 @@ collectAddressDescriptor(Value address, Location loc,
   }
 
   if (auto maybeDescriptor = collectAddressDescriptorWithCommonAnalysis(
-          address, loc, rewriter, failureReason);
+          analysisAddress, loc, rewriter, failureReason);
       succeeded(maybeDescriptor)) {
     return *maybeDescriptor;
   }

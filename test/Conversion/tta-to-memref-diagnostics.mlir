@@ -95,21 +95,6 @@ module {
 // -----
 
 module {
-  tt.func @unsupported_address_chain(%src: !tt.ptr<f32>) {
-    %range = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %base = tt.splat %src : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
-    %ptrs = tt.addptr %base, %range : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
-    %ptrs_i = tta.from_tt_ptr %ptrs : tensor<4x!tt.ptr<f32>> to !tta.addr<f32, 1, 1>
-    // expected-error@+2 {{tta-to-memref: unsupported address chain}}
-    // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
-    %val = "tta.load"(%ptrs_i) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
-    tt.return
-  }
-}
-
-// -----
-
-module {
   tt.func @atomic_indirect_on_block_ptr(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
     %indices = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %addr = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>

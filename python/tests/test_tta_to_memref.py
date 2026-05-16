@@ -73,6 +73,15 @@ def loop_derived_indirect_use_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
 
 
 @triton.jit
+def from_tt_ptr_indirect_kernel(src_ptr, dst_ptr):
+    offsets = tl.arange(0, 4)
+    src_ptrs = src_ptr + offsets
+    dst_ptrs = dst_ptr + offsets
+    values = tl.load(src_ptrs)
+    tl.store(dst_ptrs, values)
+
+
+@triton.jit
 def loop_indirect_no_seed_dynamic_lower_bound_kernel(src_ptr, dst_ptr, idx_ptr,
                                                      lb: int, n_iters: int):
     idx = tl.load(idx_ptr + tl.arange(0, 4))
@@ -230,6 +239,17 @@ def test_loop_derived_indirect_use():
         in_offsets = in_offsets + 1
         out_offsets = out_offsets + 1
 
+    torch.testing.assert_close(dst, expected)
+
+
+def test_from_tt_ptr_indirect():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+
+    from_tt_ptr_indirect_kernel[(1,)](src, dst)
+
+    expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    expected[:4] = src[:4]
     torch.testing.assert_close(dst, expected)
 
 
