@@ -60,6 +60,16 @@ def loop_indirect_recurrence_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
         out_ptrs = out_ptrs + idx
 
 
+@triton.jit
+def wrap_dynamic_mask_kernel(src_ptr, dst_ptr, boundary: int):
+    base = tl.arange(0, 4)
+    src_offsets = (base + 1) % boundary
+    dst_offsets = (base + 2) % boundary
+    mask = base != 1
+    values = tl.load(src_ptr + src_offsets, mask=mask, other=-3.0)
+    tl.store(dst_ptr + dst_offsets, values, mask=mask)
+
+
 def test_atomic_add_xchg_masked_true():
     values = torch.arange(16, device=DEVICE, dtype=torch.int32)
 
@@ -147,5 +157,22 @@ def test_loop_indirect_recurrence():
         out_offsets = out_offsets + 4
         in_offsets = in_offsets + step
         out_offsets = out_offsets + step
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_wrap_dynamic_mask():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    boundary = 5
+
+    wrap_dynamic_mask_kernel[(1,)](src, dst, boundary)
+
+    expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    base = torch.arange(4, device=DEVICE, dtype=torch.int64)
+    src_offsets = (base + 1) % boundary
+    dst_offsets = (base + 2) % boundary
+    mask = base != 1
+    expected[dst_offsets[mask]] = src[src_offsets[mask]]
 
     torch.testing.assert_close(dst, expected)

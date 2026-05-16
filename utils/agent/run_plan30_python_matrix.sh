@@ -24,3 +24,5 @@ run_pytest_case "plan30_tta_to_memref_loop_indirect_seed" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_seed"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_recurrence" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_recurrence"
+run_pytest_case "plan30_tta_to_memref_wrap_dynamic_mask" \
+  "python/tests/test_tta_to_memref.py::test_wrap_dynamic_mask"
