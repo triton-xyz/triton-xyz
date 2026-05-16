@@ -23,12 +23,3 @@ if triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_de
 else
   echo "error in $(utils/generate-test-checks.py), needs recheck"
 fi
-ARGS=(--split-input-file --triton-to-linalg-tta="tta-pre-rewrite-tensor-pointer=false")
-# another check `PREPASS`
-PREFIX="PREPASS"
-SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'
-if triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR >/dev/null; then
-  triton-xyz-opt "${ARGS[@]}" $MLIR | utils/generate-test-checks.py -i --source_delim_regex $SOURCE_DELIM_REGEX --strict_name_re 1 --check-prefix $PREFIX --source $MLIR
-else
-  echo "error in $(utils/generate-test-checks.py), needs recheck"
-fi
