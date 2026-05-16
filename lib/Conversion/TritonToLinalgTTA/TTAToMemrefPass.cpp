@@ -133,7 +133,7 @@ struct ForIterArgInfo {
 };
 
 struct LoopProgression {
-  int64_t lowerBound;
+  Value lowerBound;
   int64_t step;
 };
 
@@ -694,7 +694,7 @@ collectAddressDescriptor(Value address, Location loc,
         getConstantLoopProgression(iterArgInfo);
     if (failed(maybeProgression)) {
       if (failureReason) {
-        *failureReason = StringRef("non-constant loop progression");
+        *failureReason = StringRef("non-constant or non-positive loop step");
       }
       return failure();
     }
@@ -741,12 +741,14 @@ collectAddressDescriptor(Value address, Location loc,
     }
 
     Value loopIndexInt = inductionVarInt;
-    if (progression.lowerBound != 0) {
-      Value lowerBound =
-          arith::ConstantOp::create(
-              rewriter, loc,
-              rewriter.getIntegerAttr(workIntType, progression.lowerBound))
-              .getResult();
+    auto maybeLowerBound = getConstantIntValue(progression.lowerBound);
+    if (!maybeLowerBound || *maybeLowerBound != 0) {
+      Value lowerBound = progression.lowerBound;
+      if (lowerBound.getType().isIndex()) {
+        lowerBound =
+            arith::IndexCastOp::create(rewriter, loc, workIntType, lowerBound)
+                .getResult();
+      }
       loopIndexInt =
           arith::SubIOp::create(rewriter, loc, loopIndexInt, lowerBound)
               .getResult();
@@ -1100,13 +1102,12 @@ static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value) {
 
 static FailureOr<LoopProgression>
 getConstantLoopProgression(ForIterArgInfo info) {
-  auto lowerBound = getConstantIntValue(info.forOp.getLowerBound());
   auto step = getConstantIntValue(info.forOp.getStep());
-  if (!lowerBound || !step || *step <= 0) {
+  if (!step || *step <= 0) {
     return failure();
   }
 
-  return LoopProgression{*lowerBound, *step};
+  return LoopProgression{info.forOp.getLowerBound(), *step};
 }
 
 static Value stripAddressViewLikeChain(Value address) {
@@ -2737,9 +2738,8 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
         Block &body = generic.getRegion().front();
         rewriter.setInsertionPointToStart(&body);
         Value current = body.getArgument(0);
-        Value finalValue = arith::SelectOp::create(
-                               rewriter, op.getLoc(), mask, adaptor.getValue(),
-                               current)
+        Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
+                                                   adaptor.getValue(), current)
                                .getResult();
         memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
         rewriter.replaceOp(op, generic.getResult());
