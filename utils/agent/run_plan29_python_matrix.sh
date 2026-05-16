@@ -50,6 +50,10 @@ run_pytest_case "plan29_structured_row_major_2d" \
 
 run_pytest_case "plan29_unstructured_masked_gather_scatter" \
   "python/tests/test_triton_to_unstructured.py::test_masked_gather_scatter"
+run_pytest_case "plan29_unstructured_scalar_mask_fallback_false" \
+  "python/tests/test_triton_to_unstructured.py::test_scalar_mask_fallback[False]"
+run_pytest_case "plan29_unstructured_scalar_mask_fallback_true" \
+  "python/tests/test_triton_to_unstructured.py::test_scalar_mask_fallback[True]"
 run_pytest_case "plan29_unstructured_masked_2d_fallback" \
   "python/tests/test_triton_to_unstructured.py::test_masked_2d_fallback"
 run_pytest_case "plan29_unstructured_offset_width_upgrade" \

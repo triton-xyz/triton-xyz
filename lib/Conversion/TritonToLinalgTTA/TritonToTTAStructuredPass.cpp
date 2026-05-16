@@ -75,6 +75,15 @@ analyzeAndEmitAddress(Value ptrLike, Location loc, PatternRewriter &rewriter,
 template <typename OpTy>
 static std::optional<StringRef> getEarlyFallbackReason(OpTy op) {
   if (Value mask = op.getMask()) {
+    if (auto splat = mask.template getDefiningOp<triton::SplatOp>()) {
+      if (splat.getSrc().getType().isInteger(1)) {
+        // Structured tta.load/store only encode extent-like mask_dims.
+        // A splatted scalar i1 is a runtime predicate and must stay in the
+        // unstructured route so false does not collapse to a full extent.
+        return "scalar_mask_requires_unstructured";
+      }
+    }
+
     auto maskType = dyn_cast<RankedTensorType>(mask.getType());
     if (!maskType || maskType.getRank() != 1) {
       return "mask_rank_not_1d";

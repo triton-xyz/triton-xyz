@@ -138,3 +138,36 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @fallback_scalar_mask_requires_unstructured(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<4xf32>
+// CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+// CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[SPLAT_0]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           %[[SPLAT_1:.*]] = tt.splat %[[ARG2]] : i1 -> tensor<4xi1>
+// CHECK:           %[[LOAD_0:.*]] = tt.load %[[ADDPTR_0]], %[[SPLAT_1]], %[[CONSTANT_0]] {tta.fallback, tta.fallback_reason = "scalar_mask_requires_unstructured"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[SPLAT_2:.*]] = tt.splat %[[ARG1]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+// CHECK:           %[[ADDPTR_1:.*]] = tt.addptr %[[SPLAT_2]], %[[MAKE_RANGE_0]] : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+// CHECK:           tt.store %[[ADDPTR_1]], %[[LOAD_0]], %[[SPLAT_1]] {tta.fallback, tta.fallback_reason = "scalar_mask_requires_unstructured"} : tensor<4x!tt.ptr<f32>>
+// CHECK:           tt.return
+// CHECK:         }
+  tt.func @fallback_scalar_mask_requires_unstructured(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i1) {
+    %range = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+    %in_ptrs = tt.addptr %in_base, %range : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    %mask = tt.splat %arg2 : i1 -> tensor<4xi1>
+    %zero = arith.constant 0.0 : f32
+    %other = tt.splat %zero : f32 -> tensor<4xf32>
+    %val = tt.load %in_ptrs, %mask, %other : tensor<4x!tt.ptr<f32>>
+    %out_base = tt.splat %arg1 : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
+    %out_ptrs = tt.addptr %out_base, %range : tensor<4x!tt.ptr<f32>>, tensor<4xi32>
+    tt.store %out_ptrs, %val, %mask : tensor<4x!tt.ptr<f32>>
+    tt.return
+  }
+}

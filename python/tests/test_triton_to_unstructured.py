@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 import triton
@@ -13,6 +14,13 @@ def masked_gather_scatter_kernel(src_ptr, dst_ptr, limit: int):
     mask = offsets < limit
     values = tl.load(src_ptr + offsets, mask=mask, other=0.0)
     tl.store(dst_ptr + offsets, values, mask=mask)
+
+
+@triton.jit
+def scalar_mask_fallback_kernel(src_ptr, dst_ptr, pred: tl.int1):
+    offsets = tl.arange(0, 4)
+    values = tl.load(src_ptr + offsets, mask=pred, other=0.0)
+    tl.store(dst_ptr + offsets, values, mask=pred)
 
 
 @triton.jit
@@ -80,6 +88,20 @@ def test_masked_gather_scatter():
     masked_gather_scatter_kernel[(1,)](src, dst, limit)
 
     expected = torch.tensor([1.0, 2.0, 3.0, -1.0], device=DEVICE, dtype=torch.float32)
+    torch.testing.assert_close(dst, expected)
+
+
+@torch.no_grad()
+@pytest.mark.parametrize("pred", [False, True])
+def test_scalar_mask_fallback(pred: bool):
+    src = torch.arange(4, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((4,), -1.0, device=DEVICE, dtype=torch.float32)
+
+    scalar_mask_fallback_kernel[(1,)](src, dst, pred)
+
+    expected = torch.full((4,), -1.0, device=DEVICE, dtype=torch.float32)
+    if pred:
+        expected.copy_(src)
     torch.testing.assert_close(dst, expected)
 
 
