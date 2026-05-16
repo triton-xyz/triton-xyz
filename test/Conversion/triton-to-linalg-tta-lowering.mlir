@@ -143,3 +143,58 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   func.func @masked_2d_fallback(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK:           %[[OFFSETS:.+]] = tensor.collapse_shape
+// CHECK:           %[[MASK:.+]] = tensor.collapse_shape
+// CHECK:           %[[ALLOC:.+]] = memref.alloc() : memref<8xf32>
+// CHECK:           linalg.fill ins(%[[CST:.+]] : f32) outs(%[[ALLOC]] : memref<8xf32>)
+// CHECK:           scf.for
+// CHECK:             %[[MASK_ELEM:.+]] = tensor.extract %[[MASK]]
+// CHECK:             scf.if %[[MASK_ELEM]]
+// CHECK:               %[[OFFSET_ELEM:.+]] = tensor.extract %[[OFFSETS]]
+// CHECK:               %[[SRC_MEMREF:.+]] = memref.reinterpret_cast %[[ARG0]] to offset:
+// CHECK:               %[[DST_SUBVIEW:.+]] = memref.subview %[[ALLOC]]
+// CHECK:               memref.copy %[[SRC_MEMREF]], %[[DST_SUBVIEW]]
+// CHECK:           %[[TENSOR:.+]] = bufferization.to_tensor %[[ALLOC]] restrict writable : memref<8xf32> to tensor<8xf32>
+// CHECK:           %[[OFFSETS_2:.+]] = tensor.collapse_shape
+// CHECK:           %[[MASK_2:.+]] = tensor.collapse_shape
+// CHECK:           scf.for
+// CHECK:             %[[MASK_ELEM_2:.+]] = tensor.extract %[[MASK_2]]
+// CHECK:             scf.if %[[MASK_ELEM_2]]
+// CHECK:               %[[OFFSET_ELEM_2:.+]] = tensor.extract %[[OFFSETS_2]]
+// CHECK:               %[[OUT_MEMREF:.+]] = memref.reinterpret_cast %[[ARG1]] to offset:
+// CHECK:               %[[SLICE:.+]] = tensor.extract_slice %[[TENSOR]]
+// CHECK:               bufferization.materialize_in_destination %[[SLICE]] in writable %[[OUT_MEMREF]]
+// CHECK:           return
+// CHECK:         }
+  tt.func @masked_2d_fallback(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, %arg2: i32) {
+    %row = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
+    %col = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
+    %row_exp = tt.expand_dims %row {axis = 1 : i32} : tensor<2xi32> -> tensor<2x1xi32>
+    %col_exp = tt.expand_dims %col {axis = 0 : i32} : tensor<4xi32> -> tensor<1x4xi32>
+    %row_bcast = tt.broadcast %row_exp : tensor<2x1xi32> -> tensor<2x4xi32>
+    %col_bcast = tt.broadcast %col_exp : tensor<1x4xi32> -> tensor<2x4xi32>
+    %c4 = arith.constant 4 : i32
+    %stride = tt.splat %c4 : i32 -> tensor<2x4xi32>
+    %row_linear = arith.muli %row_bcast, %stride : tensor<2x4xi32>
+    %offsets = arith.addi %row_linear, %col_bcast : tensor<2x4xi32>
+    %in_base = tt.splat %arg0 : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
+    %in_ptrs = tt.addptr %in_base, %offsets : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
+    %limit = tt.splat %arg2 : i32 -> tensor<2x4xi32>
+    %mask = arith.cmpi slt, %offsets, %limit : tensor<2x4xi32>
+    %zero = arith.constant 0.0 : f32
+    %other = tt.splat %zero : f32 -> tensor<2x4xf32>
+    %val = tt.load %in_ptrs, %mask, %other : tensor<2x4x!tt.ptr<f32>>
+    %out_base = tt.splat %arg1 : !tt.ptr<f32> -> tensor<2x4x!tt.ptr<f32>>
+    %out_ptrs = tt.addptr %out_base, %offsets : tensor<2x4x!tt.ptr<f32>>, tensor<2x4xi32>
+    tt.store %out_ptrs, %val, %mask : tensor<2x4x!tt.ptr<f32>>
+    tt.return
+  }
+}

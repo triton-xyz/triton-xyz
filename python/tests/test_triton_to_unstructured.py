@@ -16,6 +16,16 @@ def masked_gather_scatter_kernel(src_ptr, dst_ptr, limit: int):
 
 
 @triton.jit
+def masked_2d_fallback_kernel(src_ptr, dst_ptr, limit: int):
+    rows = tl.arange(0, 2)[:, None]
+    cols = tl.arange(0, 4)[None, :]
+    offsets = rows * 4 + cols
+    mask = offsets < limit
+    values = tl.load(src_ptr + offsets, mask=mask, other=0.0)
+    tl.store(dst_ptr + offsets, values, mask=mask)
+
+
+@triton.jit
 def offset_width_upgrade_kernel(src_ptr, dst_ptr):
     range_i32 = tl.arange(0, 4)
     offsets_i64 = range_i32.to(tl.int64) + 5
@@ -71,6 +81,20 @@ def test_masked_gather_scatter():
 
     expected = torch.tensor([1.0, 2.0, 3.0, -1.0], device=DEVICE, dtype=torch.float32)
     torch.testing.assert_close(dst, expected)
+
+
+@torch.no_grad()
+def test_masked_2d_fallback():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    for limit in [-3, 0, 3, 8, 13]:
+        dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+
+        masked_2d_fallback_kernel[(1,)](src, dst, limit)
+
+        expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+        clipped = max(0, min(limit, 8))
+        expected[:clipped] = src[:clipped]
+        torch.testing.assert_close(dst, expected)
 
 
 def test_offset_width_upgrade():
