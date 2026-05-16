@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import torch
 
@@ -62,14 +63,16 @@ def softmax(x: torch.Tensor) -> torch.Tensor:
 
 def make_demo_input() -> torch.Tensor:
     torch.manual_seed(0)
-    rows, cols = 37, 781
+    num_threads = int(os.getenv("TRITON_XYZ_NUM_THREADS", "1"))
+    rows = max(1024, num_threads * 256)
+    cols = 781
     return torch.randn((rows, cols), device=DEVICE, dtype=torch.float32)
 
 
-def run_softmax_demo(*, data: str, profile_path: str) -> torch.Tensor:
+def run_softmax_demo(*, data: str, profile_path: Path) -> torch.Tensor:
     x = make_demo_input()
     session = proton.start(
-        profile_path,
+        str(profile_path),
         data=data,
         backend="cpu",
         hook=CPUInstrumentationHook(),
@@ -84,15 +87,15 @@ def run_softmax_demo(*, data: str, profile_path: str) -> torch.Tensor:
 
 
 def run_chrome_trace_demo():
-    output_dir = os.getenv("TRITON_HOME", os.getcwd())
-    profile_path = os.path.join(output_dir, "softmax")
+    output_dir = Path(os.getenv("TRITON_HOME", os.getcwd()))
+    profile_path = output_dir / "softmax"
     run_softmax_demo(data="trace", profile_path=profile_path)
     print(f"chrome trace written to {profile_path}.chrome_trace")
 
 
 def run_hatchet_demo():
-    output_dir = os.getenv("TRITON_HOME", os.getcwd())
-    profile_path = os.path.join(output_dir, "softmax")
+    output_dir = Path(os.getenv("TRITON_HOME", os.getcwd()))
+    profile_path = output_dir / "softmax"
     run_softmax_demo(data="tree", profile_path=profile_path)
     print(f"hatchet profile written to {profile_path}.hatchet")
 

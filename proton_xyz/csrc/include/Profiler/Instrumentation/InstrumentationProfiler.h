@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Profiler/Cpu/CpuProfiler.h"
+#include "Profiler/Instrumentation/CpuInstrumentationProfiler.h"
 
 namespace proton {
 
-using InstrumentationProfiler = CpuProfiler;
+using InstrumentationProfiler = CpuInstrumentationProfiler;
 
 } // namespace proton

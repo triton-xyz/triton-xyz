@@ -91,11 +91,7 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 
 ## Workspace Hygiene and `.gitignore` Policy
 
-The repository uses a narrow `.gitignore` strategy (targeted ignores), not a global deny-all pattern like `*` + whitelist.
-
-- Do not switch to a deny-all ignore pattern unless explicitly requested.
-- Assume `.gitignore` controls Git tracking only; it does not block local file reading by agents.
-- Treat `third_party/` as a valid source of dependency code and reference implementations when relevant to the task.
-- Do not skip `third_party/` or its children merely because they are ignored by `.gitignore`; inspect them when they may affect the work.
-- Do not skip `third_party/` or its children merely because they are symlinks; follow and inspect linked contents when relevant and safe.
-- Prefer putting disposable outputs in `debug_agent/` instead of expanding broad ignore rules.
+- Keep `.gitignore` narrow and targeted; do not switch to a deny-all whitelist pattern unless explicitly requested.
+- `.gitignore` only affects Git tracking, so agents may still read ignored files, including relevant code under `third_party/` and safe symlinked contents.
+- When searching under `third_party/`, prefer `rg -u` or `rg -uL` so `.gitignore` rules and symlinks do not hide relevant files.
+- Put disposable scripts and outputs in `debug_agent/` instead of broadening ignore rules.

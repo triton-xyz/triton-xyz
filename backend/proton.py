@@ -12,7 +12,7 @@ from triton._C.libtriton import ir as triton_ir
 from triton._C.libtriton import proton as triton_proton
 from triton._C.libtriton import xyz as triton_xyz
 from triton.profiler.flags import flags
-from triton.profiler.hooks.hook import Hook
+from triton.profiler.hooks.hook import Hook, HookManager
 
 kernel_name = ContextVar("kernel_name", default=None)
 kernel_scope_id = ContextVar("kernel_scope_id", default=None)
@@ -63,6 +63,23 @@ def _patch_cpu_backend() -> None:
     ):
         if backend is None:
             backend = cpu_aware_select_backend()
+        is_cpu_instrumentation = (
+            backend == PUBLIC_CPU_BACKEND
+            and "CPUInstrumentationHook" in globals()
+            and isinstance(hook, CPUInstrumentationHook)
+        )
+        if is_cpu_instrumentation:
+            if flags.command_line or triton.knobs.proton.disable:
+                return None
+
+            flags.profiling_on = True
+            name = proton_profile.DEFAULT_PROFILE_NAME if name is None else name
+            mode_str = proton_profile._get_mode_str("instrumentation", mode)
+            cpu_aware_check_env("instrumentation")
+            session = libproton.start(name, context, data, "instrumentation", mode_str)
+            HookManager.register(hook, session)
+            return session
+
         internal_backend = INTERNAL_CPU_BACKEND if backend == PUBLIC_CPU_BACKEND else backend
         return original_start(
             name=name,
@@ -118,6 +135,14 @@ class CPUInstrumentationHook(Hook):
         scope_id_parents = triton_proton.get_scope_id_parents(module)
         libproton.init_cpu_instrumentation_metadata(function, name, scope_id_names, scope_id_parents)
 
+    def destroy_handle(self, module: Any, function: Any, name: str, metadata_group: Dict[str, str], hash: str) -> None:
+        del module
+        del name
+        del metadata_group
+        del hash
+        if function:
+            libproton.destroy_cpu_instrumentation_metadata(function)
+
     def enter(self, metadata) -> None:
         func = metadata.data.get("function")
         name = metadata.data.get("name")
@@ -128,11 +153,14 @@ class CPUInstrumentationHook(Hook):
         kernel_scope_id.set(libproton.record_scope())
         libproton.enter_cpu_instrumentation(func)
         libproton.enter_scope(kernel_scope_id.get(), name)
+        libproton.enter_op(kernel_scope_id.get(), "")
 
     def exit(self, metadata) -> None:
         func = metadata.data.get("function")
         name = kernel_name.get()
         scope_id = kernel_scope_id.get()
+        if scope_id is not None:
+            libproton.exit_op(scope_id, "")
         if scope_id is not None and name is not None:
             libproton.exit_scope(scope_id, name)
         if func is not None:
