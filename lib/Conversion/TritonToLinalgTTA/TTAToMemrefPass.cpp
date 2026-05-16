@@ -982,16 +982,6 @@ collectAddressDescriptor(Value address, Location loc,
           continue;
         }
 
-        auto maybeStepOffset =
-            getIntAttr(maybeStepInfo->offsets[recurrenceDim]);
-        if (!maybeStepOffset || *maybeStepOffset != 0) {
-          setFailureReason(
-              failureReason,
-              "loop-carried indirect recurrence without seed requires "
-              "zero direct step on same dim");
-          return failure();
-        }
-
         auto maybeIdentityIndex =
             buildIdentityIndexTensor(mergedStepIndex, loc, rewriter);
         if (failed(maybeIdentityIndex)) {

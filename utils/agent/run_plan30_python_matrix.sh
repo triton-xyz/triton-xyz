@@ -28,5 +28,7 @@ run_pytest_case "plan30_tta_to_memref_loop_indirect_dynamic_lower_bound" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_no_seed_dynamic_lower_bound"
 run_pytest_case "plan30_tta_to_memref_loop_indirect_dynamic_step" \
   "python/tests/test_tta_to_memref.py::test_loop_indirect_no_seed_dynamic_step"
+run_pytest_case "plan30_tta_to_memref_loop_indirect_non_zero_direct_step" \
+  "python/tests/test_tta_to_memref.py::test_loop_indirect_no_seed_non_zero_direct_step"
 run_pytest_case "plan30_tta_to_memref_wrap_dynamic_mask" \
   "python/tests/test_tta_to_memref.py::test_wrap_dynamic_mask"

@@ -49,49 +49,6 @@ module {
 // -----
 
 module {
-  tt.func @loop_carried_addr_unsupported_indirect_recurrence_no_seed_non_zero_direct_step(%src: !tt.ptr<f32>, %n: i32) {
-    %c0 = arith.constant 0 : i32
-    %c1 = arith.constant 1 : i32
-    %idx = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %addr0 = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
-    %res = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %addr0) -> (!tta.addr<f32, 1, 1>) : i32 {
-      // expected-error@+2 {{tta-to-memref: loop-carried indirect recurrence without seed requires zero direct step on same dim}}
-      // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
-      %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 1, 1>) -> tensor<4xf32>
-      %next_base = "tta.advance"(%addr) <{static_deltas = array<i64: 1>}> : (!tta.addr<f32, 1, 1>) -> !tta.addr<f32, 1, 1>
-      %next = "tta.indirect_reindex"(%next_base, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 1, 1>, tensor<4xi32>) -> !tta.addr<f32, 1, 1>
-      scf.yield %next : !tta.addr<f32, 1, 1>
-    }
-    tt.return
-  }
-}
-
-// -----
-
-module {
-  tt.func @loop_carried_addr_unsupported_indirect_recurrence_multi_dim_mixed_seed_non_zero_direct_step(%src: !tt.ptr<f32>, %n: i32) {
-    %c0 = arith.constant 0 : i32
-    %c1 = arith.constant 1 : i32
-    %idx0 = arith.constant dense<[0, 1]> : tensor<2xi32>
-    %idx1 = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-    %base = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
-    %seed = "tta.indirect_reindex"(%base, %idx0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
-    %res = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %seed) -> (!tta.addr<f32, 2, 1>) : i32 {
-      // expected-error@+2 {{tta-to-memref: loop-carried indirect recurrence without seed requires zero direct step on same dim}}
-      // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
-      %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x4xf32>
-      %next_base = "tta.advance"(%addr) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
-      %next0 = "tta.indirect_reindex"(%next_base, %idx0) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>) -> !tta.addr<f32, 2, 1>
-      %next1 = "tta.indirect_reindex"(%next0, %idx1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
-      scf.yield %next1 : !tta.addr<f32, 2, 1>
-    }
-    tt.return
-  }
-}
-
-// -----
-
-module {
   tt.func @loop_carried_addr_unsupported_indirect_recurrence_multi_dim_step_index_shape_mismatch(%src: !tt.ptr<f32>, %n: i32) {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
@@ -130,25 +87,6 @@ module {
       %next0 = "tta.indirect_reindex"(%addr, %idx0_step) <{indirect_dim = 0 : i32}> : (!tta.addr<f32, 2, 1>, tensor<3xi32>) -> !tta.addr<f32, 2, 1>
       %next1 = "tta.indirect_reindex"(%next0, %idx1) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<4xi32>) -> !tta.addr<f32, 2, 1>
       scf.yield %next1 : !tta.addr<f32, 2, 1>
-    }
-    tt.return
-  }
-}
-
-// -----
-
-module {
-  tt.func @loop_carried_addr_unsupported_indirect_recurrence_multi_dim_no_seed_dynamic_non_zero_direct_step(%src: !tt.ptr<f32>, %idx_dyn: tensor<?xi32>, %mask_dyn: tensor<?xi1>, %n: i32) {
-    %c0 = arith.constant 0 : i32
-    %c1 = arith.constant 1 : i32
-    %base = tta.make_addr %src to sizes: [2, 4], strides: [4, 1], offsets: [0, 0], layout: [0, 0] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 2, 1>
-    %res = scf.for %iv = %c0 to %n step %c1 iter_args(%addr = %base) -> (!tta.addr<f32, 2, 1>) : i32 {
-      // expected-error@+2 {{tta-to-memref: loop-carried indirect recurrence without seed requires zero direct step on same dim}}
-      // expected-error@+1 {{failed to legalize operation 'tta.load' that was explicitly marked illegal}}
-      %v = "tta.load"(%addr) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>) -> tensor<2x4xf32>
-      %next_base = "tta.advance"(%addr) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
-      %next = "tta.indirect_reindex"(%next_base, %idx_dyn, %mask_dyn) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<?xi32>, tensor<?xi1>) -> !tta.addr<f32, 2, 1>
-      scf.yield %next : !tta.addr<f32, 2, 1>
     }
     tt.return
   }

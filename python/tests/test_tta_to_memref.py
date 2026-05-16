@@ -87,6 +87,21 @@ def loop_indirect_no_seed_dynamic_step_kernel(src_ptr, dst_ptr, idx_ptr,
 
 
 @triton.jit
+def loop_indirect_no_seed_non_zero_direct_step_kernel(src_ptr, dst_ptr, idx_ptr,
+                                                      n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + tl.arange(0, 4)
+    out_ptrs = dst_ptr + tl.arange(0, 4)
+    for _ in range(n_iters):
+        values = tl.load(in_ptrs)
+        tl.store(out_ptrs, values)
+        in_ptrs = in_ptrs + 1
+        in_ptrs = in_ptrs + idx
+        out_ptrs = out_ptrs + 1
+        out_ptrs = out_ptrs + idx
+
+
+@triton.jit
 def wrap_dynamic_mask_kernel(src_ptr, dst_ptr, boundary: int):
     base = tl.arange(0, 4)
     src_offsets = (base + 1) % boundary
@@ -213,6 +228,27 @@ def test_loop_indirect_no_seed_dynamic_step():
     for _ in range(0, 6, 2):
         expected[offsets] = src[offsets]
         offsets = offsets + idx.to(torch.int64)
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_indirect_no_seed_non_zero_direct_step():
+    src = torch.arange(32, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((32,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([0, 1, 2, 3], device=DEVICE, dtype=torch.int32)
+
+    loop_indirect_no_seed_non_zero_direct_step_kernel[(1,)](src, dst, idx, 2)
+
+    expected = torch.full((32,), -1.0, device=DEVICE, dtype=torch.float32)
+    in_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    out_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    step_offsets = idx.to(torch.int64)
+    for _ in range(2):
+        expected[out_offsets] = src[in_offsets]
+        in_offsets = in_offsets + 1
+        in_offsets = in_offsets + step_offsets
+        out_offsets = out_offsets + 1
+        out_offsets = out_offsets + step_offsets
 
     torch.testing.assert_close(dst, expected)
 
