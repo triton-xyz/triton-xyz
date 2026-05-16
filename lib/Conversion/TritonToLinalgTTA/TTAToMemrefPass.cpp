@@ -1354,6 +1354,9 @@ static FailureOr<Value> getBaseMemref(Value base, Type elementType,
   }
 
   if (isa<triton::PointerType>(base.getType())) {
+    if (!BaseMemRefType::isValidElementType(elementType)) {
+      return failure();
+    }
     auto memrefType = UnrankedMemRefType::get(elementType, 0);
     return UnrealizedConversionCastOp::create(rewriter, loc, memrefType, base)
         .getResult(0);
@@ -1382,6 +1385,72 @@ createExtractSlice(Value source, ArrayRef<OpFoldResult> offsets,
   return tensor::ExtractSliceOp::create(rewriter, loc,
                                         cast<RankedTensorType>(resultType),
                                         source, offsets, sizes, strides);
+}
+
+static Value getTensorDimValue(OpBuilder &builder, Location loc, Value tensor,
+                               int64_t dim, int64_t dimSize) {
+  if (!ShapedType::isDynamic(dimSize)) {
+    return arith::ConstantOp::create(builder, loc,
+                                     builder.getIndexAttr(dimSize))
+        .getResult();
+  }
+  return tensor::DimOp::create(builder, loc, tensor, dim).getResult();
+}
+
+static Value extractTensorOrScalarElement(OpBuilder &builder, Location loc,
+                                          Value value,
+                                          ArrayRef<Value> indices) {
+  if (!value) {
+    return Value();
+  }
+  if (isa<RankedTensorType>(value.getType())) {
+    return tensor::ExtractOp::create(builder, loc, value, indices).getResult();
+  }
+  return value;
+}
+
+template <typename BuildElementFn>
+static Value
+buildTensorElementwiseResult(Value shapeSource, RankedTensorType resultType,
+                             Location loc, ConversionPatternRewriter &rewriter,
+                             BuildElementFn &&buildElement) {
+  SmallVector<Value> dynamicDims;
+  for (auto [dim, dimSize] : llvm::enumerate(resultType.getShape())) {
+    if (ShapedType::isDynamic(dimSize)) {
+      dynamicDims.push_back(
+          tensor::DimOp::create(rewriter, loc, shapeSource, dim).getResult());
+    }
+  }
+
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType(), dynamicDims)
+                   .getResult();
+  Value zero = makeIndexConstant(loc, 0, rewriter);
+  Value one = makeIndexConstant(loc, 1, rewriter);
+  SmallVector<Value> indices;
+
+  auto buildLoop = [&](auto &&self, int64_t dim, Value iterTensor) -> Value {
+    if (dim == resultType.getRank()) {
+      Value scalar = buildElement(indices);
+      return tensor::InsertOp::create(rewriter, loc, scalar, iterTensor,
+                                      indices)
+          .getResult();
+    }
+
+    Value upper = getTensorDimValue(rewriter, loc, shapeSource, dim,
+                                    resultType.getDimSize(dim));
+    auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
+                                    ValueRange{iterTensor});
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(forOp.getBody());
+    indices.push_back(forOp.getInductionVar());
+    Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
+    scf::YieldOp::create(rewriter, loc, next);
+    indices.pop_back();
+    return forOp.getResult(0);
+  };
+
+  return buildLoop(buildLoop, 0, init);
 }
 
 static FailureOr<Value> createReinterpretCast(
@@ -2653,11 +2722,6 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
   LogicalResult
   matchAndRewrite(tta::AtomicOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "tensor tta.atomic is unsupported");
-    }
-
     if (!isa<tta::AddrType>(op.getPtr().getType())) {
       return emitTTAToMemrefError(op.getOperation(),
                                   "tta.atomic pointer must be scalar addr");
@@ -2707,11 +2771,126 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                   "tta.atomic requires unit stride");
     }
 
-    auto maybeBaseMemref = getBaseMemref(
-        descriptor.base, op.getValue().getType(), op.getLoc(), rewriter);
+    Type valueElementType = mlir::getElementTypeOrSelf(op.getValue().getType());
+    auto maybeBaseMemref =
+        getBaseMemref(descriptor.base, valueElementType, op.getLoc(), rewriter);
     if (failed(maybeBaseMemref)) {
       return emitTTAToMemrefError(op.getOperation(),
                                   "failed to get base memref for tta.atomic");
+    }
+
+    auto rankedType = MemRefType::get({ShapedType::kDynamic}, valueElementType);
+    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
+                                                rankedType, *maybeBaseMemref)
+                             .getResult();
+
+    StringRef kind = adaptor.getKindAttr().getValue();
+    auto emitScalarAtomic = [&](Value offset, Value value,
+                                Value mask) -> FailureOr<Value> {
+      auto maybeOffset = castAtomicOffsetToIndex(offset, op.getLoc(), rewriter);
+      if (failed(maybeOffset)) {
+        return failure();
+      }
+
+      auto maybeTotalOffset = buildWrappedLinearizedTerm(
+          descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
+      if (failed(maybeTotalOffset)) {
+        return failure();
+      }
+      Value totalOffset = *maybeTotalOffset;
+
+      if (kind == "xchg") {
+        if (mask) {
+          if (!mask.getType().isInteger(1)) {
+            return failure();
+          }
+
+          if (auto constMask = mask.getDefiningOp<arith::ConstantOp>()) {
+            if (auto boolAttr = dyn_cast<BoolAttr>(constMask.getValue())) {
+              if (boolAttr.getValue()) {
+                return memref::AtomicRMWOp::create(
+                           rewriter, op.getLoc(), arith::AtomicRMWKind::assign,
+                           value, rankedMemref, ValueRange{totalOffset})
+                    .getResult();
+              }
+
+              return memref::LoadOp::create(rewriter, op.getLoc(), rankedMemref,
+                                            ValueRange{totalOffset})
+                  .getResult();
+            }
+          }
+
+          auto generic = memref::GenericAtomicRMWOp::create(
+              rewriter, op.getLoc(), rankedMemref, totalOffset);
+          Block &body = generic.getRegion().front();
+          rewriter.setInsertionPointToStart(&body);
+          Value current = body.getArgument(0);
+          Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(),
+                                                     mask, value, current)
+                                 .getResult();
+          memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+          rewriter.setInsertionPointAfter(generic);
+          return generic.getResult();
+        }
+
+        return memref::AtomicRMWOp::create(
+                   rewriter, op.getLoc(), arith::AtomicRMWKind::assign, value,
+                   rankedMemref, ValueRange{totalOffset})
+            .getResult();
+      }
+
+      auto generic = memref::GenericAtomicRMWOp::create(
+          rewriter, op.getLoc(), rankedMemref, totalOffset);
+      Block &body = generic.getRegion().front();
+      rewriter.setInsertionPointToStart(&body);
+
+      Value current = body.getArgument(0);
+      auto maybeUpdated = buildAtomicUpdateFromKind(rewriter, op.getLoc(), kind,
+                                                    current, value);
+      if (!maybeUpdated.has_value()) {
+        rewriter.eraseOp(generic);
+        return failure();
+      }
+
+      Value finalValue = *maybeUpdated;
+      if (mask) {
+        if (!mask.getType().isInteger(1)) {
+          rewriter.eraseOp(generic);
+          return failure();
+        }
+        finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
+                                             finalValue, current)
+                         .getResult();
+      }
+
+      memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+      rewriter.setInsertionPointAfter(generic);
+      return generic.getResult();
+    };
+
+    if (auto resultType = dyn_cast<RankedTensorType>(op.getType())) {
+      if (resultType.getRank() != 1) {
+        return emitTTAToMemrefError(op.getOperation(),
+                                    "tensor tta.atomic must have rank 1");
+      }
+
+      Value result = buildTensorElementwiseResult(
+          adaptor.getOffset(), resultType, op.getLoc(), rewriter,
+          [&](ArrayRef<Value> indices) -> Value {
+            Value scalarOffset = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getOffset(), indices);
+            Value scalarValue = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getValue(), indices);
+            Value scalarMask = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getMask(), indices);
+            FailureOr<Value> maybeScalar =
+                emitScalarAtomic(scalarOffset, scalarValue, scalarMask);
+            assert(succeeded(maybeScalar) &&
+                   "tensor tta.atomic verifier should guarantee valid lanes");
+            return *maybeScalar;
+          });
+      rewriter.replaceOp(op, result);
+      return success();
     }
 
     auto maybeOffset =
@@ -2721,96 +2900,22 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                   "tta.atomic offset must be int/index scalar");
     }
 
-    auto maybeTotalOffset = buildWrappedLinearizedTerm(
-        descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
-    if (failed(maybeTotalOffset)) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "failed to linearize tta.atomic offset");
-    }
-    Value totalOffset = *maybeTotalOffset;
-
-    auto rankedType =
-        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
-    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
-                                                rankedType, *maybeBaseMemref)
-                             .getResult();
-
-    StringRef kind = adaptor.getKindAttr().getValue();
     if (kind == "xchg") {
-      if (Value mask = adaptor.getMask()) {
-        if (!mask.getType().isInteger(1)) {
-          return emitTTAToMemrefError(op.getOperation(),
-                                      "tta.atomic mask must be scalar i1");
-        }
-
-        if (auto constMask = mask.getDefiningOp<arith::ConstantOp>()) {
-          if (auto boolAttr = dyn_cast<BoolAttr>(constMask.getValue())) {
-            if (boolAttr.getValue()) {
-              auto atomic = memref::AtomicRMWOp::create(
-                  rewriter, op.getLoc(), arith::AtomicRMWKind::assign,
-                  adaptor.getValue(), rankedMemref, ValueRange{totalOffset});
-              rewriter.replaceOp(op, atomic.getResult());
-              return success();
-            }
-
-            Value current =
-                memref::LoadOp::create(rewriter, op.getLoc(), rankedMemref,
-                                       ValueRange{totalOffset})
-                    .getResult();
-            rewriter.replaceOp(op, current);
-            return success();
-          }
-        }
-
-        auto generic = memref::GenericAtomicRMWOp::create(
-            rewriter, op.getLoc(), rankedMemref, totalOffset);
-        Block &body = generic.getRegion().front();
-        rewriter.setInsertionPointToStart(&body);
-        Value current = body.getArgument(0);
-        Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
-                                                   adaptor.getValue(), current)
-                               .getResult();
-        memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
-        rewriter.replaceOp(op, generic.getResult());
-        return success();
+      if (Value mask = adaptor.getMask();
+          mask && !mask.getType().isInteger(1)) {
+        return emitTTAToMemrefError(op.getOperation(),
+                                    "tta.atomic mask must be scalar i1");
       }
-
-      auto atomic = memref::AtomicRMWOp::create(
-          rewriter, op.getLoc(), arith::AtomicRMWKind::assign,
-          adaptor.getValue(), rankedMemref, ValueRange{totalOffset});
-      rewriter.replaceOp(op, atomic.getResult());
-      return success();
     }
 
-    auto generic = memref::GenericAtomicRMWOp::create(
-        rewriter, op.getLoc(), rankedMemref, totalOffset);
-    Block &body = generic.getRegion().front();
-    rewriter.setInsertionPointToStart(&body);
-
-    Value current = body.getArgument(0);
-    auto maybeUpdated = buildAtomicUpdateFromKind(rewriter, op.getLoc(), kind,
-                                                  current, adaptor.getValue());
-    if (!maybeUpdated.has_value()) {
-      rewriter.eraseOp(generic);
+    FailureOr<Value> maybeScalar =
+        emitScalarAtomic(*maybeOffset, adaptor.getValue(), adaptor.getMask());
+    if (failed(maybeScalar)) {
       std::string message = "atomic kind is unsupported: ";
       message += kind.str();
       return emitTTAToMemrefError(op.getOperation(), message);
     }
-
-    Value finalValue = *maybeUpdated;
-    if (Value mask = adaptor.getMask()) {
-      if (!mask.getType().isInteger(1)) {
-        rewriter.eraseOp(generic);
-        return emitTTAToMemrefError(op.getOperation(),
-                                    "tta.atomic mask must be scalar i1");
-      }
-      finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
-                                           finalValue, current)
-                       .getResult();
-    }
-
-    memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
-    rewriter.replaceOp(op, generic.getResult());
+    rewriter.replaceOp(op, *maybeScalar);
     return success();
   }
 };
@@ -2822,11 +2927,6 @@ struct ConvertTTAAtomicCASPattern
   LogicalResult
   matchAndRewrite(tta::AtomicCASOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "tensor tta.atomic_cas is unsupported");
-    }
-
     if (!isa<tta::AddrType>(op.getPtr().getType())) {
       return emitTTAToMemrefError(op.getOperation(),
                                   "tta.atomic_cas pointer must be scalar addr");
@@ -2876,11 +2976,86 @@ struct ConvertTTAAtomicCASPattern
                                   "tta.atomic_cas requires unit stride");
     }
 
-    auto maybeBaseMemref = getBaseMemref(
-        descriptor.base, op.getValue().getType(), op.getLoc(), rewriter);
+    Type valueElementType = mlir::getElementTypeOrSelf(op.getValue().getType());
+    auto maybeBaseMemref =
+        getBaseMemref(descriptor.base, valueElementType, op.getLoc(), rewriter);
     if (failed(maybeBaseMemref)) {
       return emitTTAToMemrefError(
           op.getOperation(), "failed to get base memref for tta.atomic_cas");
+    }
+
+    auto rankedType = MemRefType::get({ShapedType::kDynamic}, valueElementType);
+    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
+                                                rankedType, *maybeBaseMemref)
+                             .getResult();
+    auto emitScalarAtomicCAS = [&](Value offset, Value compare,
+                                   Value value) -> FailureOr<Value> {
+      auto maybeOffset = castAtomicOffsetToIndex(offset, op.getLoc(), rewriter);
+      if (failed(maybeOffset)) {
+        return failure();
+      }
+
+      auto maybeTotalOffset = buildWrappedLinearizedTerm(
+          descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
+      if (failed(maybeTotalOffset)) {
+        return failure();
+      }
+      Value totalOffset = *maybeTotalOffset;
+
+      auto generic = memref::GenericAtomicRMWOp::create(
+          rewriter, op.getLoc(), rankedMemref, totalOffset);
+      Block &body = generic.getRegion().front();
+      rewriter.setInsertionPointToStart(&body);
+
+      Value current = body.getArgument(0);
+      Value equal;
+      if (isa<FloatType>(current.getType())) {
+        equal =
+            arith::CmpFOp::create(rewriter, op.getLoc(),
+                                  arith::CmpFPredicate::OEQ, current, compare)
+                .getResult();
+      } else if (isa<IntegerType>(current.getType())) {
+        equal =
+            arith::CmpIOp::create(rewriter, op.getLoc(),
+                                  arith::CmpIPredicate::eq, current, compare)
+                .getResult();
+      } else {
+        rewriter.eraseOp(generic);
+        return failure();
+      }
+
+      Value finalValue =
+          arith::SelectOp::create(rewriter, op.getLoc(), equal, value, current)
+              .getResult();
+      memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+      rewriter.setInsertionPointAfter(generic);
+      return generic.getResult();
+    };
+
+    if (auto resultType = dyn_cast<RankedTensorType>(op.getType())) {
+      if (resultType.getRank() != 1) {
+        return emitTTAToMemrefError(op.getOperation(),
+                                    "tensor tta.atomic_cas must have rank 1");
+      }
+
+      Value result = buildTensorElementwiseResult(
+          adaptor.getOffset(), resultType, op.getLoc(), rewriter,
+          [&](ArrayRef<Value> indices) -> Value {
+            Value scalarOffset = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getOffset(), indices);
+            Value scalarCompare = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getCompare(), indices);
+            Value scalarValue = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getValue(), indices);
+            FailureOr<Value> maybeScalar =
+                emitScalarAtomicCAS(scalarOffset, scalarCompare, scalarValue);
+            assert(
+                succeeded(maybeScalar) &&
+                "tensor tta.atomic_cas verifier should guarantee valid lanes");
+            return *maybeScalar;
+          });
+      rewriter.replaceOp(op, result);
+      return success();
     }
 
     auto maybeOffset =
@@ -2890,49 +3065,14 @@ struct ConvertTTAAtomicCASPattern
           op.getOperation(), "tta.atomic_cas offset must be int/index scalar");
     }
 
-    auto rankedType =
-        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
-    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
-                                                rankedType, *maybeBaseMemref)
-                             .getResult();
-
-    auto maybeTotalOffset = buildWrappedLinearizedTerm(
-        descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
-    if (failed(maybeTotalOffset)) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "failed to linearize tta.atomic_cas offset");
-    }
-    Value totalOffset = *maybeTotalOffset;
-
-    auto generic = memref::GenericAtomicRMWOp::create(
-        rewriter, op.getLoc(), rankedMemref, totalOffset);
-    Block &body = generic.getRegion().front();
-    rewriter.setInsertionPointToStart(&body);
-
-    Value current = body.getArgument(0);
-    Value equal;
-    if (isa<FloatType>(current.getType())) {
-      equal = arith::CmpFOp::create(rewriter, op.getLoc(),
-                                    arith::CmpFPredicate::OEQ, current,
-                                    adaptor.getCompare())
-                  .getResult();
-    } else if (isa<IntegerType>(current.getType())) {
-      equal =
-          arith::CmpIOp::create(rewriter, op.getLoc(), arith::CmpIPredicate::eq,
-                                current, adaptor.getCompare())
-              .getResult();
-    } else {
-      rewriter.eraseOp(generic);
+    FailureOr<Value> maybeScalar = emitScalarAtomicCAS(
+        *maybeOffset, adaptor.getCompare(), adaptor.getValue());
+    if (failed(maybeScalar)) {
       return emitTTAToMemrefError(
           op.getOperation(),
           "tta.atomic_cas only supports integer or floating-point values");
     }
-
-    Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(), equal,
-                                               adaptor.getValue(), current)
-                           .getResult();
-    memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
-    rewriter.replaceOp(op, generic.getResult());
+    rewriter.replaceOp(op, *maybeScalar);
     return success();
   }
 };

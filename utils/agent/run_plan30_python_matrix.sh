@@ -18,6 +18,10 @@ run_pytest_case "plan30_tta_to_memref_atomic_add_xchg_false" \
   "python/tests/test_tta_to_memref.py::test_atomic_add_xchg_masked_false"
 run_pytest_case "plan30_tta_to_memref_atomic_cas_scalar" \
   "python/tests/test_tta_to_memref.py::test_atomic_cas_scalar"
+run_pytest_case "plan30_tta_to_memref_atomic_add_tensor" \
+  "python/tests/test_tta_to_memref.py::test_atomic_add_tensor"
+run_pytest_case "plan30_tta_to_memref_atomic_cas_tensor" \
+  "python/tests/test_tta_to_memref.py::test_atomic_cas_tensor"
 run_pytest_case "plan30_tta_to_memref_indirect_reindex_2d" \
   "python/tests/test_tta_to_memref.py::test_indirect_reindex_2d"
 run_pytest_case "plan30_tta_to_memref_from_tt_ptr_indirect" \

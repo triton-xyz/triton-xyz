@@ -392,6 +392,17 @@ static FailureOr<Value> normalizeStoreValueTo1DTensor(Value value, Location loc,
   return flattenTensorTo1D(builder, loc, value);
 }
 
+static FailureOr<Value>
+normalizeAtomicValueTo1DTensor(Value value, Location loc, OpBuilder &builder) {
+  return normalizeStoreValueTo1DTensor(value, loc, builder);
+}
+
+static FailureOr<Value> normalizeAtomicCompareTo1DTensor(Value value,
+                                                         Location loc,
+                                                         OpBuilder &builder) {
+  return normalizeStoreValueTo1DTensor(value, loc, builder);
+}
+
 static FailureOr<Value> getScalarOther(triton::LoadOp load, Location loc,
                                        OpBuilder &builder) {
   auto maybeScalarOther =
@@ -1265,16 +1276,82 @@ public:
                   atomic.getPtrMutable().set(materializedAddPtr);
                 };
 
-                if (isa<ShapedType>(atomic.getType())) {
-                  materializeAtomicPtr();
-                  return success();
-                }
-
                 auto maybeAtomicKind =
                     getTTAAtomicKind(atomic.getAtomicRmwOp());
                 if (!maybeAtomicKind.has_value()) {
                   markFallbackAndPreserve(atomic, "atomic_kind_unsupported");
                   materializeAtomicPtr();
+                  return success();
+                }
+
+                if (isa<ShapedType>(atomic.getType())) {
+                  if (!isa<triton::PointerType>(offsetInfo.ptr.getType())) {
+                    markFallbackAndPreserve(atomic,
+                                            "atomic_base_ptr_not_scalar");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeFlatOffset =
+                      normalizeOffsetTo1DTensor(offsetInfo.offset, loc, b);
+                  if (failed(maybeFlatOffset)) {
+                    markFallbackAndPreserve(
+                        atomic, "atomic_offset_not_1d_normalizable");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeImportedPtr = emitLinearAddressFromOffsetTensor(
+                      b, loc, offsetInfo.ptr, *maybeFlatOffset);
+                  if (failed(maybeImportedPtr)) {
+                    markFallbackAndPreserve(atomic, "make_addr_build_failed");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeFlatValue =
+                      normalizeAtomicValueTo1DTensor(atomic.getVal(), loc, b);
+                  if (failed(maybeFlatValue)) {
+                    markFallbackAndPreserve(atomic,
+                                            "atomic_value_not_1d_normalizable");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  Value flatMask;
+                  if (Value mask = atomic.getMask()) {
+                    auto maybeFlatMask = normalizeMaskTo1DTensor(mask, loc, b);
+                    if (failed(maybeFlatMask)) {
+                      markFallbackAndPreserve(
+                          atomic, "atomic_mask_not_1d_normalizable");
+                      materializeAtomicPtr();
+                      return success();
+                    }
+                    flatMask = *maybeFlatMask;
+                  }
+
+                  tta::AtomicOp ttaAtomic;
+                  if (flatMask) {
+                    ttaAtomic = tta::AtomicOp::create(
+                        b, loc, *maybeAtomicKind, *maybeImportedPtr,
+                        *maybeFlatOffset, *maybeFlatValue, flatMask);
+                  } else {
+                    ttaAtomic = tta::AtomicOp::create(
+                        b, loc, *maybeAtomicKind, *maybeImportedPtr,
+                        *maybeFlatOffset, *maybeFlatValue);
+                  }
+
+                  auto maybeResult = rebuildLoadResultFrom1DTensor(
+                      ttaAtomic.getResult(), atomic.getType(), loc, b);
+                  if (failed(maybeResult)) {
+                    markFallbackAndPreserve(
+                        atomic, "atomic_result_shape_rebuild_failed");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  atomic.replaceAllUsesWith(*maybeResult);
+                  atomic->erase();
                   return success();
                 }
 
@@ -1336,7 +1413,63 @@ public:
                 };
 
                 if (isa<ShapedType>(atomic.getType())) {
-                  materializeAtomicPtr();
+                  if (!isa<triton::PointerType>(offsetInfo.ptr.getType())) {
+                    markFallbackAndPreserve(atomic,
+                                            "atomic_base_ptr_not_scalar");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeFlatOffset =
+                      normalizeOffsetTo1DTensor(offsetInfo.offset, loc, b);
+                  if (failed(maybeFlatOffset)) {
+                    markFallbackAndPreserve(
+                        atomic, "atomic_offset_not_1d_normalizable");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeImportedPtr = emitLinearAddressFromOffsetTensor(
+                      b, loc, offsetInfo.ptr, *maybeFlatOffset);
+                  if (failed(maybeImportedPtr)) {
+                    markFallbackAndPreserve(atomic, "make_addr_build_failed");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeFlatCompare =
+                      normalizeAtomicCompareTo1DTensor(atomic.getCmp(), loc, b);
+                  if (failed(maybeFlatCompare)) {
+                    markFallbackAndPreserve(
+                        atomic, "atomic_compare_not_1d_normalizable");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto maybeFlatValue =
+                      normalizeAtomicValueTo1DTensor(atomic.getVal(), loc, b);
+                  if (failed(maybeFlatValue)) {
+                    markFallbackAndPreserve(atomic,
+                                            "atomic_value_not_1d_normalizable");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  auto ttaAtomic = tta::AtomicCASOp::create(
+                      b, loc, *maybeImportedPtr, *maybeFlatOffset,
+                      *maybeFlatCompare, *maybeFlatValue);
+
+                  auto maybeResult = rebuildLoadResultFrom1DTensor(
+                      ttaAtomic.getResult(), atomic.getType(), loc, b);
+                  if (failed(maybeResult)) {
+                    markFallbackAndPreserve(
+                        atomic, "atomic_result_shape_rebuild_failed");
+                    materializeAtomicPtr();
+                    return success();
+                  }
+
+                  atomic.replaceAllUsesWith(*maybeResult);
+                  atomic->erase();
                   return success();
                 }
 

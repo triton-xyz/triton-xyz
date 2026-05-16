@@ -21,6 +21,24 @@ def atomic_cas_kernel(ptr, off: int, cmp: int, val: int):
 
 
 @triton.jit
+def atomic_add_tensor_kernel(ptr):
+    offsets = tl.arange(0, 4)
+    vals = offsets + 10
+    mask = offsets != 1
+    old = tl.atomic_add(ptr + offsets, vals, mask=mask)
+    tl.store(ptr + 8 + offsets, old)
+
+
+@triton.jit
+def atomic_cas_tensor_kernel(ptr):
+    offsets = tl.arange(0, 4)
+    cmp = offsets
+    vals = offsets + 20
+    old = tl.atomic_cas(ptr + offsets, cmp, vals)
+    tl.store(ptr + 8 + offsets, old)
+
+
+@triton.jit
 def indirect_reindex_2d_kernel(src_ptr, dst_ptr, row_idx_ptr, col_idx_ptr):
     rows = tl.load(row_idx_ptr + tl.arange(0, 2))
     cols = tl.load(col_idx_ptr + tl.arange(0, 4))
@@ -182,6 +200,32 @@ def test_indirect_reindex_2d():
 
     expected = src.reshape(2, 4)[row_idx.to(torch.long)][:, col_idx.to(torch.long)]
     torch.testing.assert_close(dst.reshape(2, 4), expected)
+
+
+def test_atomic_add_tensor():
+    values = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_add_tensor_kernel[(1,)](values)
+
+    expected = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    original = expected[:4].clone()
+    for i in range(4):
+        if i != 1:
+            expected[i] = expected[i] + i + 10
+    expected[8:12] = original
+    torch.testing.assert_close(values, expected)
+
+
+def test_atomic_cas_tensor():
+    values = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_cas_tensor_kernel[(1,)](values)
+
+    expected = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    original = expected[:4].clone()
+    expected[:4] = torch.arange(20, 24, device=DEVICE, dtype=torch.int32)
+    expected[8:12] = original
+    torch.testing.assert_close(values, expected)
 
 
 def test_loop_indirect_seed():

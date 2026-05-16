@@ -109,30 +109,6 @@ module {
 // -----
 
 module {
-  tt.func @atomic_tensor_unsupported(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %val: tensor<4xi32>) {
-    %ptr_i = tta.from_tt_ptr %ptr : !tt.ptr<i32> to !tta.addr<i32, 1, 1>
-    // expected-error@+2 {{tta-to-memref: tensor tta.atomic is unsupported}}
-    // expected-error@+1 {{failed to legalize operation 'tta.atomic' that was explicitly marked illegal}}
-    %r = "tta.atomic"(%ptr_i, %off, %val) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
-    tt.return
-  }
-}
-
-// -----
-
-module {
-  tt.func @atomic_cas_tensor_unsupported(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %cmp: tensor<4xi32>, %val: tensor<4xi32>) {
-    %ptr_i = tta.from_tt_ptr %ptr : !tt.ptr<i32> to !tta.addr<i32, 1, 1>
-    // expected-error@+2 {{tta-to-memref: tensor tta.atomic_cas is unsupported}}
-    // expected-error@+1 {{failed to legalize operation 'tta.atomic_cas' that was explicitly marked illegal}}
-    %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
-    tt.return
-  }
-}
-
-// -----
-
-module {
   tt.func @wrap_boundary_non_positive(%src: !tt.ptr<f32>) {
     %addr = tta.make_addr %src to sizes: [4], strides: [1], offsets: [0], layout: [-1] {layout_kind = "strided"} : <f32> to !tta.addr<f32, 1, 1>
     // expected-error@+2 {{tta-to-memref: wrap boundary must be greater than zero}}
