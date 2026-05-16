@@ -2741,10 +2741,6 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                       : "failed to collect address chain");
     }
 
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "block pointer tta.atomic is unsupported");
-    }
     if (addressFeatures.hasIndirect ||
         hasAnyIndirectAccess(*maybeIndirectInfo)) {
       return emitTTAToMemrefError(op.getOperation(),
@@ -2946,10 +2942,6 @@ struct ConvertTTAAtomicCASPattern
                                       : "failed to collect address chain");
     }
 
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(
-          op.getOperation(), "block pointer tta.atomic_cas is unsupported");
-    }
     if (addressFeatures.hasIndirect ||
         hasAnyIndirectAccess(*maybeIndirectInfo)) {
       return emitTTAToMemrefError(op.getOperation(),

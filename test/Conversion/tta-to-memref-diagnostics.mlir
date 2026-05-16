@@ -85,7 +85,7 @@ module {
     %indices = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %addr = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
     %idx = "tta.indirect_reindex"(%addr, %indices) <{indirect_dim = 0 : i32}> : (!tta.addr<i32, 1, 1>, tensor<4xi32>) -> !tta.addr<i32, 1, 1>
-    // expected-error@+2 {{tta-to-memref: block pointer tta.atomic is unsupported}}
+    // expected-error@+2 {{tta-to-memref: indirect tta.atomic is unsupported}}
     // expected-error@+1 {{failed to legalize operation 'tta.atomic' that was explicitly marked illegal}}
     %r = "tta.atomic"(%idx, %off, %val) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
     tt.return
