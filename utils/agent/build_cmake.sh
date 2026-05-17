@@ -20,3 +20,19 @@ cmake --preset $PRESET -S$PWD/third_party/triton -B$PWD/build \
 cmake --build $PWD/build --target all
 
 ###############################################################################
+
+uv pip uninstall --system triton
+export TRITON_PLUGIN_DIRS=$PWD
+pushd third_party/triton
+uv pip install --system --no-build-isolation -e . -v
+popd
+
+###############################################################################
+
+mkdir -p $PWD/third_party/triton/python/triton/_C
+ln -snf $PWD/build/libtriton.so \
+  $PWD/third_party/triton/python/triton/_C/libtriton.so
+ln -snf $PWD/build/libproton.so \
+  $PWD/third_party/triton/python/triton/_C/libproton.so
+
+###############################################################################
