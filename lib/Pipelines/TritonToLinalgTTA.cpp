@@ -9,8 +9,6 @@
 
 void mlir::triton::buildTritonToLinalgTTAPipeline(
     OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
-  (void)options.ttaPreRewriteTensorPointer;
-
   pm.addPass(createTritonToTTAStructured());
   pm.addPass(createTritonToTTAUnstructured());
   pm.addPass(createTritonUnstructuredFallback());

@@ -1268,18 +1268,15 @@ module {
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
 // CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
 // CHECK:             %[[SELECT_0:.*]] = arith.select %[[ARG3]], %[[ADDI_0]], %[[VAL_0]] : i32
 // CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
 // CHECK:           }
-// CHECK:           %[[GENERIC_ATOMIC_RMW_1:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_1:.*]]: i32):
-// CHECK:             memref.atomic_yield %[[GENERIC_ATOMIC_RMW_0]] : i32
-// CHECK:           }
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw assign %[[GENERIC_ATOMIC_RMW_0]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_basic(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %mask: i1) {
@@ -1303,13 +1300,13 @@ module {
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 8 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 3 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
 // CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
-// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
 // CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
@@ -1336,13 +1333,13 @@ module {
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 8 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant -5 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
 // CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
-// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
 // CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
@@ -1369,6 +1366,7 @@ module {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 2 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG3]], %[[CONSTANT_0]] : index
@@ -1377,7 +1375,6 @@ module {
 // CHECK:           %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[ARG3]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_1]], %[[ADDI_1]], %[[REMSI_0]] : index
-// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
 // CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
@@ -1401,8 +1398,8 @@ module {
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32):
 // CHECK:             %[[ADDF_0:.*]] = arith.addf %[[VAL_0]], %[[ARG2]] : f32
@@ -1430,8 +1427,8 @@ module {
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 16 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 5 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
 // CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
@@ -1465,8 +1462,8 @@ module {
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 16 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant -7 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_2]] : index
 // CHECK:           %[[REMSI_0:.*]] = arith.remsi %[[ADDI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
@@ -1500,8 +1497,8 @@ module {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[INDEX_CAST_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG4]], %[[CONSTANT_0]] : index
 // CHECK:           cf.assert %[[CMPI_0]], "tta-to-memref: wrap boundary must be > 0"
@@ -1534,8 +1531,8 @@ module {
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
 // CHECK:             %[[CMPI_0:.*]] = arith.cmpi eq, %[[VAL_0]], %[[ARG2]] : i32
@@ -1561,8 +1558,8 @@ module {
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32> {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32):
 // CHECK:             %[[CMPF_0:.*]] = arith.cmpf oeq, %[[VAL_0]], %[[ARG2]] : f32

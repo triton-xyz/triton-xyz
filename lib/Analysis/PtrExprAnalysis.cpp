@@ -908,33 +908,47 @@ LogicalResult PtrExprAnalysis::visitOperandConstSplat(arith::ConstantOp op,
                                                       const Location loc,
                                                       OpBuilder &builder) {
   assert(state.isEmpty());
-  // this condition is to handle cases where tt.broadcast and tt.splat are
-  // folded
-  auto attr = cast<DenseElementsAttr>(op.getValue());
-  auto elementType = attr.getElementType();
-  assert(attr.isSplat() && isa<IntegerType>(elementType));
-  auto values = attr.getValues<IntegerAttr>();
-  auto value = values[0].getValue();
-  auto constAttr = builder.getIndexAttr(value.getSExtValue());
-  auto constOp = arith::ConstantOp::materialize(builder, constAttr,
-                                                builder.getIndexType(), loc);
-
-  state.scalar = constOp;
-
-  auto resultType = cast<ShapedType>(op.getResult().getType());
-  for (size_t i = 0; i < resultType.getShape().size(); i++) {
-    if (i == 0) {
-      state.offsets.push_back(constOp.getResult());
-    } else {
-      state.offsets.push_back(builder.getIndexAttr(0));
-    }
-
-    state.sizes.push_back(builder.getIndexAttr(resultType.getShape()[i]));
-    state.strides.push_back(builder.getIndexAttr(0));
-    state.shape.push_back(builder.getIndexAttr(0));
+  auto attr = dyn_cast<DenseElementsAttr>(op.getValue());
+  if (!attr) {
+    LLVM_DEBUG(op->emitRemark("PtrAnalysis: unsupported non-dense constant"));
+    return failure();
   }
 
-  return success();
+  auto elementType = attr.getElementType();
+  if (attr.isSplat() && isa<IntegerType>(elementType)) {
+    // This condition is to handle cases where tt.broadcast and tt.splat are
+    // folded.
+    auto values = attr.getValues<IntegerAttr>();
+    auto value = values[0].getValue();
+    auto constAttr = builder.getIndexAttr(value.getSExtValue());
+    auto constOp = arith::ConstantOp::materialize(builder, constAttr,
+                                                  builder.getIndexType(), loc);
+
+    state.scalar = constOp;
+
+    auto resultType = cast<ShapedType>(op.getResult().getType());
+    for (size_t i = 0; i < resultType.getShape().size(); i++) {
+      if (i == 0) {
+        state.offsets.push_back(constOp.getResult());
+      } else {
+        state.offsets.push_back(builder.getIndexAttr(0));
+      }
+
+      state.sizes.push_back(builder.getIndexAttr(resultType.getShape()[i]));
+      state.strides.push_back(builder.getIndexAttr(0));
+      state.shape.push_back(builder.getIndexAttr(0));
+    }
+
+    return success();
+  }
+
+  if (enableMakeGatherScatterTensorPtr) {
+    return state.rebuildAsUnsupportedOp(op.getResult());
+  }
+
+  LLVM_DEBUG(op->emitRemark(
+      "PtrAnalysis: unsupported non-splat integer tensor constant"));
+  return failure();
 }
 
 LogicalResult PtrExprAnalysis::visitOperandForOp(scf::ForOp forOp,

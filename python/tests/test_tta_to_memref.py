@@ -1,0 +1,365 @@
+import torch
+
+import triton
+import triton.language as tl
+
+
+DEVICE = triton.runtime.driver.active.get_active_torch_device()
+
+
+@triton.jit
+def atomic_add_xchg_kernel(ptr, off: int, val: int, mask: tl.int1):
+    old = tl.atomic_add(ptr + off, val, mask=mask)
+    prev = tl.atomic_xchg(ptr + off, old)
+    tl.store(ptr + 8, old + prev + val)
+
+
+@triton.jit
+def atomic_cas_kernel(ptr, off: int, cmp: int, val: int):
+    old = tl.atomic_cas(ptr + off, cmp, val)
+    tl.store(ptr + 9, old)
+
+
+@triton.jit
+def atomic_add_tensor_kernel(ptr):
+    offsets = tl.arange(0, 4)
+    vals = offsets + 10
+    mask = offsets != 1
+    old = tl.atomic_add(ptr + offsets, vals, mask=mask)
+    tl.store(ptr + 8 + offsets, old)
+
+
+@triton.jit
+def atomic_cas_tensor_kernel(ptr):
+    offsets = tl.arange(0, 4)
+    cmp = offsets
+    vals = offsets + 20
+    old = tl.atomic_cas(ptr + offsets, cmp, vals)
+    tl.store(ptr + 8 + offsets, old)
+
+
+@triton.jit
+def indirect_reindex_2d_kernel(src_ptr, dst_ptr, row_idx_ptr, col_idx_ptr):
+    rows = tl.load(row_idx_ptr + tl.arange(0, 2))
+    cols = tl.load(col_idx_ptr + tl.arange(0, 4))
+
+    src_offsets = rows[:, None] * 4 + cols[None, :]
+    values = tl.load(src_ptr + src_offsets)
+
+    dst_rows = tl.arange(0, 2)
+    dst_cols = tl.arange(0, 4)
+    dst_offsets = dst_rows[:, None] * 4 + dst_cols[None, :]
+    tl.store(dst_ptr + dst_offsets, values)
+
+
+@triton.jit
+def loop_indirect_seed_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + idx
+    out_ptrs = dst_ptr + idx
+    for _ in range(n_iters):
+        values = tl.load(in_ptrs)
+        tl.store(out_ptrs, values)
+        in_ptrs = in_ptrs + 4
+        out_ptrs = out_ptrs + 4
+
+
+@triton.jit
+def loop_indirect_recurrence_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + idx
+    out_ptrs = dst_ptr + idx
+    for _ in range(n_iters):
+        values = tl.load(in_ptrs)
+        tl.store(out_ptrs, values)
+        in_ptrs = in_ptrs + 4
+        out_ptrs = out_ptrs + 4
+        in_ptrs = in_ptrs + idx
+        out_ptrs = out_ptrs + idx
+
+
+@triton.jit
+def loop_derived_indirect_use_kernel(src_ptr, dst_ptr, idx_ptr, n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + tl.arange(0, 4)
+    out_ptrs = dst_ptr + tl.arange(0, 4)
+    for _ in range(n_iters):
+        values = tl.load(in_ptrs + idx)
+        tl.store(out_ptrs + idx, values)
+        in_ptrs = in_ptrs + 1
+        out_ptrs = out_ptrs + 1
+
+
+@triton.jit
+def from_tt_ptr_indirect_kernel(src_ptr, dst_ptr):
+    offsets = tl.arange(0, 4)
+    src_ptrs = src_ptr + offsets
+    dst_ptrs = dst_ptr + offsets
+    values = tl.load(src_ptrs)
+    tl.store(dst_ptrs, values)
+
+
+@triton.jit
+def loop_indirect_no_seed_dynamic_lower_bound_kernel(src_ptr, dst_ptr, idx_ptr,
+                                                     lb: int, n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + tl.arange(0, 4)
+    out_ptrs = dst_ptr + tl.arange(0, 4)
+    for _ in range(lb, n_iters):
+        values = tl.load(in_ptrs)
+        tl.store(out_ptrs, values)
+        in_ptrs = in_ptrs + idx
+        out_ptrs = out_ptrs + idx
+
+
+@triton.jit
+def loop_indirect_no_seed_dynamic_step_kernel(src_ptr, dst_ptr, idx_ptr,
+                                              n_iters: int, step: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + tl.arange(0, 4)
+    out_ptrs = dst_ptr + tl.arange(0, 4)
+    for _ in range(0, n_iters, step):
+        values = tl.load(in_ptrs)
+        tl.store(out_ptrs, values)
+        in_ptrs = in_ptrs + idx
+        out_ptrs = out_ptrs + idx
+
+
+@triton.jit
+def loop_indirect_no_seed_non_zero_direct_step_kernel(src_ptr, dst_ptr, idx_ptr,
+                                                      n_iters: int):
+    idx = tl.load(idx_ptr + tl.arange(0, 4))
+    in_ptrs = src_ptr + tl.arange(0, 4)
+    out_ptrs = dst_ptr + tl.arange(0, 4)
+    for _ in range(n_iters):
+        values = tl.load(in_ptrs)
+        tl.store(out_ptrs, values)
+        in_ptrs = in_ptrs + 1
+        in_ptrs = in_ptrs + idx
+        out_ptrs = out_ptrs + 1
+        out_ptrs = out_ptrs + idx
+
+
+@triton.jit
+def wrap_dynamic_mask_kernel(src_ptr, dst_ptr, boundary: int):
+    base = tl.arange(0, 4)
+    src_offsets = (base + 1) % boundary
+    dst_offsets = (base + 2) % boundary
+    mask = base != 1
+    values = tl.load(src_ptr + src_offsets, mask=mask, other=-3.0)
+    tl.store(dst_ptr + dst_offsets, values, mask=mask)
+
+
+def test_atomic_add_xchg_masked_true():
+    values = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_add_xchg_kernel[(1,)](values, 3, 7, True)
+
+    expected = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    old = int(expected[3].item())
+    expected[8] = old + (old + 7) + 7
+    torch.testing.assert_close(values, expected)
+
+
+def test_atomic_add_xchg_masked_false():
+    values = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_add_xchg_kernel[(1,)](values, 3, 7, False)
+
+    expected = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    old = int(expected[3].item())
+    expected[8] = old + old + 7
+    torch.testing.assert_close(values, expected)
+
+
+def test_atomic_cas_scalar():
+    hit = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    miss = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_cas_kernel[(1,)](hit, 5, 5, 99)
+    atomic_cas_kernel[(1,)](miss, 5, 77, 99)
+
+    expected_hit = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    expected_hit[9] = expected_hit[5]
+    expected_hit[5] = 99
+
+    expected_miss = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    expected_miss[9] = expected_miss[5]
+
+    torch.testing.assert_close(hit, expected_hit)
+    torch.testing.assert_close(miss, expected_miss)
+
+
+def test_indirect_reindex_2d():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    row_idx = torch.tensor([1, 0], device=DEVICE, dtype=torch.int32)
+    col_idx = torch.tensor([3, 1, 0, 2], device=DEVICE, dtype=torch.int32)
+
+    indirect_reindex_2d_kernel[(1,)](src, dst, row_idx, col_idx)
+
+    expected = src.reshape(2, 4)[row_idx.to(torch.long)][:, col_idx.to(torch.long)]
+    torch.testing.assert_close(dst.reshape(2, 4), expected)
+
+
+def test_atomic_add_tensor():
+    values = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_add_tensor_kernel[(1,)](values)
+
+    expected = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    original = expected[:4].clone()
+    for i in range(4):
+        if i != 1:
+            expected[i] = expected[i] + i + 10
+    expected[8:12] = original
+    torch.testing.assert_close(values, expected)
+
+
+def test_atomic_cas_tensor():
+    values = torch.arange(16, device=DEVICE, dtype=torch.int32)
+
+    atomic_cas_tensor_kernel[(1,)](values)
+
+    expected = torch.arange(16, device=DEVICE, dtype=torch.int32)
+    original = expected[:4].clone()
+    expected[:4] = torch.arange(20, 24, device=DEVICE, dtype=torch.int32)
+    expected[8:12] = original
+    torch.testing.assert_close(values, expected)
+
+
+def test_loop_indirect_seed():
+    src = torch.arange(16, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((16,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([3, 1, 0, 2], device=DEVICE, dtype=torch.int32)
+
+    loop_indirect_seed_kernel[(1,)](src, dst, idx, 2)
+
+    expected = torch.full((16,), -1.0, device=DEVICE, dtype=torch.float32)
+    in_offsets = idx.to(torch.long).clone()
+    out_offsets = idx.to(torch.long).clone()
+    for _ in range(2):
+        expected[out_offsets] = src[in_offsets]
+        in_offsets = in_offsets + 4
+        out_offsets = out_offsets + 4
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_indirect_recurrence():
+    src = torch.arange(32, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((32,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([0, 1, 2, 3], device=DEVICE, dtype=torch.int32)
+
+    loop_indirect_recurrence_kernel[(1,)](src, dst, idx, 2)
+
+    expected = torch.full((32,), -1.0, device=DEVICE, dtype=torch.float32)
+    in_offsets = idx.to(torch.long).clone()
+    out_offsets = idx.to(torch.long).clone()
+    step = idx.to(torch.long)
+    for _ in range(2):
+        expected[out_offsets] = src[in_offsets]
+        in_offsets = in_offsets + 4
+        out_offsets = out_offsets + 4
+        in_offsets = in_offsets + step
+        out_offsets = out_offsets + step
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_derived_indirect_use():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([0, 1, 2, 3], device=DEVICE, dtype=torch.int32)
+
+    loop_derived_indirect_use_kernel[(1,)](src, dst, idx, 2)
+
+    expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    in_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    out_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    step_offsets = idx.to(torch.int64)
+    for _ in range(2):
+        expected[out_offsets + step_offsets] = src[in_offsets + step_offsets]
+        in_offsets = in_offsets + 1
+        out_offsets = out_offsets + 1
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_from_tt_ptr_indirect():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+
+    from_tt_ptr_indirect_kernel[(1,)](src, dst)
+
+    expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    expected[:4] = src[:4]
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_indirect_no_seed_dynamic_lower_bound():
+    src = torch.arange(16, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((16,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([0, 1, 2, 3], device=DEVICE, dtype=torch.int32)
+
+    loop_indirect_no_seed_dynamic_lower_bound_kernel[(1,)](src, dst, idx, 2, 3)
+
+    expected = torch.full((16,), -1.0, device=DEVICE, dtype=torch.float32)
+    offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    expected[offsets] = src[offsets]
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_indirect_no_seed_dynamic_step():
+    src = torch.arange(16, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((16,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([1, 2, 3, 4], device=DEVICE, dtype=torch.int32)
+
+    loop_indirect_no_seed_dynamic_step_kernel[(1,)](src, dst, idx, 6, 2)
+
+    expected = torch.full((16,), -1.0, device=DEVICE, dtype=torch.float32)
+    offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    for _ in range(0, 6, 2):
+        expected[offsets] = src[offsets]
+        offsets = offsets + idx.to(torch.int64)
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_loop_indirect_no_seed_non_zero_direct_step():
+    src = torch.arange(32, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((32,), -1.0, device=DEVICE, dtype=torch.float32)
+    idx = torch.tensor([0, 1, 2, 3], device=DEVICE, dtype=torch.int32)
+
+    loop_indirect_no_seed_non_zero_direct_step_kernel[(1,)](src, dst, idx, 2)
+
+    expected = torch.full((32,), -1.0, device=DEVICE, dtype=torch.float32)
+    in_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    out_offsets = torch.arange(0, 4, device=DEVICE, dtype=torch.int64)
+    step_offsets = idx.to(torch.int64)
+    for _ in range(2):
+        expected[out_offsets] = src[in_offsets]
+        in_offsets = in_offsets + 1
+        in_offsets = in_offsets + step_offsets
+        out_offsets = out_offsets + 1
+        out_offsets = out_offsets + step_offsets
+
+    torch.testing.assert_close(dst, expected)
+
+
+def test_wrap_dynamic_mask():
+    src = torch.arange(8, device=DEVICE, dtype=torch.float32)
+    dst = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    boundary = 5
+
+    wrap_dynamic_mask_kernel[(1,)](src, dst, boundary)
+
+    expected = torch.full((8,), -1.0, device=DEVICE, dtype=torch.float32)
+    base = torch.arange(4, device=DEVICE, dtype=torch.int64)
+    src_offsets = (base + 1) % boundary
+    dst_offsets = (base + 2) % boundary
+    mask = base != 1
+    expected[dst_offsets[mask]] = src[src_offsets[mask]]
+
+    torch.testing.assert_close(dst, expected)

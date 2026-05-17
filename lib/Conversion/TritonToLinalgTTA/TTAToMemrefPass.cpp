@@ -133,8 +133,8 @@ struct ForIterArgInfo {
 };
 
 struct LoopProgression {
-  int64_t lowerBound;
-  int64_t step;
+  Value lowerBound;
+  Value step;
 };
 
 struct AddressStepInfo {
@@ -144,10 +144,7 @@ struct AddressStepInfo {
 
 static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value);
 static FailureOr<LoopProgression>
-getConstantLoopProgression(ForIterArgInfo info);
-static FailureOr<SmallVector<OpFoldResult>>
-collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
-                           ConversionPatternRewriter &rewriter);
+getSupportedLoopProgression(ForIterArgInfo info);
 static FailureOr<AddressStepInfo>
 collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
                        ConversionPatternRewriter &rewriter);
@@ -523,70 +520,6 @@ static FailureOr<Rank1WrapSegments> buildRank1WrapSegments(
   return segments;
 }
 
-static FailureOr<SmallVector<OpFoldResult>>
-collectAddressOffsetDeltas(Value value, Value root, int64_t rank, Location loc,
-                           ConversionPatternRewriter &rewriter) {
-  auto collectDeltas =
-      [&](auto &&self, Value current) -> FailureOr<SmallVector<OpFoldResult>> {
-    if (current == root) {
-      SmallVector<OpFoldResult> zeros;
-      zeros.reserve(rank);
-      for (int64_t i = 0; i < rank; ++i) {
-        zeros.push_back(rewriter.getIndexAttr(0));
-      }
-      return zeros;
-    }
-
-    if (auto imported = current.getDefiningOp<tta::FromTTPtrOp>()) {
-      return self(self, imported.getSource());
-    }
-
-    if (auto advance = current.getDefiningOp<tta::AdvanceOp>()) {
-      auto maybeOffsets = self(self, advance.getAddress());
-      if (failed(maybeOffsets)) {
-        return failure();
-      }
-
-      auto deltas = advance.getMixedDeltas();
-      if (static_cast<int64_t>(deltas.size()) != rank) {
-        return failure();
-      }
-
-      SmallVector<OpFoldResult> composed = *maybeOffsets;
-      for (auto [i, delta] : llvm::enumerate(deltas)) {
-        composed[i] = addOFRs(composed[i], delta, loc, rewriter);
-      }
-      return composed;
-    }
-
-    if (auto reindex = current.getDefiningOp<tta::ReindexOp>()) {
-      auto maybeOffsets = self(self, reindex.getAddress());
-      if (failed(maybeOffsets)) {
-        return failure();
-      }
-
-      auto reindexOffsets = reindex.getMixedOffsets();
-      if (static_cast<int64_t>(reindexOffsets.size()) != rank) {
-        return failure();
-      }
-
-      SmallVector<OpFoldResult> composed = *maybeOffsets;
-      for (auto [i, offset] : llvm::enumerate(reindexOffsets)) {
-        composed[i] = addOFRs(composed[i], offset, loc, rewriter);
-      }
-      return composed;
-    }
-
-    if (current.getDefiningOp<tta::IndirectReindexOp>()) {
-      return failure();
-    }
-
-    return failure();
-  };
-
-  return collectDeltas(collectDeltas, value);
-}
-
 static FailureOr<AddressStepInfo>
 collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
                        ConversionPatternRewriter &rewriter) {
@@ -657,10 +590,111 @@ collectAddressStepInfo(Value value, Value root, int64_t rank, Location loc,
   return collectStep(collectStep, value);
 }
 
+static FailureOr<AddressDescriptor> applyAddressStepInfoToDescriptor(
+    AddressDescriptor descriptor, const AddressStepInfo &stepInfo, Location loc,
+    ConversionPatternRewriter &rewriter,
+    std::optional<StringRef> *failureReason = nullptr) {
+  int64_t rank = static_cast<int64_t>(descriptor.dims.size());
+  if (static_cast<int64_t>(stepInfo.offsets.size()) != rank) {
+    setFailureReason(failureReason, "unsupported address chain");
+    return failure();
+  }
+
+  for (auto [i, offset] : llvm::enumerate(stepInfo.offsets)) {
+    descriptor.dims[i].offset =
+        addOFRs(descriptor.dims[i].offset, offset, loc, rewriter);
+  }
+
+  for (const IndirectDimInfo &info : stepInfo.indirects) {
+    int64_t dim = info.dim;
+    if (dim < 0 || dim >= rank) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    auto maybeIndex = castIndirectIndexToIndex(info.index, loc, rewriter);
+    if (failed(maybeIndex)) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    auto indexType = dyn_cast<RankedTensorType>((*maybeIndex).getType());
+    if (!indexType || indexType.getRank() != 1 ||
+        !indexType.getElementType().isIndex()) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    Value mergedMask = info.mask;
+    if (mergedMask) {
+      auto maskType = dyn_cast<RankedTensorType>(mergedMask.getType());
+      if (!maskType || maskType.getRank() != 1 ||
+          !maskType.getElementType().isInteger(1) ||
+          maskType.getShape() != indexType.getShape()) {
+        setFailureReason(failureReason, "unsupported address chain");
+        return failure();
+      }
+    }
+
+    auto &dimRule = descriptor.dims[dim];
+    if (!dimRule.indirect.has_value()) {
+      dimRule.indirect =
+          mlir::triton::address::IndirectIndexRule{*maybeIndex, mergedMask};
+      continue;
+    }
+
+    auto maybeSeedIndex =
+        castIndirectIndexToIndex(dimRule.indirect->indexTensor, loc, rewriter);
+    if (failed(maybeSeedIndex)) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    auto seedType = dyn_cast<RankedTensorType>((*maybeSeedIndex).getType());
+    if (!seedType || seedType.getRank() != 1 ||
+        !seedType.getElementType().isIndex() ||
+        seedType.getShape() != indexType.getShape()) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    dimRule.indirect->indexTensor =
+        arith::AddIOp::create(rewriter, loc, *maybeSeedIndex, *maybeIndex)
+            .getResult();
+
+    Value seedMask = dimRule.indirect->maskTensor;
+    if (!seedMask) {
+      dimRule.indirect->maskTensor = mergedMask;
+      continue;
+    }
+    if (!mergedMask) {
+      continue;
+    }
+
+    auto seedMaskType = dyn_cast<RankedTensorType>(seedMask.getType());
+    auto mergedMaskType = dyn_cast<RankedTensorType>(mergedMask.getType());
+    if (!seedMaskType || !mergedMaskType || seedMaskType.getRank() != 1 ||
+        mergedMaskType.getRank() != 1 ||
+        !seedMaskType.getElementType().isInteger(1) ||
+        !mergedMaskType.getElementType().isInteger(1) ||
+        seedMaskType.getShape() != mergedMaskType.getShape()) {
+      setFailureReason(failureReason, "unsupported address chain");
+      return failure();
+    }
+
+    dimRule.indirect->maskTensor =
+        arith::AndIOp::create(rewriter, loc, seedMask, mergedMask).getResult();
+  }
+
+  return descriptor;
+}
+
 static FailureOr<AddressDescriptor> collectAddressDescriptorWithCommonAnalysis(
     Value address, Location loc, ConversionPatternRewriter &rewriter,
     std::optional<StringRef> *failureReason = nullptr) {
-  if (!isAddressChainRootedAtMakeAddr(address)) {
+  bool rootedAtMakeAddr = isAddressChainRootedAtMakeAddr(address);
+  auto imported = address.getDefiningOp<tta::FromTTPtrOp>();
+  if (!rootedAtMakeAddr && !imported) {
     if (failureReason) {
       *failureReason = StringRef("unsupported address chain");
     }
@@ -683,6 +717,7 @@ static FailureOr<AddressDescriptor>
 collectAddressDescriptor(Value address, Location loc,
                          ConversionPatternRewriter &rewriter,
                          std::optional<StringRef> *failureReason = nullptr) {
+  Value analysisAddress = address;
   if (auto imported = address.getDefiningOp<tta::FromTTPtrOp>()) {
     address = imported.getSource();
   }
@@ -691,10 +726,10 @@ collectAddressDescriptor(Value address, Location loc,
       succeeded(maybeIterArgInfo)) {
     ForIterArgInfo iterArgInfo = *maybeIterArgInfo;
     FailureOr<LoopProgression> maybeProgression =
-        getConstantLoopProgression(iterArgInfo);
+        getSupportedLoopProgression(iterArgInfo);
     if (failed(maybeProgression)) {
       if (failureReason) {
-        *failureReason = StringRef("non-constant loop progression");
+        *failureReason = StringRef("non-positive constant loop step");
       }
       return failure();
     }
@@ -741,21 +776,25 @@ collectAddressDescriptor(Value address, Location loc,
     }
 
     Value loopIndexInt = inductionVarInt;
-    if (progression.lowerBound != 0) {
-      Value lowerBound =
-          arith::ConstantOp::create(
-              rewriter, loc,
-              rewriter.getIntegerAttr(workIntType, progression.lowerBound))
-              .getResult();
+    auto maybeLowerBound = getConstantIntValue(progression.lowerBound);
+    if (!maybeLowerBound || *maybeLowerBound != 0) {
+      Value lowerBound = progression.lowerBound;
+      if (lowerBound.getType().isIndex()) {
+        lowerBound =
+            arith::IndexCastOp::create(rewriter, loc, workIntType, lowerBound)
+                .getResult();
+      }
       loopIndexInt =
           arith::SubIOp::create(rewriter, loc, loopIndexInt, lowerBound)
               .getResult();
     }
-    if (progression.step != 1) {
-      Value step = arith::ConstantOp::create(
-                       rewriter, loc,
-                       rewriter.getIntegerAttr(workIntType, progression.step))
-                       .getResult();
+    auto maybeStep = getConstantIntValue(progression.step);
+    if (!maybeStep || *maybeStep != 1) {
+      Value step = progression.step;
+      if (step.getType().isIndex()) {
+        step = arith::IndexCastOp::create(rewriter, loc, workIntType, step)
+                   .getResult();
+      }
       loopIndexInt =
           arith::DivSIOp::create(rewriter, loc, loopIndexInt, step).getResult();
     }
@@ -978,16 +1017,6 @@ collectAddressDescriptor(Value address, Location loc,
           continue;
         }
 
-        auto maybeStepOffset =
-            getIntAttr(maybeStepInfo->offsets[recurrenceDim]);
-        if (!maybeStepOffset || *maybeStepOffset != 0) {
-          setFailureReason(
-              failureReason,
-              "loop-carried indirect recurrence without seed requires "
-              "zero direct step on same dim");
-          return failure();
-        }
-
         auto maybeIdentityIndex =
             buildIdentityIndexTensor(mergedStepIndex, loc, rewriter);
         if (failed(maybeIdentityIndex)) {
@@ -1050,20 +1079,21 @@ collectAddressDescriptor(Value address, Location loc,
       }
 
       int64_t rank = static_cast<int64_t>(maybeRootDescriptor->dims.size());
-      auto maybeViewOffsets =
-          collectAddressOffsetDeltas(address, root, rank, loc, rewriter);
-      if (succeeded(maybeViewOffsets)) {
-        for (auto [i, offset] : llvm::enumerate(*maybeViewOffsets)) {
-          maybeRootDescriptor->dims[i].offset = addOFRs(
-              maybeRootDescriptor->dims[i].offset, offset, loc, rewriter);
+      auto maybeViewStepInfo =
+          collectAddressStepInfo(address, root, rank, loc, rewriter);
+      if (succeeded(maybeViewStepInfo)) {
+        auto maybeViewDescriptor = applyAddressStepInfoToDescriptor(
+            *maybeRootDescriptor, *maybeViewStepInfo, loc, rewriter,
+            failureReason);
+        if (succeeded(maybeViewDescriptor)) {
+          return *maybeViewDescriptor;
         }
-        return *maybeRootDescriptor;
       }
     }
   }
 
   if (auto maybeDescriptor = collectAddressDescriptorWithCommonAnalysis(
-          address, loc, rewriter, failureReason);
+          analysisAddress, loc, rewriter, failureReason);
       succeeded(maybeDescriptor)) {
     return *maybeDescriptor;
   }
@@ -1099,14 +1129,14 @@ static FailureOr<ForIterArgInfo> getForIterArgInfo(Value value) {
 }
 
 static FailureOr<LoopProgression>
-getConstantLoopProgression(ForIterArgInfo info) {
-  auto lowerBound = getConstantIntValue(info.forOp.getLowerBound());
-  auto step = getConstantIntValue(info.forOp.getStep());
-  if (!lowerBound || !step || *step <= 0) {
+getSupportedLoopProgression(ForIterArgInfo info) {
+  Value step = info.forOp.getStep();
+  auto maybeStep = getConstantIntValue(step);
+  if (maybeStep && *maybeStep <= 0) {
     return failure();
   }
 
-  return LoopProgression{*lowerBound, *step};
+  return LoopProgression{info.forOp.getLowerBound(), step};
 }
 
 static Value stripAddressViewLikeChain(Value address) {
@@ -1189,7 +1219,7 @@ static bool hasUnsupportedLoopCarriedAddr(Value ptr) {
   }
 
   ForIterArgInfo iterArgInfo = *maybeIterArgInfo;
-  if (failed(getConstantLoopProgression(iterArgInfo))) {
+  if (failed(getSupportedLoopProgression(iterArgInfo))) {
     return true;
   }
 
@@ -1324,6 +1354,9 @@ static FailureOr<Value> getBaseMemref(Value base, Type elementType,
   }
 
   if (isa<triton::PointerType>(base.getType())) {
+    if (!BaseMemRefType::isValidElementType(elementType)) {
+      return failure();
+    }
     auto memrefType = UnrankedMemRefType::get(elementType, 0);
     return UnrealizedConversionCastOp::create(rewriter, loc, memrefType, base)
         .getResult(0);
@@ -1352,6 +1385,72 @@ createExtractSlice(Value source, ArrayRef<OpFoldResult> offsets,
   return tensor::ExtractSliceOp::create(rewriter, loc,
                                         cast<RankedTensorType>(resultType),
                                         source, offsets, sizes, strides);
+}
+
+static Value getTensorDimValue(OpBuilder &builder, Location loc, Value tensor,
+                               int64_t dim, int64_t dimSize) {
+  if (!ShapedType::isDynamic(dimSize)) {
+    return arith::ConstantOp::create(builder, loc,
+                                     builder.getIndexAttr(dimSize))
+        .getResult();
+  }
+  return tensor::DimOp::create(builder, loc, tensor, dim).getResult();
+}
+
+static Value extractTensorOrScalarElement(OpBuilder &builder, Location loc,
+                                          Value value,
+                                          ArrayRef<Value> indices) {
+  if (!value) {
+    return Value();
+  }
+  if (isa<RankedTensorType>(value.getType())) {
+    return tensor::ExtractOp::create(builder, loc, value, indices).getResult();
+  }
+  return value;
+}
+
+template <typename BuildElementFn>
+static Value
+buildTensorElementwiseResult(Value shapeSource, RankedTensorType resultType,
+                             Location loc, ConversionPatternRewriter &rewriter,
+                             BuildElementFn &&buildElement) {
+  SmallVector<Value> dynamicDims;
+  for (auto [dim, dimSize] : llvm::enumerate(resultType.getShape())) {
+    if (ShapedType::isDynamic(dimSize)) {
+      dynamicDims.push_back(
+          tensor::DimOp::create(rewriter, loc, shapeSource, dim).getResult());
+    }
+  }
+
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType(), dynamicDims)
+                   .getResult();
+  Value zero = makeIndexConstant(loc, 0, rewriter);
+  Value one = makeIndexConstant(loc, 1, rewriter);
+  SmallVector<Value> indices;
+
+  auto buildLoop = [&](auto &&self, int64_t dim, Value iterTensor) -> Value {
+    if (dim == resultType.getRank()) {
+      Value scalar = buildElement(indices);
+      return tensor::InsertOp::create(rewriter, loc, scalar, iterTensor,
+                                      indices)
+          .getResult();
+    }
+
+    Value upper = getTensorDimValue(rewriter, loc, shapeSource, dim,
+                                    resultType.getDimSize(dim));
+    auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
+                                    ValueRange{iterTensor});
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(forOp.getBody());
+    indices.push_back(forOp.getInductionVar());
+    Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
+    scf::YieldOp::create(rewriter, loc, next);
+    indices.pop_back();
+    return forOp.getResult(0);
+  };
+
+  return buildLoop(buildLoop, 0, init);
 }
 
 static FailureOr<Value> createReinterpretCast(
@@ -1458,7 +1557,7 @@ buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
           .getResult();
     }
     if (kind == "xchg") {
-      return value;
+      return std::nullopt;
     }
     return std::nullopt;
   }
@@ -1483,7 +1582,7 @@ buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
       return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
     }
     if (kind == "xchg") {
-      return value;
+      return std::nullopt;
     }
     return std::nullopt;
   }
@@ -2221,11 +2320,6 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
     if (gatherDim < 0 || gatherDim >= loadedInfo->rank) {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(
-          op.getOperation(),
-          "indirect reindex on block pointer is unsupported");
-    }
     OpFoldResult gatherBaseOffset = descriptor.dims[gatherDim].offset;
 
     auto maybeIndirectIndex =
@@ -2494,11 +2588,6 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
     if (gatherDim < 0 || gatherDim >= loadedInfo->rank) {
       return rewriter.notifyMatchFailure(op, "indirect dim out of bounds");
     }
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(
-          op.getOperation(),
-          "indirect reindex on block pointer is unsupported");
-    }
     OpFoldResult gatherBaseOffset = descriptor.dims[gatherDim].offset;
 
     auto maybeIndirectIndex =
@@ -2623,11 +2712,6 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
   LogicalResult
   matchAndRewrite(tta::AtomicOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "tensor tta.atomic is unsupported");
-    }
-
     if (!isa<tta::AddrType>(op.getPtr().getType())) {
       return emitTTAToMemrefError(op.getOperation(),
                                   "tta.atomic pointer must be scalar addr");
@@ -2657,10 +2741,6 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                       : "failed to collect address chain");
     }
 
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "block pointer tta.atomic is unsupported");
-    }
     if (addressFeatures.hasIndirect ||
         hasAnyIndirectAccess(*maybeIndirectInfo)) {
       return emitTTAToMemrefError(op.getOperation(),
@@ -2677,11 +2757,126 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                   "tta.atomic requires unit stride");
     }
 
-    auto maybeBaseMemref = getBaseMemref(
-        descriptor.base, op.getValue().getType(), op.getLoc(), rewriter);
+    Type valueElementType = mlir::getElementTypeOrSelf(op.getValue().getType());
+    auto maybeBaseMemref =
+        getBaseMemref(descriptor.base, valueElementType, op.getLoc(), rewriter);
     if (failed(maybeBaseMemref)) {
       return emitTTAToMemrefError(op.getOperation(),
                                   "failed to get base memref for tta.atomic");
+    }
+
+    auto rankedType = MemRefType::get({ShapedType::kDynamic}, valueElementType);
+    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
+                                                rankedType, *maybeBaseMemref)
+                             .getResult();
+
+    StringRef kind = adaptor.getKindAttr().getValue();
+    auto emitScalarAtomic = [&](Value offset, Value value,
+                                Value mask) -> FailureOr<Value> {
+      auto maybeOffset = castAtomicOffsetToIndex(offset, op.getLoc(), rewriter);
+      if (failed(maybeOffset)) {
+        return failure();
+      }
+
+      auto maybeTotalOffset = buildWrappedLinearizedTerm(
+          descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
+      if (failed(maybeTotalOffset)) {
+        return failure();
+      }
+      Value totalOffset = *maybeTotalOffset;
+
+      if (kind == "xchg") {
+        if (mask) {
+          if (!mask.getType().isInteger(1)) {
+            return failure();
+          }
+
+          if (auto constMask = mask.getDefiningOp<arith::ConstantOp>()) {
+            if (auto boolAttr = dyn_cast<BoolAttr>(constMask.getValue())) {
+              if (boolAttr.getValue()) {
+                return memref::AtomicRMWOp::create(
+                           rewriter, op.getLoc(), arith::AtomicRMWKind::assign,
+                           value, rankedMemref, ValueRange{totalOffset})
+                    .getResult();
+              }
+
+              return memref::LoadOp::create(rewriter, op.getLoc(), rankedMemref,
+                                            ValueRange{totalOffset})
+                  .getResult();
+            }
+          }
+
+          auto generic = memref::GenericAtomicRMWOp::create(
+              rewriter, op.getLoc(), rankedMemref, totalOffset);
+          Block &body = generic.getRegion().front();
+          rewriter.setInsertionPointToStart(&body);
+          Value current = body.getArgument(0);
+          Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(),
+                                                     mask, value, current)
+                                 .getResult();
+          memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+          rewriter.setInsertionPointAfter(generic);
+          return generic.getResult();
+        }
+
+        return memref::AtomicRMWOp::create(
+                   rewriter, op.getLoc(), arith::AtomicRMWKind::assign, value,
+                   rankedMemref, ValueRange{totalOffset})
+            .getResult();
+      }
+
+      auto generic = memref::GenericAtomicRMWOp::create(
+          rewriter, op.getLoc(), rankedMemref, totalOffset);
+      Block &body = generic.getRegion().front();
+      rewriter.setInsertionPointToStart(&body);
+
+      Value current = body.getArgument(0);
+      auto maybeUpdated = buildAtomicUpdateFromKind(rewriter, op.getLoc(), kind,
+                                                    current, value);
+      if (!maybeUpdated.has_value()) {
+        rewriter.eraseOp(generic);
+        return failure();
+      }
+
+      Value finalValue = *maybeUpdated;
+      if (mask) {
+        if (!mask.getType().isInteger(1)) {
+          rewriter.eraseOp(generic);
+          return failure();
+        }
+        finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
+                                             finalValue, current)
+                         .getResult();
+      }
+
+      memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+      rewriter.setInsertionPointAfter(generic);
+      return generic.getResult();
+    };
+
+    if (auto resultType = dyn_cast<RankedTensorType>(op.getType())) {
+      if (resultType.getRank() != 1) {
+        return emitTTAToMemrefError(op.getOperation(),
+                                    "tensor tta.atomic must have rank 1");
+      }
+
+      Value result = buildTensorElementwiseResult(
+          adaptor.getOffset(), resultType, op.getLoc(), rewriter,
+          [&](ArrayRef<Value> indices) -> Value {
+            Value scalarOffset = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getOffset(), indices);
+            Value scalarValue = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getValue(), indices);
+            Value scalarMask = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getMask(), indices);
+            FailureOr<Value> maybeScalar =
+                emitScalarAtomic(scalarOffset, scalarValue, scalarMask);
+            assert(succeeded(maybeScalar) &&
+                   "tensor tta.atomic verifier should guarantee valid lanes");
+            return *maybeScalar;
+          });
+      rewriter.replaceOp(op, result);
+      return success();
     }
 
     auto maybeOffset =
@@ -2691,50 +2886,22 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                                   "tta.atomic offset must be int/index scalar");
     }
 
-    auto maybeTotalOffset = buildWrappedLinearizedTerm(
-        descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
-    if (failed(maybeTotalOffset)) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "failed to linearize tta.atomic offset");
-    }
-    Value totalOffset = *maybeTotalOffset;
-
-    auto rankedType =
-        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
-    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
-                                                rankedType, *maybeBaseMemref)
-                             .getResult();
-
-    auto generic = memref::GenericAtomicRMWOp::create(
-        rewriter, op.getLoc(), rankedMemref, totalOffset);
-    Block &body = generic.getRegion().front();
-    rewriter.setInsertionPointToStart(&body);
-
-    Value current = body.getArgument(0);
-    auto maybeUpdated = buildAtomicUpdateFromKind(
-        rewriter, op.getLoc(), adaptor.getKindAttr().getValue(), current,
-        adaptor.getValue());
-    if (!maybeUpdated.has_value()) {
-      rewriter.eraseOp(generic);
-      std::string message = "atomic kind is unsupported: ";
-      message += adaptor.getKindAttr().getValue().str();
-      return emitTTAToMemrefError(op.getOperation(), message);
-    }
-
-    Value finalValue = *maybeUpdated;
-    if (Value mask = adaptor.getMask()) {
-      if (!mask.getType().isInteger(1)) {
-        rewriter.eraseOp(generic);
+    if (kind == "xchg") {
+      if (Value mask = adaptor.getMask();
+          mask && !mask.getType().isInteger(1)) {
         return emitTTAToMemrefError(op.getOperation(),
                                     "tta.atomic mask must be scalar i1");
       }
-      finalValue = arith::SelectOp::create(rewriter, op.getLoc(), mask,
-                                           finalValue, current)
-                       .getResult();
     }
 
-    memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
-    rewriter.replaceOp(op, generic.getResult());
+    FailureOr<Value> maybeScalar =
+        emitScalarAtomic(*maybeOffset, adaptor.getValue(), adaptor.getMask());
+    if (failed(maybeScalar)) {
+      std::string message = "atomic kind is unsupported: ";
+      message += kind.str();
+      return emitTTAToMemrefError(op.getOperation(), message);
+    }
+    rewriter.replaceOp(op, *maybeScalar);
     return success();
   }
 };
@@ -2746,11 +2913,6 @@ struct ConvertTTAAtomicCASPattern
   LogicalResult
   matchAndRewrite(tta::AtomicCASOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "tensor tta.atomic_cas is unsupported");
-    }
-
     if (!isa<tta::AddrType>(op.getPtr().getType())) {
       return emitTTAToMemrefError(op.getOperation(),
                                   "tta.atomic_cas pointer must be scalar addr");
@@ -2780,10 +2942,6 @@ struct ConvertTTAAtomicCASPattern
                                       : "failed to collect address chain");
     }
 
-    if (addressFeatures.hasBlockLayout) {
-      return emitTTAToMemrefError(
-          op.getOperation(), "block pointer tta.atomic_cas is unsupported");
-    }
     if (addressFeatures.hasIndirect ||
         hasAnyIndirectAccess(*maybeIndirectInfo)) {
       return emitTTAToMemrefError(op.getOperation(),
@@ -2800,11 +2958,86 @@ struct ConvertTTAAtomicCASPattern
                                   "tta.atomic_cas requires unit stride");
     }
 
-    auto maybeBaseMemref = getBaseMemref(
-        descriptor.base, op.getValue().getType(), op.getLoc(), rewriter);
+    Type valueElementType = mlir::getElementTypeOrSelf(op.getValue().getType());
+    auto maybeBaseMemref =
+        getBaseMemref(descriptor.base, valueElementType, op.getLoc(), rewriter);
     if (failed(maybeBaseMemref)) {
       return emitTTAToMemrefError(
           op.getOperation(), "failed to get base memref for tta.atomic_cas");
+    }
+
+    auto rankedType = MemRefType::get({ShapedType::kDynamic}, valueElementType);
+    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
+                                                rankedType, *maybeBaseMemref)
+                             .getResult();
+    auto emitScalarAtomicCAS = [&](Value offset, Value compare,
+                                   Value value) -> FailureOr<Value> {
+      auto maybeOffset = castAtomicOffsetToIndex(offset, op.getLoc(), rewriter);
+      if (failed(maybeOffset)) {
+        return failure();
+      }
+
+      auto maybeTotalOffset = buildWrappedLinearizedTerm(
+          descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
+      if (failed(maybeTotalOffset)) {
+        return failure();
+      }
+      Value totalOffset = *maybeTotalOffset;
+
+      auto generic = memref::GenericAtomicRMWOp::create(
+          rewriter, op.getLoc(), rankedMemref, totalOffset);
+      Block &body = generic.getRegion().front();
+      rewriter.setInsertionPointToStart(&body);
+
+      Value current = body.getArgument(0);
+      Value equal;
+      if (isa<FloatType>(current.getType())) {
+        equal =
+            arith::CmpFOp::create(rewriter, op.getLoc(),
+                                  arith::CmpFPredicate::OEQ, current, compare)
+                .getResult();
+      } else if (isa<IntegerType>(current.getType())) {
+        equal =
+            arith::CmpIOp::create(rewriter, op.getLoc(),
+                                  arith::CmpIPredicate::eq, current, compare)
+                .getResult();
+      } else {
+        rewriter.eraseOp(generic);
+        return failure();
+      }
+
+      Value finalValue =
+          arith::SelectOp::create(rewriter, op.getLoc(), equal, value, current)
+              .getResult();
+      memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
+      rewriter.setInsertionPointAfter(generic);
+      return generic.getResult();
+    };
+
+    if (auto resultType = dyn_cast<RankedTensorType>(op.getType())) {
+      if (resultType.getRank() != 1) {
+        return emitTTAToMemrefError(op.getOperation(),
+                                    "tensor tta.atomic_cas must have rank 1");
+      }
+
+      Value result = buildTensorElementwiseResult(
+          adaptor.getOffset(), resultType, op.getLoc(), rewriter,
+          [&](ArrayRef<Value> indices) -> Value {
+            Value scalarOffset = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getOffset(), indices);
+            Value scalarCompare = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getCompare(), indices);
+            Value scalarValue = extractTensorOrScalarElement(
+                rewriter, op.getLoc(), adaptor.getValue(), indices);
+            FailureOr<Value> maybeScalar =
+                emitScalarAtomicCAS(scalarOffset, scalarCompare, scalarValue);
+            assert(
+                succeeded(maybeScalar) &&
+                "tensor tta.atomic_cas verifier should guarantee valid lanes");
+            return *maybeScalar;
+          });
+      rewriter.replaceOp(op, result);
+      return success();
     }
 
     auto maybeOffset =
@@ -2814,49 +3047,14 @@ struct ConvertTTAAtomicCASPattern
           op.getOperation(), "tta.atomic_cas offset must be int/index scalar");
     }
 
-    auto rankedType =
-        MemRefType::get({ShapedType::kDynamic}, op.getValue().getType());
-    Value rankedMemref = memref::CastOp::create(rewriter, op.getLoc(),
-                                                rankedType, *maybeBaseMemref)
-                             .getResult();
-
-    auto maybeTotalOffset = buildWrappedLinearizedTerm(
-        descriptor.dims[0], *maybeOffset, op.getLoc(), rewriter);
-    if (failed(maybeTotalOffset)) {
-      return emitTTAToMemrefError(op.getOperation(),
-                                  "failed to linearize tta.atomic_cas offset");
-    }
-    Value totalOffset = *maybeTotalOffset;
-
-    auto generic = memref::GenericAtomicRMWOp::create(
-        rewriter, op.getLoc(), rankedMemref, totalOffset);
-    Block &body = generic.getRegion().front();
-    rewriter.setInsertionPointToStart(&body);
-
-    Value current = body.getArgument(0);
-    Value equal;
-    if (isa<FloatType>(current.getType())) {
-      equal = arith::CmpFOp::create(rewriter, op.getLoc(),
-                                    arith::CmpFPredicate::OEQ, current,
-                                    adaptor.getCompare())
-                  .getResult();
-    } else if (isa<IntegerType>(current.getType())) {
-      equal =
-          arith::CmpIOp::create(rewriter, op.getLoc(), arith::CmpIPredicate::eq,
-                                current, adaptor.getCompare())
-              .getResult();
-    } else {
-      rewriter.eraseOp(generic);
+    FailureOr<Value> maybeScalar = emitScalarAtomicCAS(
+        *maybeOffset, adaptor.getCompare(), adaptor.getValue());
+    if (failed(maybeScalar)) {
       return emitTTAToMemrefError(
           op.getOperation(),
           "tta.atomic_cas only supports integer or floating-point values");
     }
-
-    Value finalValue = arith::SelectOp::create(rewriter, op.getLoc(), equal,
-                                               adaptor.getValue(), current)
-                           .getResult();
-    memref::AtomicYieldOp::create(rewriter, op.getLoc(), finalValue);
-    rewriter.replaceOp(op, generic.getResult());
+    rewriter.replaceOp(op, *maybeScalar);
     return success();
   }
 };

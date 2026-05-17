@@ -14,3 +14,4 @@ third_party/.gitignore
 
 *.log
 .DS_Store
+prompts-*.md
