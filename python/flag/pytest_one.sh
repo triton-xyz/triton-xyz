@@ -16,6 +16,8 @@ export TRITON_XYZ_PYTEST_TIMEOUT="${TRITON_XYZ_PYTEST_TIMEOUT:-120}"
 export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR/triton_home}"
 export GEMS_VENDOR="${GEMS_VENDOR:-xyz}"
 
+export MLIR_ENABLE_DUMP_DIR=1
+
 mkdir -p "$TRITON_HOME"
 
 if [ "$#" -eq 0 ]; then
