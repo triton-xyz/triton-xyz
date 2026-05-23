@@ -24,6 +24,7 @@ if [ "$#" -eq 0 ]; then
     --mode quick
     --ref cpu
     tests/test_tensor_constructor_ops.py
+    # tests/test_tensor_constructor_ops.py::test_accuracy_rand
     -k
     "not test_accuracy_randperm and not test_accuracy_one_hot"
   )
