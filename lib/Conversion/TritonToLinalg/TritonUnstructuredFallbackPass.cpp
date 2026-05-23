@@ -283,6 +283,59 @@ class ScalarizeTensorAtomicCAS : public OpRewritePattern<triton::AtomicCASOp> {
   }
 };
 
+class ScalarizeTensorAddPtr : public OpRewritePattern<triton::AddPtrOp> {
+  using OpRewritePattern<triton::AddPtrOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(triton::AddPtrOp op,
+                                PatternRewriter &rewriter) const override {
+    auto ptrType = dyn_cast<RankedTensorType>(op.getPtr().getType());
+    if (!ptrType || !isTensorOfPointers(ptrType)) {
+      return failure();
+    }
+
+    auto loc = op.getLoc();
+    Value ptrTensor = op.getPtr();
+    Value offsetTensor = op.getOffset();
+    auto shape = ptrType.getShape();
+    auto elementType = ptrType.getElementType();
+    auto zero =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0));
+    auto one =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(1));
+
+    Value init = tensor::EmptyOp::create(rewriter, loc, shape, elementType);
+    SmallVector<Value> indices;
+
+    auto buildLoop = [&](auto &self, int dim, Value iterTensor) -> Value {
+      if (dim == static_cast<int>(shape.size())) {
+        Value scalarPtr =
+            tensor::ExtractOp::create(rewriter, loc, ptrTensor, indices);
+        Value scalarOffset =
+            extractElement(rewriter, loc, offsetTensor, indices);
+        Value scalar =
+            triton::AddPtrOp::create(rewriter, loc, scalarPtr.getType(), scalarPtr, scalarOffset);
+        return tensor::InsertOp::create(rewriter, loc, scalar, iterTensor,
+                                        indices);
+      }
+
+      Value upper = getDimValue(rewriter, loc, ptrTensor, dim, shape[dim]);
+      auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
+                                      ValueRange{iterTensor});
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+      indices.push_back(forOp.getInductionVar());
+      Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
+      scf::YieldOp::create(rewriter, loc, next);
+      indices.pop_back();
+      return forOp.getResult(0);
+    };
+
+    Value result = buildLoop(buildLoop, 0, init);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 class TritonUnstructuredFallbackPass
     : public triton::impl::TritonUnstructuredFallbackBase<
           TritonUnstructuredFallbackPass> {
@@ -293,7 +346,7 @@ class TritonUnstructuredFallbackPass
 public:
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<ScalarizeTensorLoad, ScalarizeTensorStore,
+    patterns.add<ScalarizeTensorAddPtr, ScalarizeTensorLoad, ScalarizeTensorStore,
                  ScalarizeTensorAtomicRMW, ScalarizeTensorAtomicCAS>(
         &getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {

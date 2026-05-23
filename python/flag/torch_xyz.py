@@ -67,8 +67,43 @@ def _patch_triton_autotune_first_config_only():
     triton.runtime.autotuner.autotune = patched_triton_autotune
 
 
+class _PhiloxGenerator:
+    """Generator wrapper providing Philox-compatible state for CPU backends.
+
+    Stores seed and offset as Python ints so that philox_backend_seed_offset
+    can read/write state in the same format used by CUDA Philox generators,
+    without depending on the mt19937 generator state format.
+    """
+
+    def __init__(self, seed=None):
+        import random
+        if seed is None:
+            seed = random.randint(0, 2 ** 63 - 1)
+        self._seed = seed
+        self._offset = 0
+
+    def initial_seed(self):
+        return self._seed
+
+    def get_state(self):
+        # Return a fresh 16-byte tensor (2 x int64) mirroring Philox state.
+        # Modifications to views of this tensor are picked up by set_state().
+        t = torch.zeros(2, dtype=torch.int64)
+        t[0] = self._seed
+        t[1] = self._offset
+        return t.view(torch.uint8)
+
+    def set_state(self, state):
+        # Read the (possibly modified) offset back from the byte tensor.
+        # Uses .item() to extract a Python int, avoiding any torch op
+        # interception by FlagGems.
+        viewed = state.view(torch.int64)
+        self._offset = int(viewed[1].item())
+
+
 def _cpu_default_generators():
-    generator = torch.Generator(device="cpu")
+    generator = _PhiloxGenerator(
+        seed=int(os.environ.get("TRITON_XYZ_SEED", "42")))
     return {
         "cpu": generator,
         0: generator,
