@@ -1,4 +1,5 @@
 #include "Profiler/Instrumentation/CpuInstrumentationProfiler.h"
+#include "Profiler/Instrumentation/CpuInstrumentationState.h"
 
 #include "Data/Metric.h"
 #include "Data/TreeData.h"
