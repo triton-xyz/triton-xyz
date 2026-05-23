@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DUMP_NAME=${AGENT_DUMP_DIR:-flaggems-pytest-one}
 DUMP_DIR="$ROOT/debug_agent/$DUMP_NAME"
-
 mkdir -p "$DUMP_DIR"
 
 export PATH="$ROOT/build/bin:$PATH"
@@ -16,7 +15,7 @@ export TRITON_XYZ_PYTEST_TIMEOUT="${TRITON_XYZ_PYTEST_TIMEOUT:-120}"
 export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR/triton_home}"
 export GEMS_VENDOR="${GEMS_VENDOR:-xyz}"
 
-export MLIR_ENABLE_DUMP_DIR=1
+export MLIR_ENABLE_DUMP_DIR="$DUMP_DIR/mlir_dump"
 
 mkdir -p "$TRITON_HOME"
 
