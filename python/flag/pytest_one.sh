@@ -24,10 +24,11 @@ if [ "$#" -eq 0 ]; then
     -v
     --mode quick
     --ref cpu
-    tests/test_tensor_constructor_ops.py
+    tests/test_unary_pointwise_ops.py
+    # tests/test_tensor_constructor_ops.py
+    #
+    # tests/test_unary_pointwise_ops.py::test_accuracy_abs
     # tests/test_tensor_constructor_ops.py::test_accuracy_rand
-    -k
-    "not test_accuracy_randperm and not test_accuracy_one_hot"
   )
 else
   args=(
