@@ -408,6 +408,14 @@ public:
             tensorType.getShape(),
             ptr::PtrType::get(context, ptr::GenericSpaceAttr::get(context)));
       }
+      // Promote i1 tensor element types to i8 for LLVM compatibility
+      if (auto intTy = dyn_cast<IntegerType>(tensorType.getElementType())) {
+        if (intTy.getWidth() == 1) {
+          return RankedTensorType::get(
+              tensorType.getShape(),
+              IntegerType::get(context, 8));
+        }
+      }
       return tensorType;
     });
     auto createCast = [&](OpBuilder &builder, Type resultType,
