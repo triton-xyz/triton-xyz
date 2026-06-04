@@ -22,7 +22,7 @@
         "MLIR_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/mlir",
         "LLD_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/lld",
         "JSON_SYSPATH": "${sourceDir}/.pixi/envs/default",
-        "TRITON_XYZ_BUILD_PROTON": true,
+        "TRITON_XYZ_BUILD_PROTON": false,
         "TRITON_BUILD_PROTON": false,
         "TRITON_BUILD_UT": false,
         "TRITON_CODEGEN_BACKENDS": "nvidia;amd",
