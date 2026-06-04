@@ -1,9 +1,11 @@
-ln -s $PWD/third_party/triton_patch/CMakePresets.json $PWD/third_party/triton/
-ln -s $PWD/third_party/triton_patch/patch.patch $PWD/third_party/triton/
+if [[ ! -e "$PWD/third_party/triton/patch.patch" ]]; then
+  ln -s $PWD/third_party/triton_patch/CMakePresets.json $PWD/third_party/triton/
+  ln -s $PWD/third_party/triton_patch/patch.patch $PWD/third_party/triton/
 
-pushd $PWD/third_party/triton
-git apply patch.patch
-popd
+  pushd $PWD/third_party/triton
+  git apply patch.patch
+  popd
+fi
 
 [[ "$(uname)" == "Darwin" ]] && PRESET="osx_lld" || PRESET="osx"
 cmake --preset $PRESET -S$PWD/third_party/triton -B$PWD/build \
