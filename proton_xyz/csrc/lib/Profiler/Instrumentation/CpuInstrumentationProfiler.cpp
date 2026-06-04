@@ -14,6 +14,8 @@ namespace proton {
 
 namespace {
 
+constexpr size_t kRootContextId = 0;
+
 uint64_t getCurrentThreadStreamId() {
   return static_cast<uint64_t>(
       std::hash<std::thread::id>{}(std::this_thread::get_id()));
@@ -42,8 +44,7 @@ DataEntry addThreadAwareOp(Data *data, const Scope &scope,
     insertIt = std::prev(contexts.end());
   }
   contexts.insert(insertIt, Context(getCurrentThreadContextName()));
-  return data->addOp(data->getPhaseInfo().current, Data::kRootEntryId,
-                     contexts);
+  return data->addOp(data->getPhaseInfo().current, kRootContextId, contexts);
 }
 
 } // namespace
@@ -85,8 +86,7 @@ void CpuInstrumentationProfiler::emitScalarMetrics(
     return;
   }
   for (const auto &[data, entry] : dataToEntry) {
-    (void)data;
-    entry.upsertFlexibleMetrics(scalarMetrics);
+    data->addMetrics(entry.phase, entry.id, scalarMetrics);
   }
 }
 

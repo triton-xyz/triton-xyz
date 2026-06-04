@@ -41,8 +41,7 @@ void CpuProfiler::emitScalarMetrics(
     return;
   }
   for (const auto &[data, entry] : dataToEntry) {
-    (void)data;
-    entry.upsertFlexibleMetrics(scalarMetrics);
+    data->addMetrics(entry.phase, entry.id, scalarMetrics);
   }
 }
 
