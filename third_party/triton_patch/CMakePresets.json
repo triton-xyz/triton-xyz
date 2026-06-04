@@ -21,7 +21,7 @@
         "LLVM_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/llvm",
         "MLIR_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/mlir",
         "LLD_DIR": "${sourceDir}/../../llvm-triton/llvm-project/build/lib/cmake/lld",
-        "JSON_INCLUDE_DIR": "${sourceDir}/.pixi/envs/default/include",
+        "JSON_INCLUDE_DIR": "${sourceDir}/../../.pixi/envs/default/include",
         "TRITON_XYZ_BUILD_PROTON": true,
         "TRITON_BUILD_PROTON": false,
         "TRITON_BUILD_UT": false,
@@ -29,7 +29,6 @@
         "TRITON_PLUGIN_DIRS": "${sourceDir}/../../",
         "TRITON_BUILD_PYTHON_MODULE": true,
         "TRITON_WHEEL_DIR": "${sourceDir}/../../build/bin",
-        "TRITON_CACHE_PATH": "${sourceDir}/../../build",
         "LLVM_ENABLE_ASSERTIONS": true
       }
     },
