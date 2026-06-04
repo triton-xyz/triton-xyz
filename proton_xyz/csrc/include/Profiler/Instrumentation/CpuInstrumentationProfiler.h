@@ -27,10 +27,10 @@ protected:
   void doStop() override {}
   void doFlush() override {}
   void doSetMode(const std::vector<std::string> &modeAndOptions) override;
-  void doAddMetrics(
-      size_t scopeId,
-      const std::map<std::string, MetricValueType> &scalarMetrics,
-      const std::map<std::string, TensorMetric> &tensorMetrics) override;
+  void
+  addMetrics(size_t scopeId,
+             const std::map<std::string, MetricValueType> &scalarMetrics,
+             const std::map<std::string, TensorMetric> &tensorMetrics) override;
 
   void startOp(const Scope &scope) override;
   void stopOp(const Scope &scope) override;
@@ -42,7 +42,9 @@ private:
   using TimePoint = Clock::time_point;
 
   struct ActiveScopeState {
-    Scope scope{};
+    explicit ActiveScopeState(const Scope &scope) : scope(scope) {}
+
+    Scope scope;
     TimePoint startTime{};
     DataToEntryMap dataToEntry{};
   };

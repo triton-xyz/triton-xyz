@@ -43,20 +43,20 @@ void bindCpuInstrumentation(pybind11::module_ &m) {
 
 extern "C" __attribute__((visibility("default"))) void
 proton_cpu_record_start(int64_t scopeId) {
-  Scope scope;
-  if (!lookupCpuInstrumentationScope(static_cast<size_t>(scopeId), scope)) {
+  auto scope = lookupCpuInstrumentationScope(static_cast<size_t>(scopeId));
+  if (!scope) {
     return;
   }
-  SessionManager::instance().enterScope(scope);
+  SessionManager::instance().enterScope(*scope);
 }
 
 extern "C" __attribute__((visibility("default"))) void
 proton_cpu_record_end(int64_t scopeId) {
-  Scope scope;
-  if (!lookupCpuInstrumentationScope(static_cast<size_t>(scopeId), scope)) {
+  auto scope = lookupCpuInstrumentationScope(static_cast<size_t>(scopeId));
+  if (!scope) {
     return;
   }
-  SessionManager::instance().exitScope(scope);
+  SessionManager::instance().exitScope(*scope);
 }
 
 extern "C" __attribute__((visibility("default"))) void

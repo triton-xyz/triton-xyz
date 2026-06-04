@@ -54,23 +54,22 @@ void exitCpuInstrumentation(uint64_t functionId) {
   activeFunctionScopes.erase(std::next(it).base());
 }
 
-bool lookupCpuInstrumentationScope(size_t scopeId, Scope &scope) {
+std::optional<Scope> lookupCpuInstrumentationScope(size_t scopeId) {
   if (activeFunctionScopes.empty()) {
-    return false;
+    return std::nullopt;
   }
 
   const auto &scopeNames = activeFunctionScopes.back().scopeNames;
   if (!scopeNames) {
-    return false;
+    return std::nullopt;
   }
 
   auto scopeIt = scopeNames->find(scopeId);
   if (scopeIt == scopeNames->end()) {
-    return false;
+    return std::nullopt;
   }
 
-  scope = Scope(scopeId, scopeIt->second);
-  return true;
+  return Scope(scopeId, scopeIt->second);
 }
 
 bool isCpuInstrumentationScope(size_t scopeId) {

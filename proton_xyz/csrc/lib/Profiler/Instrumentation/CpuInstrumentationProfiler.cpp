@@ -1,9 +1,9 @@
 #include "Profiler/Instrumentation/CpuInstrumentationProfiler.h"
-#include "Profiler/Instrumentation/CpuInstrumentationState.h"
 
 #include "Data/Metric.h"
 #include "Data/TreeData.h"
 #include "Device.h"
+#include "Profiler/Instrumentation/CpuInstrumentationState.h"
 
 #include <functional>
 #include <iterator>
@@ -37,11 +37,18 @@ DataEntry addThreadAwareOp(Data *data, const Scope &scope,
       (contexts.empty() || contexts.back().name != scope.name)) {
     contexts.emplace_back(scope.name);
   }
-  auto insertIt = contexts.end();
   if (insertThreadBeforeLeaf && !contexts.empty()) {
-    insertIt = std::prev(contexts.end());
+    std::vector<Context> threadContexts;
+    threadContexts.reserve(contexts.size() + 1);
+    for (auto it = contexts.begin(); it != std::prev(contexts.end()); ++it) {
+      threadContexts.push_back(*it);
+    }
+    threadContexts.emplace_back(getCurrentThreadContextName());
+    threadContexts.push_back(contexts.back());
+    contexts = std::move(threadContexts);
+  } else {
+    contexts.emplace_back(getCurrentThreadContextName());
   }
-  contexts.insert(insertIt, Context(getCurrentThreadContextName()));
   return data->addOp(data->getPhaseInfo().current, Data::kRootEntryId,
                      contexts);
 }
@@ -125,8 +132,7 @@ void CpuInstrumentationProfiler::enterScope(const Scope &scope) {
     return;
   }
 
-  ActiveScopeState state;
-  state.scope = scope;
+  ActiveScopeState state(scope);
   state.startTime = Clock::now();
   for (auto *data : getDataSet()) {
     state.dataToEntry.insert_or_assign(
@@ -152,7 +158,7 @@ void CpuInstrumentationProfiler::exitScope(const Scope &scope) {
   emitKernelMetric(state.dataToEntry, state.startTime, Clock::now());
 }
 
-void CpuInstrumentationProfiler::doAddMetrics(
+void CpuInstrumentationProfiler::addMetrics(
     size_t scopeId, const std::map<std::string, MetricValueType> &scalarMetrics,
     const std::map<std::string, TensorMetric> &tensorMetrics) {
   (void)tensorMetrics;

@@ -111,15 +111,15 @@ Profiler *SessionManager::validateAndSetProfilerMode(Profiler *profiler,
 }
 
 std::unique_ptr<Session> SessionManager::makeSession(
-    size_t id, const std::string &path, const std::string &profilerName,
+    const std::string &path, const std::string &profilerName,
     const std::string &contextSourceName, const std::string &dataName,
     const std::string &mode) {
   auto *profiler = makeProfiler(profilerName);
   profiler = validateAndSetProfilerMode(profiler, mode);
   auto contextSource = makeContextSource(contextSourceName);
   auto data = makeData(dataName, path, contextSource.get(), profilerName, mode);
-  auto *session = new Session(id, path, profiler, std::move(contextSource),
-                              std::move(data));
+  auto *session =
+      new Session(path, profiler, std::move(contextSource), std::move(data));
   return std::unique_ptr<Session>(session);
 }
 
@@ -142,13 +142,13 @@ void SessionManager::activateAllSessions() {
 
 void SessionManager::deactivateSession(size_t sessionId, bool flushing) {
   std::lock_guard<std::mutex> lock(mutex);
-  deActivateSessionImpl(sessionId, flushing);
+  deactivateSessionImpl(sessionId, flushing);
 }
 
 void SessionManager::deactivateAllSessions(bool flushing) {
   std::lock_guard<std::mutex> lock(mutex);
   for (auto iter : sessionActive) {
-    deActivateSessionImpl(iter.first, flushing);
+    deactivateSessionImpl(iter.first, flushing);
   }
 }
 
@@ -166,7 +166,7 @@ void SessionManager::activateSessionImpl(size_t sessionId) {
   registerInterface<MetricInterface>(sessionId, metricInterfaceCounts);
 }
 
-void SessionManager::deActivateSessionImpl(size_t sessionId, bool flushing) {
+void SessionManager::deactivateSessionImpl(size_t sessionId, bool flushing) {
   throwIfSessionNotInitialized(sessions, sessionId);
   if (!sessionActive[sessionId]) {
     return;
@@ -214,8 +214,8 @@ size_t SessionManager::addSession(const std::string &path,
     return sessionId;
   }
   auto sessionId = nextSessionId++;
-  auto newSession = makeSession(sessionId, path, profilerName,
-                                contextSourceName, dataName, mode);
+  auto newSession =
+      makeSession(path, profilerName, contextSourceName, dataName, mode);
   sessionPaths[path] = sessionId;
   sessions[sessionId] = std::move(newSession);
   return sessionId;
@@ -227,7 +227,7 @@ void SessionManager::finalizeSession(size_t sessionId,
   if (!hasSession(sessionId)) {
     return;
   }
-  deActivateSessionImpl(sessionId, /*flushing=*/true);
+  deactivateSessionImpl(sessionId, /*flushing=*/true);
   sessions[sessionId]->finalize(outputFormat);
   removeSession(sessionId);
 }
@@ -236,7 +236,7 @@ void SessionManager::finalizeAllSessions(const std::string &outputFormat) {
   std::lock_guard<std::mutex> lock(mutex);
   auto sessionIds = std::vector<size_t>{};
   for (auto &[sessionId, session] : sessions) {
-    deActivateSessionImpl(sessionId, /*flushing=*/true);
+    deactivateSessionImpl(sessionId, /*flushing=*/true);
     session->finalize(outputFormat);
     sessionIds.push_back(sessionId);
   }

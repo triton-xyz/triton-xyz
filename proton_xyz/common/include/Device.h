@@ -1,12 +1,12 @@
 #ifndef PROTON_COMMON_DEVICE_H_
 #define PROTON_COMMON_DEVICE_H_
 
+#include "DeviceType.h"
+
 #include <cstdint>
 #include <string>
 
 namespace proton {
-
-enum class DeviceType { HIP, CUDA, CPU, COUNT };
 
 template <DeviceType T> struct DeviceTraits;
 
