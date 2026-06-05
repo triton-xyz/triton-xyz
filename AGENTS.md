@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 - `include/` and `lib/` contain the core C++ headers and implementations for the Triton Shared dialects, analyses, and conversions.
-- `backend/`, `utils/`, and `misc/` hold supporting utilities and integration glue.
+- `backend/`, `tools/`, and `misc/` hold supporting utilities and integration glue.
 - `test/` contains MLIR-based regression tests organized by feature area (for example, `test/Conversion`).
 - `build/` holds local build artifacts and is safe to regenerate.
 - `llvm-triton/llvm-project/` contains a vendored `llvm-project` checkout. `llvm-triton/llvm-project/mlir/` is the upstream MLIR source; `llvm-triton/llvm-project/mlir/test/` is a reference for MLIR test structure and `FileCheck` style.
@@ -24,14 +24,14 @@
 
 ## Build, Test, and Development Commands
 
-- Use `utils/agent/run_kernel_case_template.sh` as the reference test harness for Triton Python kernels.
+- Use `tools/agent/run_kernel_case_template.sh` as the reference test harness for Triton Python kernels.
 - During testing, create task-specific scripts when needed (for example under `debug_agent/`), and inspect intermediate IR dumps/logs in the corresponding output directory.
-- For each kernel test, set a distinct `AGENT_DUMP_DIR` (for example `AGENT_DUMP_DIR=vec_add_case`) when running `utils/agent/run_kernel_case_template.sh` to keep IR dumps separated across runs.
+- For each kernel test, set a distinct `AGENT_DUMP_DIR` (for example `AGENT_DUMP_DIR=vec_add_case`) when running `tools/agent/run_kernel_case_template.sh` to keep IR dumps separated across runs.
 
 - Configure and build all cmake targets.
 
 ```bash
-bash utils/agent/build_cmake.sh
+bash tools/agent/build_cmake.sh
 ```
 
 - Build `triton-xyz-opt` from the build dir.
@@ -47,14 +47,14 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 ```
 
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
-- When adding a lit test, refer to `utils/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand.
+- When adding a lit test, refer to `tools/agent/lit_gen_demo.sh` to auto-generate `// CHECK` directives instead of writing them by hand.
 - Skip `pre-commit`; handled manually.
 
 ## Triton Python Kernel Development
 
 - Keep local kernels and runtime checks in `python/tests/` (or `python/examples/` for demos) with deterministic tensor sizes and dtypes.
 - Prefer starting from a minimal kernel shape (single purpose, explicit `tl.constexpr` meta-parameters, masked memory ops for bounds safety).
-- Reuse or adapt `utils/agent/run_kernel_case_template.sh` for iteration; treat it as a template that sets useful defaults (for example `TRITON_ALWAYS_COMPILE=1` and MLIR dump flags).
+- Reuse or adapt `tools/agent/run_kernel_case_template.sh` for iteration; treat it as a template that sets useful defaults (for example `TRITON_ALWAYS_COMPILE=1` and MLIR dump flags).
 - Use a unique `AGENT_DUMP_DIR` per test case so `compile.log` and `triton_xyz_mlir_dump/` outputs are easy to compare and do not overwrite each other.
 - Read `debug_agent/$AGENT_DUMP_DIR/compile.log` first for compiler/runtime failures, then inspect dumps in `debug_agent/$AGENT_DUMP_DIR/triton_xyz_mlir_dump/`.
 - Use upstream references in `third_party/triton/python/tutorials/`, `third_party/triton/python/test/`, and `third_party/triton/python/triton_kernels/` for API patterns and expected semantics.
@@ -80,7 +80,7 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 - Keep baseline and TTA expectations in separate test files or split-input sections; avoid mixing unrelated routes in one check flow.
 - Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features, organizing multi module tests with `--split-input-file` and `// -----`.
 - Keep each case minimal and use focused `CHECK:` patterns to avoid over-specifying behavior.
-- When adding or modifying tests with `FileCheck`, regenerate check lines by following `utils/agent/lit_gen_demo.sh` (use it as the single source of truth, and avoid hand-editing large `CHECK` blocks).
+- When adding or modifying tests with `FileCheck`, regenerate check lines by following `tools/agent/lit_gen_demo.sh` (use it as the single source of truth, and avoid hand-editing large `CHECK` blocks).
 - After regeneration, run targeted validation first (for touched files) and then broader `lit`/`lit -v` as needed.
 
 ## Commit & Pull Request Guidelines

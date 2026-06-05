@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo "source utils/agent/python_test_env.sh instead of executing it" >&2
+  echo "source tools/agent/python_test_env.sh instead of executing it" >&2
   exit 1
 fi
 
