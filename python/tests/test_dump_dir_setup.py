@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _run_backend_module(module: str, dump_dir: Path) -> None:
     env = os.environ.copy()
-    env["MLIR_ENABLE_DUMP_DIR"] = str(dump_dir)
+    env["TT_XYZ_ENABLE_DUMP_DIR"] = str(dump_dir)
     subprocess.run(
         [sys.executable, "-c", f"import {module}"],
         check=True,

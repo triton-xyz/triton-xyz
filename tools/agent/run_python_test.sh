@@ -2,13 +2,16 @@
 set -euo pipefail
 
 DUMP_DIR="${DUMP_DIR:-$PWD/debug_agent/python_test}"
+mkdir -p "$DUMP_DIR"
+
 export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR}"
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
-export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-1}"
-export TRITON_KERNEL_DUMP="${TRITON_KERNEL_DUMP:-1}"
+export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-0}"
+export TRITON_KERNEL_DUMP="${TRITON_KERNEL_DUMP:-0}"
 export TRITON_DUMP_DIR="${TRITON_DUMP_DIR:-$DUMP_DIR/triton_dump}"
-export MLIR_ENABLE_DUMP_DIR="${MLIR_ENABLE_DUMP_DIR:-$DUMP_DIR/triton_xyz_mlir_dump}"
-mkdir -p "$DUMP_DIR" "$TRITON_HOME" "$TRITON_DUMP_DIR" "$MLIR_ENABLE_DUMP_DIR"
+
+export TT_XYZ_ENABLE_DUMP="${TT_XYZ_ENABLE_DUMP:-1}"
+export TT_XYZ_ENABLE_DUMP_DIR="${TT_XYZ_ENABLE_DUMP_DIR:-$DUMP_DIR/triton_xyz_mlir_dump}"
 
 if [[ "${1:-}" != "--" ]]; then
   echo "usage:" >&2
@@ -35,7 +38,7 @@ LOG_PATH="$DUMP_DIR/python_test.log"
 echo "[run-python-test] DUMP_DIR=$DUMP_DIR"
 echo "[run-python-test] LOG=$LOG_PATH"
 echo "[run-python-test] TRITON_DUMP_DIR=$TRITON_DUMP_DIR"
-echo "[run-python-test] MLIR_ENABLE_DUMP_DIR=$MLIR_ENABLE_DUMP_DIR"
+echo "[run-python-test] TT_XYZ_ENABLE_DUMP_DIR=$TT_XYZ_ENABLE_DUMP_DIR"
 printf '[run-python-test] COMMAND='
 printf ' %q' "${cmd[@]}"
 printf '\n'
