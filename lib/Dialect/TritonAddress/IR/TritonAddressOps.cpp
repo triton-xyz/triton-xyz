@@ -491,8 +491,8 @@ LogicalResult MakeAddrOp::verify() {
   if (static_cast<int64_t>(getMixedOffsets().size()) != rank) {
     return emitOpError("offsets must match sizes rank");
   }
-  if (static_cast<int64_t>(getMixedLayout().size()) != rank) {
-    return emitOpError("layout must match sizes rank");
+  if (static_cast<int64_t>(getMixedWrapBoundaries().size()) != rank) {
+    return emitOpError("wrap_boundaries must match sizes rank");
   }
 
   auto baseType = dyn_cast<triton::PointerType>(getBase().getType());
@@ -517,7 +517,7 @@ LogicalResult MakeAddrOp::verify() {
 
   StringRef layoutKind = getLayoutKindString();
   if (!isValidLayoutKind(layoutKind)) {
-    return emitOpError("layout_kind must be either \"strided\" or \"block\"");
+    return emitOpError("layout must be either \"strided\" or \"block\"");
   }
 
   DictionaryAttr layoutPayload = getLayoutPayloadAttr();
@@ -531,7 +531,7 @@ LogicalResult MakeAddrOp::verify() {
       orderAttr ? SmallVector<int32_t>(orderAttr.asArrayRef())
                 : SmallVector<int32_t>();
 
-  bool isBlockLayout = layoutKind == "block";
+  bool isBlockLayout = layoutKind == kLayoutKindBlock;
   if (isBlockLayout && !orderAttr) {
     return emitOpError("block layout requires layout_payload.order");
   }
@@ -541,6 +541,16 @@ LogicalResult MakeAddrOp::verify() {
   }
   if (!isBlockLayout && !order.empty()) {
     return emitOpError("order must be empty for strided layout");
+  }
+  if (isBlockLayout &&
+      static_cast<int64_t>(getMixedParentShape().size()) != rank) {
+    return emitOpError("parent_shape must match sizes rank for block layout");
+  }
+  if (!isBlockLayout && !getMixedParentShape().empty()) {
+    return emitOpError("parent_shape must be empty for strided layout");
+  }
+  if (isBlockLayout && !areAllZero(getMixedWrapBoundaries())) {
+    return emitOpError("block layout requires zero wrap_boundaries");
   }
 
   if (isBlockLayout) {
@@ -560,24 +570,32 @@ LogicalResult MakeAddrOp::verify() {
 
 void MakeAddrOp::build(OpBuilder &b, OperationState &state, Value base,
                        ArrayRef<int64_t> sizes, ArrayRef<OpFoldResult> strides,
-                       ArrayRef<OpFoldResult> offsets, StringRef layoutKind,
-                       ArrayRef<OpFoldResult> layout,
+                       ArrayRef<OpFoldResult> offsets,
+                       ArrayRef<OpFoldResult> wrapBoundaries,
+                       StringRef layoutKind, ArrayRef<OpFoldResult> parentShape,
                        DictionaryAttr layoutPayload) {
-  SmallVector<int64_t> staticStrides, staticOffsets, staticLayout;
-  SmallVector<Value> dynamicStrides, dynamicOffsets, dynamicLayout;
+  SmallVector<int64_t> staticStrides, staticOffsets, staticWrapBoundaries,
+      staticParentShape;
+  SmallVector<Value> dynamicStrides, dynamicOffsets, dynamicWrapBoundaries,
+      dynamicParentShape;
 
   dispatchIndexOpFoldResults(offsets, dynamicOffsets, staticOffsets);
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
-  dispatchIndexOpFoldResults(layout, dynamicLayout, staticLayout);
+  dispatchIndexOpFoldResults(wrapBoundaries, dynamicWrapBoundaries,
+                             staticWrapBoundaries);
+  dispatchIndexOpFoldResults(parentShape, dynamicParentShape,
+                             staticParentShape);
 
   auto basePtr = cast<triton::PointerType>(base.getType());
   Type resultType = AddrType::get(basePtr.getPointeeType(), sizes.size(),
                                   basePtr.getAddressSpace());
 
   build(b, state, resultType, base, sizes, dynamicStrides, dynamicOffsets,
-        dynamicLayout, b.getDenseI64ArrayAttr(staticStrides),
+        dynamicWrapBoundaries, dynamicParentShape,
+        b.getDenseI64ArrayAttr(staticStrides),
         b.getDenseI64ArrayAttr(staticOffsets),
-        b.getDenseI64ArrayAttr(staticLayout), b.getStringAttr(layoutKind),
+        b.getDenseI64ArrayAttr(staticWrapBoundaries),
+        b.getDenseI64ArrayAttr(staticParentShape), b.getStringAttr(layoutKind),
         layoutPayload);
 }
 

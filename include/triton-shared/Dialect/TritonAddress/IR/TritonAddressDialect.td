@@ -58,10 +58,10 @@ def TTA_FromTTPtrOp : TTA_Op<"from_tt_ptr", [Pure]> {
 
 // Address model notes:
 // - Core affine pieces are always `sizes/strides/offsets`.
-// - `layout_kind` chooses how `layout` is interpreted:
-//   * "strided": `layout[i]` is a wrap boundary for dim i (0 means no wrap).
-//   * "block": `layout` is parent-shape; permutation is in
-//     `layout_payload.order`.
+// - `wrap_boundaries[i]` is a wrap boundary for dim i (0 means no wrap).
+// - `layout` selects the address layout family.
+// - For block layout, `parent_shape` is the parent-shape and permutation is in
+//   `layout_payload.order`.
 // - `layout_payload` is an extensibility slot for layout-specific fields.
 def TTA_MakeAddrOp
   : TTA_Op<"make_addr", [AttrSizedOperandSegments, Pure]> {
@@ -71,25 +71,30 @@ def TTA_MakeAddrOp
                        DenseI64ArrayAttr:$sizes,
                        Variadic<Index>:$strides,
                        Variadic<Index>:$offsets,
-                       Variadic<Index>:$layout,
+                       Variadic<Index>:$wrap_boundaries,
+                       Variadic<Index>:$parent_shape,
                        DenseI64ArrayAttr:$static_strides,
                        DenseI64ArrayAttr:$static_offsets,
-                       DenseI64ArrayAttr:$static_layout,
-                       StrAttr:$layout_kind,
+                       DenseI64ArrayAttr:$static_wrap_boundaries,
+                       DefaultValuedAttr<DenseI64ArrayAttr, "{}">:$static_parent_shape,
+                       StrAttr:$layout,
                        OptionalAttr<DictionaryAttr>:$layout_payload);
 
   let results = (outs TTA_AddrTypePred:$result);
 
-  // Keep layout metadata in attr-dict (layout_kind/layout_payload) so the
-  // textual syntax stays stable while layout families evolve.
+  // Keep layout payload metadata in attr-dict so the textual syntax stays
+  // stable while layout families evolve.
   let assemblyFormat = [{
     $base `to` `sizes` `` `:` $sizes
     `` `,` `strides` `` `:`
     custom<DynamicIndexList>($strides, $static_strides)
     `` `,` `offsets` `` `:`
     custom<DynamicIndexList>($offsets, $static_offsets)
-    `` `,` `layout` `` `:`
-    custom<DynamicIndexList>($layout, $static_layout)
+    `` `,` `wrap_boundaries` `` `:`
+    custom<DynamicIndexList>($wrap_boundaries, $static_wrap_boundaries)
+    `` `,` `layout` `` `:` $layout
+    (`` `,` `parent_shape` `` `:`
+    custom<DynamicIndexList>($parent_shape, $static_parent_shape)^)?
     attr-dict `:` type($base) `to` type($result)
   }];
 
@@ -99,8 +104,9 @@ def TTA_MakeAddrOp
       "ArrayRef<int64_t>":$sizes,
       "ArrayRef<OpFoldResult>":$strides,
       "ArrayRef<OpFoldResult>":$offsets,
+      "ArrayRef<OpFoldResult>":$wrapBoundaries,
       "StringRef":$layoutKind,
-      "ArrayRef<OpFoldResult>":$layout,
+      CArg<"ArrayRef<OpFoldResult>", "{}">:$parentShape,
       CArg<"DictionaryAttr", "DictionaryAttr()">:$layoutPayload)>,
   ];
 
@@ -118,12 +124,17 @@ def TTA_MakeAddrOp
       Builder b(getContext());
       return ::mlir::getMixedValues(getStaticOffsets(), getOffsets(), b);
     }
-    SmallVector<OpFoldResult> getMixedLayout() {
+    SmallVector<OpFoldResult> getMixedWrapBoundaries() {
       Builder b(getContext());
-      return ::mlir::getMixedValues(getStaticLayout(), getLayout(), b);
+      return ::mlir::getMixedValues(getStaticWrapBoundaries(),
+                                    getWrapBoundaries(), b);
+    }
+    SmallVector<OpFoldResult> getMixedParentShape() {
+      Builder b(getContext());
+      return ::mlir::getMixedValues(getStaticParentShape(), getParentShape(), b);
     }
     StringRef getLayoutKindString() {
-      return getLayoutKindAttr().getValue();
+      return getLayoutAttr().getValue();
     }
     // `order` is currently only meaningful for block layout and stored in
     // layout_payload for forward-compatible schema evolution.
@@ -140,12 +151,12 @@ def TTA_MakeAddrOp
       return getLayoutKindString() == "block";
     }
     // For non-block layout:
-    // - all-zero layout => structured ptr
-    // - any non-zero layout => split ptr
+    // - all-zero wrap boundaries => structured ptr
+    // - any non-zero wrap boundary => split ptr
     bool isStructuredPtr() {
       return !isBlockPtr() &&
-             llvm::all_of(getStaticLayout(),
-                          [](auto shape) { return shape == 0; });
+             llvm::all_of(getStaticWrapBoundaries(),
+                          [](auto boundary) { return boundary == 0; });
     }
     bool isSplitPtr() {
       return !isBlockPtr() &&

@@ -29,7 +29,7 @@ module {
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_tensor_add(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %val: tensor<4xi32>, %mask: tensor<4xi1>) {
-    %ptr_i = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [0], wrap_boundaries: [0], layout: "strided" : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic"(%ptr_i, %off, %val, %mask) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi1>) -> tensor<4xi32>
     tt.return
   }
@@ -66,7 +66,7 @@ module {
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_tensor_cas(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %cmp: tensor<4xi32>, %val: tensor<4xi32>) {
-    %ptr_i = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [0], layout: [0] {layout_kind = "strided"} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [0], wrap_boundaries: [0], layout: "strided" : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
     tt.return
   }
@@ -109,7 +109,7 @@ module {
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_tensor_xchg_wrap(%ptr: !tt.ptr<i32>, %off: tensor<4xi32>, %val: tensor<4xi32>, %mask: tensor<4xi1>) {
-    %ptr_i = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [3], layout: [8] {layout_kind = "strided"} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [16], strides: [1], offsets: [3], wrap_boundaries: [8], layout: "strided" : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic"(%ptr_i, %off, %val, %mask) <{kind = "xchg"}> : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi1>) -> tensor<4xi32>
     tt.return
   }

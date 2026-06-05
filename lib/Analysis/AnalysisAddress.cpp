@@ -337,18 +337,27 @@ toAddressDescriptor(tta::MakeAddrOp makeAddr,
   auto sizes = makeAddr.getMixedSizes();
   auto strides = makeAddr.getMixedStrides();
   auto offsets = makeAddr.getMixedOffsets();
-  auto layout = makeAddr.getMixedLayout();
+  auto wrapBoundaries = makeAddr.getMixedWrapBoundaries();
+  auto parentShape = makeAddr.getMixedParentShape();
   StringRef layoutKind = makeAddr.getLayoutKindString();
   bool isBlock = layoutKind == "block";
 
   if (layoutKind != "strided" && layoutKind != "block") {
-    setFailureReason(failureReason, "unsupported layout_kind");
+    setFailureReason(failureReason, "unsupported layout");
     return failure();
   }
 
   if (sizes.size() != strides.size() || sizes.size() != offsets.size() ||
-      sizes.size() != layout.size()) {
+      sizes.size() != wrapBoundaries.size()) {
     setFailureReason(failureReason, "make_addr rank mismatch");
+    return failure();
+  }
+  if (isBlock && parentShape.size() != sizes.size()) {
+    setFailureReason(failureReason, "make_addr block parent shape mismatch");
+    return failure();
+  }
+  if (!isBlock && !parentShape.empty()) {
+    setFailureReason(failureReason, "make_addr strided parent shape mismatch");
     return failure();
   }
 
@@ -365,20 +374,20 @@ toAddressDescriptor(tta::MakeAddrOp makeAddr,
     dim.size = size;
     dim.stride = strides[idx];
     dim.offset = offsets[idx];
-    if (!isBlock && !hasConstZero(layout[idx])) {
-      dim.wrapBoundary = WrapBoundary{layout[idx]};
+    if (!isBlock && !hasConstZero(wrapBoundaries[idx])) {
+      dim.wrapBoundary = WrapBoundary{wrapBoundaries[idx]};
     }
     descriptor.dims.push_back(std::move(dim));
   }
 
   if (isBlock) {
     SmallVector<int32_t> order = makeAddr.getLayoutOrder();
-    if (order.size() != layout.size()) {
+    if (order.size() != parentShape.size()) {
       setFailureReason(failureReason, "block layout order rank mismatch");
       return failure();
     }
     BlockLayout blockLayout;
-    blockLayout.parentShape = SmallVector<OpFoldResult>(layout);
+    blockLayout.parentShape = SmallVector<OpFoldResult>(parentShape);
     blockLayout.order = std::move(order);
     descriptor.blockLayout = std::move(blockLayout);
   }
@@ -1264,13 +1273,14 @@ TTAEmitter::emitMakeAddr(const AddressDescriptor &descriptor, Location loc,
   SmallVector<int64_t> sizes;
   SmallVector<OpFoldResult> strides;
   SmallVector<OpFoldResult> offsets;
-  SmallVector<OpFoldResult> layout;
+  SmallVector<OpFoldResult> wrapBoundaries;
+  SmallVector<OpFoldResult> parentShape;
   DictionaryAttr layoutPayload;
   StringRef layoutKind;
   sizes.reserve(descriptor.rank);
   strides.reserve(descriptor.rank);
   offsets.reserve(descriptor.rank);
-  layout.reserve(descriptor.rank);
+  wrapBoundaries.reserve(descriptor.rank);
 
   for (const DimRule &dim : descriptor.dims) {
     auto sizeAttr = getIntAttr(dim.size);
@@ -1282,6 +1292,11 @@ TTAEmitter::emitMakeAddr(const AddressDescriptor &descriptor, Location loc,
     sizes.push_back(sizeAttr.value());
     strides.push_back(dim.stride);
     offsets.push_back(dim.offset);
+    if (dim.wrapBoundary.has_value()) {
+      wrapBoundaries.push_back(dim.wrapBoundary->boundary);
+    } else {
+      wrapBoundaries.push_back(builder.getIndexAttr(0));
+    }
   }
 
   if (descriptor.layoutKind == LayoutKind::Block) {
@@ -1295,26 +1310,23 @@ TTAEmitter::emitMakeAddr(const AddressDescriptor &descriptor, Location loc,
                        "emit_make_addr block layout rank mismatch");
       return failure();
     }
-    layout = SmallVector<OpFoldResult>(descriptor.blockLayout->parentShape);
+    parentShape =
+        SmallVector<OpFoldResult>(descriptor.blockLayout->parentShape);
+    for (OpFoldResult &wrapBoundary : wrapBoundaries) {
+      wrapBoundary = builder.getIndexAttr(0);
+    }
     NamedAttrList payloadAttrs;
     payloadAttrs.append(builder.getNamedAttr(
         "order", builder.getDenseI32ArrayAttr(descriptor.blockLayout->order)));
     layoutPayload = DictionaryAttr::get(builder.getContext(), payloadAttrs);
     layoutKind = "block";
   } else {
-    for (const DimRule &dim : descriptor.dims) {
-      if (dim.wrapBoundary.has_value()) {
-        layout.push_back(dim.wrapBoundary->boundary);
-      } else {
-        layout.push_back(builder.getIndexAttr(0));
-      }
-    }
     layoutKind = "strided";
   }
 
-  auto makeAddr =
-      tta::MakeAddrOp::create(builder, loc, descriptor.base, sizes, strides,
-                              offsets, layoutKind, layout, layoutPayload);
+  auto makeAddr = tta::MakeAddrOp::create(
+      builder, loc, descriptor.base, sizes, strides, offsets, wrapBoundaries,
+      layoutKind, parentShape, layoutPayload);
   return makeAddr.getResult();
 }
 

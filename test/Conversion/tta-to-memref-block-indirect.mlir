@@ -31,11 +31,11 @@ module {
   tt.func @block_ptr_indirect_dim0_load_store(%src: !tt.ptr<f16>, %dst: !tt.ptr<f16>) {
     %idx = arith.constant dense<[3, 1, 0, 2]> : tensor<4xi32>
 
-    %src_addr = tta.make_addr %src to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [4, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
+    %src_addr = tta.make_addr %src to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], wrap_boundaries: [0, 0], layout: "block", parent_shape: [4, 4] {layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
     %src_idx = "tta.indirect_reindex"(%src_addr, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f16, 2, 1>, tensor<4xi32>) -> !tta.addr<f16, 2, 1>
     %val = "tta.load"(%src_idx) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>) -> tensor<4x4xf16>
 
-    %dst_addr = tta.make_addr %dst to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [4, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
+    %dst_addr = tta.make_addr %dst to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], wrap_boundaries: [0, 0], layout: "block", parent_shape: [4, 4] {layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
     %dst_idx = "tta.indirect_reindex"(%dst_addr, %idx) <{indirect_dim = 0 : i32}> : (!tta.addr<f16, 2, 1>, tensor<4xi32>) -> !tta.addr<f16, 2, 1>
     "tta.store"(%dst_idx, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>, tensor<4x4xf16>) -> ()
     tt.return
@@ -73,11 +73,11 @@ module {
   tt.func @block_ptr_indirect_dim1_load_store(%src: !tt.ptr<f16>, %dst: !tt.ptr<f16>) {
     %idx = arith.constant dense<[2, 0, 3, 1]> : tensor<4xi32>
 
-    %src_addr = tta.make_addr %src to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [4, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
+    %src_addr = tta.make_addr %src to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], wrap_boundaries: [0, 0], layout: "block", parent_shape: [4, 4] {layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
     %src_idx = "tta.indirect_reindex"(%src_addr, %idx) <{indirect_dim = 1 : i32}> : (!tta.addr<f16, 2, 1>, tensor<4xi32>) -> !tta.addr<f16, 2, 1>
     %val = "tta.load"(%src_idx) <{operandSegmentSizes = array<i32: 1, 0, 0>, static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>) -> tensor<4x4xf16>
 
-    %dst_addr = tta.make_addr %dst to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], layout: [4, 4] {layout_kind = "block", layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
+    %dst_addr = tta.make_addr %dst to sizes: [4, 4], strides: [4, 1], offsets: [0, 0], wrap_boundaries: [0, 0], layout: "block", parent_shape: [4, 4] {layout_payload = {order = array<i32: 1, 0>}} : <f16> to !tta.addr<f16, 2, 1>
     %dst_idx = "tta.indirect_reindex"(%dst_addr, %idx) <{indirect_dim = 1 : i32}> : (!tta.addr<f16, 2, 1>, tensor<4xi32>) -> !tta.addr<f16, 2, 1>
     "tta.store"(%dst_idx, %val) <{static_mask_dims = array<i64>}> : (!tta.addr<f16, 2, 1>, tensor<4x4xf16>) -> ()
     tt.return

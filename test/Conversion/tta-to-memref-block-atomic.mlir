@@ -16,7 +16,7 @@ module {
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @block_atomic_add_scalar(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
-    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], wrap_boundaries: [0], layout: "block", parent_shape: [4] {layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic"(%ptr_i, %off, %val) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, i32, i32) -> i32
     %u = arith.addi %r, %val : i32
     tt.return
@@ -52,7 +52,7 @@ module {
     %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %vals = arith.constant dense<[10, 11, 12, 13]> : tensor<4xi32>
     %mask = arith.constant dense<[true, false, true, true]> : tensor<4xi1>
-    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], wrap_boundaries: [0], layout: "block", parent_shape: [4] {layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic"(%ptr_i, %offsets, %vals, %mask) <{kind = "add"}> : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi1>) -> tensor<4xi32>
     %u = arith.addi %r, %vals : tensor<4xi32>
     tt.return
@@ -79,7 +79,7 @@ module {
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @block_atomic_cas_scalar(%ptr: !tt.ptr<i32>, %off: i32, %cmp: i32, %val: i32) {
-    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], wrap_boundaries: [0], layout: "block", parent_shape: [4] {layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic_cas"(%ptr_i, %off, %cmp, %val) : (!tta.addr<i32, 1, 1>, i32, i32, i32) -> i32
     %u = arith.addi %r, %val : i32
     tt.return
@@ -115,7 +115,7 @@ module {
     %offsets = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
     %cmp = arith.constant dense<[7, 6, 5, 4]> : tensor<4xi32>
     %vals = arith.constant dense<[20, 21, 22, 23]> : tensor<4xi32>
-    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], layout: [4] {layout_kind = "block", layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
+    %ptr_i = tta.make_addr %ptr to sizes: [4], strides: [1], offsets: [0], wrap_boundaries: [0], layout: "block", parent_shape: [4] {layout_payload = {order = array<i32: 0>}} : <i32> to !tta.addr<i32, 1, 1>
     %r = "tta.atomic_cas"(%ptr_i, %offsets, %cmp, %vals) : (!tta.addr<i32, 1, 1>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
     %u = arith.addi %r, %vals : tensor<4xi32>
     tt.return
