@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace proton {
@@ -27,7 +28,7 @@ void enterCpuInstrumentation(uint64_t functionId);
 
 void exitCpuInstrumentation(uint64_t functionId);
 
-bool lookupCpuInstrumentationScope(size_t scopeId, Scope &scope);
+std::optional<Scope> lookupCpuInstrumentationScope(size_t scopeId);
 
 bool isCpuInstrumentationScope(size_t scopeId);
 

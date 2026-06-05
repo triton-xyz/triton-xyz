@@ -25,10 +25,10 @@ protected:
   void doStop() override {}
   void doFlush() override {}
   void doSetMode(const std::vector<std::string> &) override {}
-  void doAddMetrics(
-      size_t scopeId,
-      const std::map<std::string, MetricValueType> &scalarMetrics,
-      const std::map<std::string, TensorMetric> &tensorMetrics) override;
+  void
+  addMetrics(size_t scopeId,
+             const std::map<std::string, MetricValueType> &scalarMetrics,
+             const std::map<std::string, TensorMetric> &tensorMetrics) override;
 
   void startOp(const Scope &scope) override;
   void stopOp(const Scope &scope) override;

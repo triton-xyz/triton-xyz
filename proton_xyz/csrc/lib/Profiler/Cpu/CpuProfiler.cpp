@@ -69,7 +69,7 @@ void CpuProfiler::stopOp(const Scope &scope) {
   activeOpValid = false;
 }
 
-void CpuProfiler::doAddMetrics(
+void CpuProfiler::addMetrics(
     size_t scopeId, const std::map<std::string, MetricValueType> &scalarMetrics,
     const std::map<std::string, TensorMetric> &tensorMetrics) {
   (void)tensorMetrics;

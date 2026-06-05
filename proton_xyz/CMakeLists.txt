@@ -3,6 +3,9 @@ if(NOT JSON_INCLUDE_DIR)
 endif()
 
 set(PROTON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/triton/third_party/proton")
+set(BACKEND_DEVICE_TAGS "  CPU,\n")
+configure_file(${PROTON_DIR}/common/include/DeviceType.in
+               ${CMAKE_CURRENT_BINARY_DIR}/include/DeviceType.h @ONLY)
 set(PROTON_XYZ_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/Proton.cpp
     ${PROTON_DIR}/common/lib/TraceDataIO/ByteSpan.cpp
@@ -31,11 +34,13 @@ set(PROTON_XYZ_SOURCES
 add_library(proton_xyz SHARED ${PROTON_XYZ_SOURCES})
 target_link_libraries(proton_xyz PRIVATE Python3::Module pybind11::headers)
 target_include_directories(proton_xyz PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/include
     ${JSON_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/include
     ${PROTON_DIR}/common/include
-    ${PROTON_DIR}/csrc/include)
+    ${PROTON_DIR}/csrc/include
+    ${PROTON_DIR}/csrc/lib/Data)
 set_target_properties(proton_xyz
     PROPERTIES OUTPUT_NAME proton
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/"
