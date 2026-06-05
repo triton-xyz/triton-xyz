@@ -25,3 +25,47 @@ index 04211d55f..f61ecd0c6 100644
 
      @classmethod
      def get_all_vendors(cls) -> dict:
+diff --git a/src/flag_gems/utils/libentry.py b/src/flag_gems/utils/libentry.py
+index 5594cccf7..69e67cdd1 100644
+--- a/src/flag_gems/utils/libentry.py
++++ b/src/flag_gems/utils/libentry.py
+@@ -827,7 +827,7 @@ class LibEntry(triton.KernelInterface):
+                 k_args[param_names[i]] = arg
+                 dns_args.append(hashable_arg)
+             else:
+-                if major_version == 3 and 3 <= minor_version <= 6:
++                if major_version == 3 and 3 <= minor_version:
+                     k_args[param_names[i]] = arg
+                 const_args.append(hashable_arg)
+         for p in self.jit_function.params[len(args) :]:
+@@ -840,7 +840,7 @@ class LibEntry(triton.KernelInterface):
+ 
+             if p.is_constexpr:
+                 const_args.append(val)
+-                if major_version == 3 and 3 <= minor_version <= 6:
++                if major_version == 3 and 3 <= minor_version:
+                     k_args[p.name] = val
+             elif p.do_not_specialize:
+                 dns_args.append(val)
+@@ -936,7 +936,7 @@ class LibEntry(triton.KernelInterface):
+             for pre_hook, hook_kwargs in launch_pre_hooks:
+                 pre_hook({**hook_nargs, **hook_kwargs})
+ 
+-        if major_version == 3 and 3 <= minor_version <= 6:
++        if major_version == 3 and 3 <= minor_version:
+             all_args = []
+             missing_keys = []
+             for key in list(self.signature.parameters.keys()):
+diff --git a/src/flag_gems/utils/pointwise_dynamic.py b/src/flag_gems/utils/pointwise_dynamic.py
+index 129cfa566..0b1b32970 100644
+--- a/src/flag_gems/utils/pointwise_dynamic.py
++++ b/src/flag_gems/utils/pointwise_dynamic.py
+@@ -517,7 +517,7 @@ class KernelGenerator:
+                 f"out{i}_ptr, ({shape}), ({strides}), ({offsets}), ({tile_sizes}), order=({order}))"
+             )
+             code.writeline(
+-                f"tl.store(out{i}_bptr, out{i}.to(out{i}_bptr.type.element_ty), boundary_check=({order}))"
++                f"tl.store(out{i}_bptr, out{i}.to(out{i}_ptr.type.element_ty), boundary_check=({order}))"
+             )
+ 
+     def gen_body_gsl_with_bptr(self, code):

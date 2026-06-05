@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DUMP_NAME=${AGENT_DUMP_DIR:-flaggems-pytest-one}
-DUMP_DIR="$ROOT/debug_agent/$DUMP_NAME"
+DUMP_DIR="$PWD/debug_agent/$DUMP_NAME"
 mkdir -p "$DUMP_DIR"
 
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
@@ -21,7 +20,8 @@ if [ "$#" -eq 0 ]; then
     -v
     --mode quick
     --ref cpu
-    tests/test_unary_pointwise_ops.py
+    tests/test_abs.py
+    # tests/test_unary_pointwise_ops.py
     # tests/test_tensor_constructor_ops.py
     #
     # tests/test_unary_pointwise_ops.py::test_accuracy_abs
@@ -36,6 +36,6 @@ else
   )
 fi
 
-pushd "$ROOT/third_party/FlagGems" >/dev/null
+pushd third_party/FlagGems
 pytest "${args[@]}" 2>&1 | tee "$DUMP_DIR/pytest_one.log"
-popd >/dev/null
+popd

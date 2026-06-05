@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DUMP_NAME=${AGENT_DUMP_DIR:-flaggems-pytest}
-DUMP_DIR="$ROOT/debug_agent/$DUMP_NAME"
+DUMP_DIR="$PWD/debug_agent/$DUMP_NAME"
 
 mkdir -p "$DUMP_DIR"
 
-export TRITON_BACKENDS_IN_TREE=1
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
 export TRITON_XYZ_FIRST_CONFIG_ONLY="${TRITON_XYZ_FIRST_CONFIG_ONLY:-1}"
 export TRITON_XYZ_PYTEST_TIMEOUT="${TRITON_XYZ_PYTEST_TIMEOUT:-120}"
@@ -31,14 +29,13 @@ args=(
   tests/test_blas_ops.py
 )
 
-if python - <<'PY' >/dev/null 2>&1
+if python - <<'PY' >/dev/null 2>&1; then
 import importlib
 importlib.import_module("xdist")
 PY
-then
   args=(-n "${TRITON_XYZ_PYTEST_WORKERS:-4}" "${args[@]}")
 fi
 
-pushd "$ROOT/third_party/FlagGems" >/dev/null
+pushd third_party/FlagGems
 pytest "${args[@]}" 2>&1 | tee "$DUMP_DIR/pytest.log"
-popd >/dev/null
+popd

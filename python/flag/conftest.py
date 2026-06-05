@@ -12,8 +12,8 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-import torch_xyz  # noqa: F401
-import flag_gems
+import torch_xyz  # noqa: E402,F401
+import flag_gems  # noqa: E402
 
 
 def _env_is_bool(val: str) -> bool:
