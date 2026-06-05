@@ -1,30 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-cd "$REPO_ROOT"
-
-DUMP_NAME="${AGENT_DUMP_DIR:-python_test}"
-if [[ -n "${AGENT_DUMP_ROOT:-}" ]]; then
-  DUMP_DIR="$AGENT_DUMP_ROOT"
-elif [[ "$DUMP_NAME" = /* ]]; then
-  DUMP_DIR="$DUMP_NAME"
-else
-  DUMP_DIR="$REPO_ROOT/debug_agent/$DUMP_NAME"
-fi
-
-mkdir -p "$DUMP_DIR"
-
+DUMP_DIR="${DUMP_DIR:-$PWD/debug_agent/python_test}"
 export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR}"
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
 export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-1}"
 export TRITON_KERNEL_DUMP="${TRITON_KERNEL_DUMP:-1}"
 export TRITON_DUMP_DIR="${TRITON_DUMP_DIR:-$DUMP_DIR/triton_dump}"
 export MLIR_ENABLE_DUMP_DIR="${MLIR_ENABLE_DUMP_DIR:-$DUMP_DIR/triton_xyz_mlir_dump}"
-export TRITON_XYZ_USE_TTA="${TRITON_XYZ_USE_TTA:-1}"
-
-mkdir -p "$TRITON_HOME" "$TRITON_DUMP_DIR" "$MLIR_ENABLE_DUMP_DIR"
+mkdir -p "$DUMP_DIR" "$TRITON_HOME" "$TRITON_DUMP_DIR" "$MLIR_ENABLE_DUMP_DIR"
 
 if [[ "${1:-}" != "--" ]]; then
   echo "usage:" >&2

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DUMP_NAME=${AGENT_DUMP_DIR:-flaggems-pytest-one}
-DUMP_DIR="$PWD/debug_agent/$DUMP_NAME"
-mkdir -p "$DUMP_DIR"
-
+DUMP_DIR="${DUMP_DIR:-$PWD/debug_agent/flaggems-pytest-one}"
+export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR}"
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
+export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-1}"
+export TRITON_KERNEL_DUMP="${TRITON_KERNEL_DUMP:-1}"
+export TRITON_DUMP_DIR="${TRITON_DUMP_DIR:-$DUMP_DIR/triton_dump}"
+export MLIR_ENABLE_DUMP_DIR="${MLIR_ENABLE_DUMP_DIR:-$DUMP_DIR/triton_xyz_mlir_dump}"
+mkdir -p "$DUMP_DIR" "$TRITON_HOME"
+
 export TRITON_XYZ_FIRST_CONFIG_ONLY="${TRITON_XYZ_FIRST_CONFIG_ONLY:-1}"
 export TRITON_XYZ_PYTEST_TIMEOUT="${TRITON_XYZ_PYTEST_TIMEOUT:-120}"
-export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR/triton_home}"
-mkdir -p "$TRITON_HOME"
 
 export GEMS_VENDOR="${GEMS_VENDOR:-xyz}"
-
-export MLIR_ENABLE_DUMP_DIR="$DUMP_DIR/mlir_dump"
 
 if [ "$#" -eq 0 ]; then
   args=(
