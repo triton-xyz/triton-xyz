@@ -3,6 +3,7 @@ set -euo pipefail
 
 if [[ ! -e "$PWD/third_party/FlagGems/patch.patch" ]]; then
   ln -s $PWD/third_party/FlagGems_patch/patch.patch $PWD/third_party/FlagGems/
+  ln -s $PWD/third_party/FlagGems_patch/_xyz $PWD/third_party/FlagGems/src/flag_gems/runtime/backend/
 
   pushd $PWD/third_party/FlagGems
   git apply patch.patch

@@ -13,3 +13,15 @@ index 070fc3fa2..1fb720e8b 100644
  ]
 
  [project.optional-dependencies]
+diff --git a/src/flag_gems/runtime/common.py b/src/flag_gems/runtime/common.py
+index 04211d55f..f61ecd0c6 100644
+--- a/src/flag_gems/runtime/common.py
++++ b/src/flag_gems/runtime/common.py
+@@ -18,6 +18,7 @@ class vendors(Enum):
+     SPACEMIT = 13
+     THEAD = 14
+     ARM = 15
++    XYZ = 16
+
+     @classmethod
+     def get_all_vendors(cls) -> dict:
