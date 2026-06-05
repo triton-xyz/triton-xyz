@@ -45,6 +45,11 @@ diff --git a/setup.py b/setup.py
 index fb20e52..97229bd 100644
 --- a/setup.py
 +++ b/setup.py
+@@ -96,3 +96,3 @@ class BackendInstaller:
+         tools_dir = os.path.join(backend_src_dir, "tools")
+-        if not os.path.exists(tools_dir):
++        if is_external or not os.path.exists(tools_dir):
+             tools_dir = None
 @@ -594,7 +594,7 @@ setup(
          "__pycache__/*",
          "*.py[cod]",
