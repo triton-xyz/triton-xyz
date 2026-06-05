@@ -1,0 +1,15 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 070fc3fa2..1fb720e8b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -46,8 +46,8 @@ classifiers = [
+ dependencies = [
+     "packaging==26.0",
+     "PyYAML==6.0.3",
+-    "sqlalchemy==2.0.48",
+-    "numpy==1.26.4",
++    "sqlalchemy",
++    "numpy",
+ ]
+
+ [project.optional-dependencies]
