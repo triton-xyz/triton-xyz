@@ -4,11 +4,11 @@ set -euo pipefail
 
 # Template usage:
 #   AGENT_DUMP_DIR=vec_add_case KERNEL_PY=python/tests/test_vec_add.py \
-#     bash utils/agent/run_kernel_case_template.sh
+#     bash tools/agent/run_kernel_case_template.sh
 #
 # Optional arguments are forwarded to the Python script:
 #   AGENT_DUMP_DIR=ptr_case KERNEL_PY=python/tests/test_ptr.py \
-#     bash utils/agent/run_kernel_case_template.sh -k test_pointer_select
+#     bash tools/agent/run_kernel_case_template.sh -k test_pointer_select
 
 AGENT_DUMP_DIR="${AGENT_DUMP_DIR:-run_kernel_case}"
 KERNEL_PY="${KERNEL_PY:-python/tests/test_vec_add.py}"

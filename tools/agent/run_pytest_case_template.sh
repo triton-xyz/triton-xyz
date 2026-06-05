@@ -5,12 +5,12 @@ set -euo pipefail
 # Template usage:
 #   AGENT_DUMP_DIR=ptr_select_case \
 #   PYTEST_TARGET=python/tests/test_ptr.py::test_pointer_select \
-#     bash utils/agent/run_pytest_case_template.sh -q
+#     bash tools/agent/run_pytest_case_template.sh -q
 #
 # Additional arguments are forwarded to pytest:
 #   AGENT_DUMP_DIR=structured_mask \
 #   PYTEST_TARGET='python/tests/test_triton_to_structured.py::test_masked_1d[3]' \
-#     bash utils/agent/run_pytest_case_template.sh -q
+#     bash tools/agent/run_pytest_case_template.sh -q
 
 PYTEST_TARGET="${PYTEST_TARGET:-python/tests/test_triton_to_structured.py}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
