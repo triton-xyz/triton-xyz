@@ -6,9 +6,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
-
-os.environ.setdefault("TRITON_BACKENDS_IN_TREE", "1")
-
 import triton  # noqa: E402
 from triton.backends.xyz.driver import XYZDriver  # noqa: E402
 

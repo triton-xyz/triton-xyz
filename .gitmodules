@@ -3,3 +3,7 @@
 	url = git@github.com:triton-lang/triton.git
 	branch = main
 	ignore = dirty
+[submodule "third_party/FlagGems"]
+	path = third_party/FlagGems
+	url = git@github.com:flagos-ai/FlagGems.git
+	ignore = dirty
