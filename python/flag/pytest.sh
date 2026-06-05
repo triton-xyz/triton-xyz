@@ -3,7 +3,6 @@ set -euo pipefail
 
 DUMP_NAME=${AGENT_DUMP_DIR:-flaggems-pytest}
 DUMP_DIR="$PWD/debug_agent/$DUMP_NAME"
-
 mkdir -p "$DUMP_DIR"
 
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
@@ -16,25 +15,14 @@ mkdir -p "$TRITON_HOME"
 
 args=(
   -v
+  #
   --mode quick
   --ref cpu
-  tests/test_unary_pointwise_ops.py
-  tests/test_binary_pointwise_ops.py
-  tests/test_tensor_constructor_ops.py
-  tests/test_distribution_ops.py
-  tests/ks_tests.py
-  tests/test_general_reduction_ops.py
-  tests/test_reduction_ops.py
-  tests/test_norm_ops.py
-  tests/test_blas_ops.py
+  #
+  -n "${TRITON_XYZ_PYTEST_WORKERS:-4}"
+  #
+  tests
 )
-
-if python - <<'PY' >/dev/null 2>&1; then
-import importlib
-importlib.import_module("xdist")
-PY
-  args=(-n "${TRITON_XYZ_PYTEST_WORKERS:-4}" "${args[@]}")
-fi
 
 pushd third_party/FlagGems
 pytest "${args[@]}" 2>&1 | tee "$DUMP_DIR/pytest.log"
