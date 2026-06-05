@@ -16,21 +16,17 @@ from triton import knobs
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
 from triton._C.libtriton import ir, llvm, passes  # ty:ignore
 
-_DUMP_INDEX = 1
-
 MLIR_ENABLE_DUMP_DIR = os.getenv("MLIR_ENABLE_DUMP_DIR", "").strip()
-
 if MLIR_ENABLE_DUMP_DIR:
     Path(MLIR_ENABLE_DUMP_DIR).mkdir(parents=True, exist_ok=True)
-
-if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler", False):
-    tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
-        tempfile.TemporaryDirectory,
-        dir=MLIR_ENABLE_DUMP_DIR,
-        prefix="_tt_xyz_compiler_",
-        delete=False,
-    )
-    tempfile._tt_xyz_tmp_wrapped_compiler = True  # ty:ignore
+# if MLIR_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler", False):
+#     tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
+#         tempfile.TemporaryDirectory,
+#         dir=MLIR_ENABLE_DUMP_DIR,
+#         prefix="_tt_xyz_compiler_",
+#         delete=False,
+#     )
+#     tempfile._tt_xyz_tmp_wrapped_compiler = True  # ty:ignore
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -43,18 +39,42 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     return True
 
 
-def _next_dump_dir(stage: str) -> str | None:
-    global _DUMP_INDEX
+def _sanitize_dump_component(component: str | None) -> str | None:
+    if not component:
+        return None
+    component = component.strip()
+    if component.startswith("@"):
+        component = component[1:]
+    component = re.sub(r"[^A-Za-z0-9_.-]+", "_", component).strip("._-")
+    if not component:
+        return None
+    return component[:120]
+
+
+def _get_dump_hash(metadata) -> str | None:
+    hash_value = metadata.get("hash")
+    if not hash_value:
+        return None
+    return _sanitize_dump_component(str(hash_value))
+
+
+def _next_dump_dir(stage: str, kernel_name: str | None = None, dump_hash: str | None = None) -> str | None:
     base = os.getenv("MLIR_ENABLE_DUMP_DIR", "")
     if not base:
         return None
-    dump_dir = f"{base}/_pass_dump_{_DUMP_INDEX}_{stage}"
-    _DUMP_INDEX += 1
+    kernel_component = _sanitize_dump_component(kernel_name)
+    hash_component = _sanitize_dump_component(dump_hash)
+    dump_name = f"_pass_dump-{stage}"
+    if kernel_component:
+        dump_name = f"_pass_dump-{kernel_component}-{stage}"
+    if hash_component:
+        dump_name = f"{dump_name}-{hash_component}"
+    dump_dir = Path(base) / dump_name
     Path(dump_dir).mkdir(parents=True, exist_ok=True)
-    return dump_dir
+    return str(dump_dir)
 
 
-def _mlir_debug_args(stage: str) -> list[str]:
+def _mlir_debug_args(stage: str, kernel_name: str | None = None, dump_hash: str | None = None) -> list[str]:
     if not _env_truthy("MLIR_ENABLE_DUMP"):
         return []
     args = [
@@ -62,7 +82,7 @@ def _mlir_debug_args(stage: str) -> list[str]:
         "--mlir-print-ir-module-scope",
         "--mlir-disable-threading",
     ]
-    dump_dir = _next_dump_dir(stage)
+    dump_dir = _next_dump_dir(stage, kernel_name, dump_hash)
     if dump_dir:
         args.append(f"--mlir-print-ir-tree-dir={dump_dir}")
     return args
@@ -438,6 +458,7 @@ class XYZBackend(BaseBackend):
     def make_ttir(mod, metadata, options: CPUOptions):
         entry_name = mod.get_entry_func_name()
         entry_func = mod.get_function(entry_name)
+        metadata["name"] = entry_name
         metadata["signature"] = list(mod.get_function_signature(entry_func))
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
@@ -456,13 +477,15 @@ class XYZBackend(BaseBackend):
     @staticmethod
     def make_linalg(mod, metadata, options: CPUOptions):
         ttir_code = str(mod)
+        kernel_name = metadata.get("name")
+        dump_hash = _get_dump_hash(metadata)
         with tempfile.TemporaryDirectory() as tmpdir:
             src_path = os.path.join(tmpdir, "ttir.mlir")
             dst_path = os.path.join(tmpdir, "linalg.mlir")
             Path(src_path).write_text(ttir_code)
             pipeline = "triton-to-linalg-tta"
             cmd = [_find_tool("triton-xyz-opt")]
-            cmd.extend(_mlir_debug_args("ttir_to_linalg"))
+            cmd.extend(_mlir_debug_args("ttir_to_linalg", kernel_name, dump_hash))
             if options.instrumentation_mode:
                 cmd.append("--proton-to-xyz")
             cmd.extend(
@@ -478,13 +501,15 @@ class XYZBackend(BaseBackend):
 
     @staticmethod
     def make_llir(src, metadata, options: CPUOptions):
+        kernel_name = metadata.get("name")
+        dump_hash = _get_dump_hash(metadata)
         with tempfile.TemporaryDirectory() as tmpdir:
             linalg_path = os.path.join(tmpdir, "linalg.mlir")
             llvm_path = os.path.join(tmpdir, "llvm.mlir")
             llir_path = os.path.join(tmpdir, "ll.ll")
             Path(linalg_path).write_text(src)
             cmd = [_find_tool("triton-xyz-opt")]
-            cmd.extend(_mlir_debug_args("xyz_to_llvm"))
+            cmd.extend(_mlir_debug_args("xyz_to_llvm", kernel_name, dump_hash))
             cmd.extend(
                 [
                     linalg_path,
