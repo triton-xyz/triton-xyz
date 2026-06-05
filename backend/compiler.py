@@ -64,9 +64,9 @@ def _next_dump_dir(stage: str, kernel_name: str | None = None, dump_hash: str | 
         return None
     kernel_component = _sanitize_dump_component(kernel_name)
     hash_component = _sanitize_dump_component(dump_hash)
-    dump_name = f"_pass_dump-{stage}"
+    dump_name = f"{stage}"
     if kernel_component:
-        dump_name = f"_pass_dump-{kernel_component}-{stage}"
+        dump_name = f"{kernel_component}-{stage}"
     if hash_component:
         dump_name = f"{dump_name}-{hash_component}"
     dump_dir = Path(base) / dump_name
