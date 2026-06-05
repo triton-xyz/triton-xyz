@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 # for tests only one check
 MLIR=test/Conversion/triton-to-ptr.mlir
 # get `ARGS` from `MLIR`

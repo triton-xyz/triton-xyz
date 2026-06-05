@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 ###############################################################################
 
 if [[ ! -e "$PWD/third_party/triton/patch.patch" ]]; then
