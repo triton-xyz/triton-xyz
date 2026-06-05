@@ -1,12 +1,13 @@
 #include "Data/CpuInstrumentationTraceData.h"
 
+#include "Utility/Errors.h"
 #include "Utility/MsgPackWriter.h"
 #include "nlohmann/json.hpp"
 
+#include <chrono>
+#include <map>
 #include <set>
-#include <sstream>
 #include <stdexcept>
-#include <string>
 #include <utility>
 
 using json = nlohmann::json;
@@ -16,6 +17,20 @@ namespace proton {
 namespace {
 
 constexpr const char *kCpuProcessName = "proton_cpu";
+constexpr size_t kMaxActiveEventStackCacheObjects = 10;
+
+thread_local std::map<const CpuInstrumentationTraceData *, std::vector<size_t>>
+    traceDataToActiveEventStack;
+
+uint64_t getCurrentCpuTimestampNs() {
+  using Clock = std::chrono::system_clock;
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          Clock::now().time_since_epoch())
+          .count());
+}
+
+double toChromeTraceUs(uint64_t ns) { return static_cast<double>(ns) / 1000.0; }
 
 json makeProcessMetadata() {
   json metadata;
@@ -27,100 +42,165 @@ json makeProcessMetadata() {
   return metadata;
 }
 
-json makeThreadMetadata(const std::string &threadName) {
+json makeThreadMetadata(uint64_t threadId) {
+  const auto threadName = "thread " + std::to_string(threadId);
   json metadata;
   metadata["ph"] = "M";
   metadata["name"] = "thread_name";
   metadata["pid"] = kCpuProcessName;
-  metadata["tid"] = threadName;
+  metadata["tid"] = threadId;
   metadata["args"]["name"] = threadName;
   return metadata;
 }
 
-std::string getThreadName(const json &tidValue) {
-  if (tidValue.is_string()) {
-    return tidValue.get<std::string>();
-  }
-  if (tidValue.is_number_unsigned()) {
-    return "thread " + std::to_string(tidValue.get<uint64_t>());
-  }
-  if (tidValue.is_number_integer()) {
-    return "thread " + std::to_string(tidValue.get<int64_t>());
-  }
-  return {};
+} // namespace
+
+CpuInstrumentationTraceData::CpuInstrumentationTraceData(
+    const std::string &path, ContextSource *contextSource)
+    : Data(path, contextSource) {
+  initPhaseStore(tracePhases);
 }
 
-std::string normalizeChromeTrace(const std::string &traceText) {
-  if (traceText.empty()) {
-    return traceText;
+CpuInstrumentationTraceData::Event &
+CpuInstrumentationTraceData::addEvent(Trace &trace, const Scope &scope,
+                                      uint64_t threadId, uint64_t startNs) {
+  auto id = trace.nextEventId++;
+  auto [it, inserted] = trace.events.try_emplace(id);
+  (void)inserted;
+  auto &event = it->second;
+  event.id = id;
+  event.scopeId = scope.scopeId;
+  event.threadId = threadId;
+  event.name = scope.name;
+  event.startNs = startNs;
+  return event;
+}
+
+CpuInstrumentationTraceData::Event *
+CpuInstrumentationTraceData::getEvent(size_t phase, size_t eventId) {
+  auto *trace = phasePtrAs<Trace>(phase);
+  auto it = trace->events.find(eventId);
+  if (it == trace->events.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+uint64_t CpuInstrumentationTraceData::getCurrentThreadTraceId() {
+  auto threadId = std::this_thread::get_id();
+  auto it = threadIdToTraceId.find(threadId);
+  if (it != threadIdToTraceId.end()) {
+    return it->second;
+  }
+  auto traceThreadId = nextThreadTraceId++;
+  threadIdToTraceId.emplace(threadId, traceThreadId);
+  return traceThreadId;
+}
+
+void CpuInstrumentationTraceData::enterScope(const Scope &scope) {
+  std::unique_lock<std::shared_mutex> lock(mutex);
+  auto *trace = currentPhasePtrAs<Trace>();
+  auto &event = addEvent(*trace, scope, getCurrentThreadTraceId(),
+                         getCurrentCpuTimestampNs());
+  traceDataToActiveEventStack[this].push_back(event.id);
+}
+
+void CpuInstrumentationTraceData::exitScope(const Scope &scope) {
+  std::unique_lock<std::shared_mutex> lock(mutex);
+  auto activeEventStackIt = traceDataToActiveEventStack.find(this);
+  if (activeEventStackIt == traceDataToActiveEventStack.end() ||
+      activeEventStackIt->second.empty()) {
+    return;
   }
 
-  std::istringstream input(traceText);
-  std::string line;
-  json merged = {{"displayTimeUnit", "us"}, {"traceEvents", json::array()}};
-  merged["traceEvents"].push_back(makeProcessMetadata());
+  auto &activeEventStack = activeEventStackIt->second;
+  const auto phase = currentPhase.load(std::memory_order_relaxed);
+  auto eventIt = activeEventStack.end();
+  while (eventIt != activeEventStack.begin()) {
+    --eventIt;
+    auto *event = getEvent(phase, *eventIt);
+    if (event != nullptr && event->scopeId == scope.scopeId &&
+        event->name == scope.name) {
+      event->endNs = getCurrentCpuTimestampNs();
+      activeEventStack.erase(eventIt);
+      break;
+    }
+  }
 
-  std::set<std::string> seenThreads;
-  bool sawTraceObject = false;
-  bool sawKernelEvent = false;
+  if (activeEventStack.empty() &&
+      traceDataToActiveEventStack.size() > kMaxActiveEventStackCacheObjects) {
+    traceDataToActiveEventStack.erase(this);
+  }
+}
 
-  while (std::getline(input, line)) {
-    if (line.empty()) {
+DataEntry
+CpuInstrumentationTraceData::addOp(size_t phase, size_t entryId,
+                                   const std::vector<Context> &contexts) {
+  (void)entryId;
+  auto lock = lockIfCurrentOrVirtualPhase(phase);
+  auto *trace = phasePtrAs<Trace>(phase);
+  auto name = contexts.empty() ? std::string{} : contexts.back().name;
+  auto &event = addEvent(*trace, Scope(name), getCurrentThreadTraceId(), 0);
+  return DataEntry(event.id, phase, event.metricSet);
+}
+
+void CpuInstrumentationTraceData::addMetrics(
+    size_t scopeId, const std::map<std::string, MetricValueType> &metrics) {
+  if (metrics.empty()) {
+    return;
+  }
+
+  std::unique_lock<std::shared_mutex> lock(mutex);
+  auto activeEventStackIt = traceDataToActiveEventStack.find(this);
+  if (activeEventStackIt == traceDataToActiveEventStack.end()) {
+    return;
+  }
+
+  const auto phase = currentPhase.load(std::memory_order_relaxed);
+  for (auto eventIt = activeEventStackIt->second.rbegin();
+       eventIt != activeEventStackIt->second.rend(); ++eventIt) {
+    auto *event = getEvent(phase, *eventIt);
+    if (event == nullptr || event->scopeId != scopeId) {
       continue;
     }
+    DataEntry(event->id, phase, event->metricSet)
+        .upsertFlexibleMetrics(metrics);
+    return;
+  }
+}
 
-    auto object = json::parse(line, nullptr, false);
-    if (object.is_discarded() || !object.is_object()) {
-      return traceText;
+std::string CpuInstrumentationTraceData::toJsonString(size_t phase) const {
+  json traceJson = {{"displayTimeUnit", "us"}, {"traceEvents", json::array()}};
+  traceJson["traceEvents"].push_back(makeProcessMetadata());
+
+  tracePhases.withPtr(phase, [&](const Trace *trace) {
+    if (trace == nullptr) {
+      return;
     }
-
-    auto traceEventsIt = object.find("traceEvents");
-    if (traceEventsIt == object.end() || !traceEventsIt->is_array()) {
-      return traceText;
-    }
-
-    sawTraceObject = true;
-    for (const auto &rawEvent : *traceEventsIt) {
-      if (!rawEvent.is_object()) {
-        return traceText;
-      }
-
-      auto event = rawEvent;
-      auto tidIt = event.find("tid");
-      if (tidIt == event.end()) {
-        merged["traceEvents"].push_back(std::move(event));
+    std::set<uint64_t> seenThreadIds;
+    for (const auto &[_, event] : trace->events) {
+      if (event.startNs == 0 || event.endNs == 0 ||
+          event.endNs < event.startNs || event.name.empty()) {
         continue;
       }
 
-      const auto threadName = getThreadName(*tidIt);
-      if (threadName.empty()) {
-        return traceText;
+      if (seenThreadIds.insert(event.threadId).second) {
+        traceJson["traceEvents"].push_back(makeThreadMetadata(event.threadId));
       }
 
-      if (seenThreads.insert(threadName).second) {
-        merged["traceEvents"].push_back(makeThreadMetadata(threadName));
-      }
-
-      event["pid"] = kCpuProcessName;
-      event["tid"] = threadName;
-      if (event.value("ph", "") == "X") {
-        sawKernelEvent = true;
-      }
-      merged["traceEvents"].push_back(std::move(event));
+      json traceEvent;
+      traceEvent["name"] = event.name;
+      traceEvent["cat"] = "cpu";
+      traceEvent["ph"] = "X";
+      traceEvent["pid"] = kCpuProcessName;
+      traceEvent["tid"] = event.threadId;
+      traceEvent["ts"] = toChromeTraceUs(event.startNs);
+      traceEvent["dur"] = toChromeTraceUs(event.endNs - event.startNs);
+      traceJson["traceEvents"].push_back(std::move(traceEvent));
     }
-  }
+  });
 
-  if (!sawTraceObject || !sawKernelEvent) {
-    return traceText;
-  }
-
-  return merged.dump() + "\n";
-}
-
-} // namespace
-
-std::string CpuInstrumentationTraceData::toJsonString(size_t phase) const {
-  return normalizeChromeTrace(TraceData::toJsonString(phase));
+  return traceJson.dump() + "\n";
 }
 
 std::vector<uint8_t>
@@ -135,7 +215,7 @@ void CpuInstrumentationTraceData::doDump(std::ostream &os,
                                          OutputFormat outputFormat,
                                          size_t phase) const {
   if (outputFormat != OutputFormat::ChromeTrace) {
-    throw std::logic_error("Output format not supported");
+    throw makeInvalidArgument("Output format not supported");
   }
   os << toJsonString(phase);
 }

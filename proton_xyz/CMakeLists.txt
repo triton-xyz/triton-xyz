@@ -17,9 +17,12 @@ set(PROTON_XYZ_SOURCES
     ${PROTON_DIR}/csrc/lib/Context/Python.cpp
     ${PROTON_DIR}/csrc/lib/Context/Shadow.cpp
     ${PROTON_DIR}/csrc/lib/Data/Data.cpp
+    ${PROTON_DIR}/csrc/lib/Data/Dump/ChromeTrace.cpp
+    ${PROTON_DIR}/csrc/lib/Data/Dump/TraceDataDump.cpp
     ${PROTON_DIR}/csrc/lib/Data/Metric.cpp
     ${PROTON_DIR}/csrc/lib/Data/TraceData.cpp
     ${PROTON_DIR}/csrc/lib/Data/TreeData.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Backend/Backend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Data/CpuInstrumentationTraceData.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Data/CpuInstrumentationTreeData.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/lib/Driver/Device.cpp

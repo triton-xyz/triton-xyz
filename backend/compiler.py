@@ -520,6 +520,7 @@ class XYZBackend(BaseBackend):
                     "--memref-expand",
                     "--expand-strided-metadata",
                     "--convert-xyz-to-llvm",
+                    "--convert-to-llvm",
                     "--finalize-memref-to-llvm",
                     "--convert-func-to-llvm",
                     "--convert-arith-to-llvm",

@@ -1,5 +1,6 @@
 #include "Profiler/Instrumentation/CpuInstrumentationProfiler.h"
 
+#include "Data/CpuInstrumentationTraceData.h"
 #include "Data/Metric.h"
 #include "Data/TreeData.h"
 #include "Device.h"
@@ -51,6 +52,10 @@ DataEntry addThreadAwareOp(Data *data, const Scope &scope,
   }
   return data->addOp(data->getPhaseInfo().current, Data::kRootEntryId,
                      contexts);
+}
+
+bool isCpuInstrumentationTraceData(Data *data) {
+  return dynamic_cast<CpuInstrumentationTraceData *>(data) != nullptr;
 }
 
 } // namespace
@@ -111,6 +116,9 @@ void CpuInstrumentationProfiler::startOp(const Scope &scope) {
   activeKernelStart = Clock::now();
   activeKernelDataToEntry.clear();
   for (auto *data : getDataSet()) {
+    if (isCpuInstrumentationTraceData(data)) {
+      continue;
+    }
     activeKernelDataToEntry.insert_or_assign(
         data, addThreadAwareOp(data, scope, /*insertThreadBeforeLeaf=*/false));
   }
@@ -135,6 +143,9 @@ void CpuInstrumentationProfiler::enterScope(const Scope &scope) {
   ActiveScopeState state(scope);
   state.startTime = Clock::now();
   for (auto *data : getDataSet()) {
+    if (isCpuInstrumentationTraceData(data)) {
+      continue;
+    }
     state.dataToEntry.insert_or_assign(
         data, addThreadAwareOp(data, scope, /*insertThreadBeforeLeaf=*/true));
   }
