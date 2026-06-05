@@ -2,13 +2,12 @@
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/PtrToLLVM/PtrToLLVM.h"
-#include "mlir/Dialect/Math/IR/Math.h"
-#include "triton/Dialect/Triton/IR/Dialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
 #include "mlir/Dialect/Ptr/IR/PtrEnums.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
@@ -16,6 +15,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
+#include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
 
@@ -76,8 +76,8 @@ struct TritonBitcastOpConversion
                   ConversionPatternRewriter &rewriter) const override {
     auto src = adaptor.getSrc();
     auto resultType = getTypeConverter()->convertType(op.getResult().getType());
-    auto cast = rewriter.create<UnrealizedConversionCastOp>(
-        op.getLoc(), resultType, src);
+    auto cast = rewriter.create<UnrealizedConversionCastOp>(op.getLoc(),
+                                                            resultType, src);
     rewriter.replaceOp(op, cast.getResult(0));
     return success();
   }
@@ -105,8 +105,8 @@ struct ErfOpConversion : public ConvertOpToLLVMPattern<math::ErfOp> {
           op.getLoc(), funcName,
           LLVM::LLVMFunctionType::get(resultType, {operand.getType()}));
     }
-    rewriter.replaceOpWithNewOp<LLVM::CallOp>(
-        op, resultType, funcName, ValueRange{operand});
+    rewriter.replaceOpWithNewOp<LLVM::CallOp>(op, resultType, funcName,
+                                              ValueRange{operand});
     return success();
   }
 };
@@ -182,6 +182,8 @@ public:
     ConversionTarget target(getContext());
     target.addLegalDialect<LLVM::LLVMDialect, triton::TritonDialect>();
 
+    populateConversionTargetFromOperation(moduleOp, target, typeConverter,
+                                          patterns);
     populateOpConvertToLLVMConversionPatterns(moduleOp, target, typeConverter,
                                               patterns);
 

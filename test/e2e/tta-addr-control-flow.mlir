@@ -8,12 +8,12 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 4 : index
-// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 1 : i32
-// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 0 : i32
-// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : i32
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant 1 : index
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_0]]], iterator_types = ["parallel"]} outs(%[[EMPTY_0]] : tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
@@ -21,10 +21,10 @@ module {
 // CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[INDEX_0]] : index to i32
 // CHECK:             linalg.yield %[[INDEX_CAST_0]] : i32
 // CHECK:           } -> tensor<4xi32>
-// CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_1:.*]] = %[[CONSTANT_4]] to %[[ARG2]] step %[[CONSTANT_3]] iter_args(%[[VAL_2:.*]] = %[[GENERIC_0]], %[[VAL_3:.*]] = %[[GENERIC_0]]) -> (tensor<4xi32>, tensor<4xi32>)  : i32 {
+// CHECK:           %[[FOR_0:.*]]:2 = scf.for %[[VAL_1:.*]] = %[[CONSTANT_1]] to %[[ARG2]] step %[[CONSTANT_0]] iter_args(%[[VAL_2:.*]] = %[[GENERIC_0]], %[[VAL_3:.*]] = %[[GENERIC_0]]) -> (tensor<4xi32>, tensor<4xi32>)  : i32 {
 // CHECK:             %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
-// CHECK:             linalg.fill ins(%[[CONSTANT_5]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
-// CHECK:             scf.for %[[VAL_4:.*]] = %[[CONSTANT_1]] to %[[CONSTANT_2]] step %[[CONSTANT_0]] {
+// CHECK:             linalg.fill ins(%[[CONSTANT_2]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
+// CHECK:             scf.for %[[VAL_4:.*]] = %[[CONSTANT_4]] to %[[CONSTANT_3]] step %[[CONSTANT_5]] {
 // CHECK:               %[[EXTRACT_0:.*]] = tensor.extract %[[VAL_2]]{{\[}}%[[VAL_4]]] : tensor<4xi32>
 // CHECK:               %[[INDEX_CAST_1:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
 // CHECK:               %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: {{\[}}%[[INDEX_CAST_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
@@ -32,7 +32,7 @@ module {
 // CHECK:               memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1xf32, strided<[1], offset: ?>> to memref<1xf32, strided<[1], offset: ?>>
 // CHECK:             }
 // CHECK:             %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4xf32> to tensor<4xf32>
-// CHECK:             scf.for %[[VAL_5:.*]] = %[[CONSTANT_1]] to %[[CONSTANT_2]] step %[[CONSTANT_0]] {
+// CHECK:             scf.for %[[VAL_5:.*]] = %[[CONSTANT_4]] to %[[CONSTANT_3]] step %[[CONSTANT_5]] {
 // CHECK:               %[[EXTRACT_1:.*]] = tensor.extract %[[VAL_3]]{{\[}}%[[VAL_5]]] : tensor<4xi32>
 // CHECK:               %[[INDEX_CAST_2:.*]] = arith.index_cast %[[EXTRACT_1]] : i32 to index
 // CHECK:               %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[ARG1]] to offset: {{\[}}%[[INDEX_CAST_2]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
@@ -81,10 +81,10 @@ module {
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 4 : index
-// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 1 : index
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_1]]], iterator_types = ["parallel"]} outs(%[[EMPTY_0]] : tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
@@ -94,8 +94,8 @@ module {
 // CHECK:           } -> tensor<4xi32>
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[ARG2]], %[[ARG0]], %[[ARG1]] : memref<*xf32>
 // CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
-// CHECK:           linalg.fill ins(%[[CONSTANT_3]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
-// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_1]] to %[[CONSTANT_2]] step %[[CONSTANT_0]] {
+// CHECK:           linalg.fill ins(%[[CONSTANT_0]] : f32) outs(%[[ALLOC_0]] : memref<4xf32>)
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_1]] step %[[CONSTANT_3]] {
 // CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[GENERIC_0]]{{\[}}%[[VAL_1]]] : tensor<4xi32>
 // CHECK:             %[[INDEX_CAST_1:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
 // CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[SELECT_0]] to offset: {{\[}}%[[INDEX_CAST_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
