@@ -24,6 +24,7 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
 
   pm.addPass(createTTAToMemref());
+  pm.addPass(createTritonScanToSCF());
   pm.addPass(createTritonPtrToMemref());
   pm.addPass(createReconcileUnrealizedCastsPass());
   pm.addPass(createCanonicalizerPass());

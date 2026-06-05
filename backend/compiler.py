@@ -495,6 +495,10 @@ class XYZBackend(BaseBackend):
                     "--memref-expand",
                     "--expand-strided-metadata",
                     "--convert-xyz-to-llvm",
+                    "--finalize-memref-to-llvm",
+                    "--convert-func-to-llvm",
+                    "--convert-arith-to-llvm",
+                    "--convert-cf-to-llvm",
                     "--reconcile-unrealized-casts",
                     "--canonicalize",
                     "--cse",
@@ -536,6 +540,8 @@ class XYZBackend(BaseBackend):
             Path(asm_path).write_text(src)
             flat_signature: list[str] = []
             for sig in metadata["signature"]:
+                if sig == "constexpr":
+                    continue
                 _flatten_signature_types(sig, flat_signature)
             wrapper_src = _generate_launcher_wrapper(
                 metadata["name"], flat_signature, bool(options.instrumentation_mode)

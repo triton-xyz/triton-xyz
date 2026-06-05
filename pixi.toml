@@ -24,9 +24,15 @@ pybind11-global = ">=3.0.1,<4"
 
 scipy = ">=1.17.1,<2"
 nlohmann_json = "3.11.3.*"
+numpy = ">=2.4.6,<3"
 
 [pypi-dependencies]
 llnl-hatchet = ">=2026.1.0, <2027"
+# flaggems
+scikit-build-core = ">=0.12.2, <0.13"
+sqlalchemy = ">=2.0.50, <3"
+meson-python = ">=0.19.0, <0.20"
+
 [target.osx-arm64.activation.env]
 # lld is installed globaly, always prefer lld on osx
 # `llnl-hatchet` needs lld
