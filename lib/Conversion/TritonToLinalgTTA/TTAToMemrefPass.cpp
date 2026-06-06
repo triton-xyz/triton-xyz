@@ -1590,6 +1590,52 @@ buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
   return std::nullopt;
 }
 
+static std::optional<arith::AtomicRMWKind>
+getSimpleAtomicRMWKind(StringRef kind, Type elementType) {
+  if (isa<FloatType>(elementType)) {
+    if (kind == "add" || kind == "fadd") {
+      return arith::AtomicRMWKind::addf;
+    }
+    if (kind == "max") {
+      return arith::AtomicRMWKind::maximumf;
+    }
+    if (kind == "min") {
+      return arith::AtomicRMWKind::minimumf;
+    }
+    return std::nullopt;
+  }
+
+  if (isa<IntegerType>(elementType)) {
+    if (kind == "add") {
+      return arith::AtomicRMWKind::addi;
+    }
+    if (kind == "and") {
+      return arith::AtomicRMWKind::andi;
+    }
+    if (kind == "or") {
+      return arith::AtomicRMWKind::ori;
+    }
+    if (kind == "xor") {
+      return arith::AtomicRMWKind::xori;
+    }
+    if (kind == "max") {
+      return arith::AtomicRMWKind::maxs;
+    }
+    if (kind == "min") {
+      return arith::AtomicRMWKind::mins;
+    }
+    return std::nullopt;
+  }
+
+  return std::nullopt;
+}
+
+static Value getZeroForType(OpBuilder &builder, Location loc, Type type) {
+  TypedAttr zeroAttr = builder.getZeroAttr(type);
+  assert(zeroAttr && "expected scalar type with zero attribute");
+  return arith::ConstantOp::create(builder, loc, type, zeroAttr).getResult();
+}
+
 static Value computeIndirectUpperBound(Value offsetSize,
                                        ArrayRef<OpFoldResult> maskDims,
                                        int64_t gatherDim, bool hasIndirectMask,
@@ -1884,6 +1930,42 @@ static Value buildEuclideanModulo(Value dividend, Value divisor, Location loc,
       .getResult();
 }
 
+static Value stripIndexCast(Value value) {
+  while (true) {
+    if (auto cast = value.getDefiningOp<arith::IndexCastOp>()) {
+      value = cast.getIn();
+      continue;
+    }
+    if (auto cast = value.getDefiningOp<arith::IndexCastUIOp>()) {
+      value = cast.getIn();
+      continue;
+    }
+    return value;
+  }
+}
+
+static bool areSameIndexSource(Value lhs, Value rhs) {
+  return stripIndexCast(lhs) == stripIndexCast(rhs);
+}
+
+static bool isDynamicBoundaryScaledByStride(OpFoldResult boundary,
+                                            OpFoldResult stride) {
+  Value boundaryValue = dyn_cast<Value>(boundary);
+  Value strideValue = dyn_cast<Value>(stride);
+  if (!boundaryValue || !strideValue) {
+    return false;
+  }
+
+  auto boundaryMul =
+      stripIndexCast(boundaryValue).getDefiningOp<arith::MulIOp>();
+  if (!boundaryMul) {
+    return false;
+  }
+
+  return areSameIndexSource(boundaryMul.getLhs(), strideValue) ||
+         areSameIndexSource(boundaryMul.getRhs(), strideValue);
+}
+
 static FailureOr<Value>
 buildWrappedLinearizedTerm(const DimRule &rule, Value logicalIndex,
                            Location loc, ConversionPatternRewriter &rewriter) {
@@ -1897,6 +1979,9 @@ buildWrappedLinearizedTerm(const DimRule &rule, Value logicalIndex,
       hasConstZero(rule.wrapBoundary->boundary)) {
     return term;
   }
+  if (hasConstZero(rule.stride)) {
+    return term;
+  }
 
   auto maybeBoundary = getIntAttr(rule.wrapBoundary->boundary);
   if (maybeBoundary && *maybeBoundary <= 0) {
@@ -1906,12 +1991,35 @@ buildWrappedLinearizedTerm(const DimRule &rule, Value logicalIndex,
   Value boundary = ofrToIndexValue(rule.wrapBoundary->boundary, loc, rewriter);
   if (!maybeBoundary) {
     Value zero = makeIndexConstant(loc, 0, rewriter);
+    bool allowZeroBoundary = isDynamicBoundaryScaledByStride(
+        rule.wrapBoundary->boundary, rule.stride);
     Value isPositive =
         arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::sgt,
                               boundary, zero)
             .getResult();
-    cf::AssertOp::create(rewriter, loc, isPositive,
-                         "tta-to-memref: wrap boundary must be > 0");
+    if (!allowZeroBoundary) {
+      cf::AssertOp::create(rewriter, loc, isPositive,
+                           "tta-to-memref: wrap boundary must be > 0");
+    }
+    if (allowZeroBoundary) {
+      Value isZeroStride =
+          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, stride,
+                                zero)
+              .getResult();
+      Value isValid =
+          arith::OrIOp::create(rewriter, loc, isPositive, isZeroStride)
+              .getResult();
+      cf::AssertOp::create(
+          rewriter, loc, isValid,
+          "tta-to-memref: wrap boundary must be > 0 unless stride is 0");
+      Value one = makeIndexConstant(loc, 1, rewriter);
+      Value safeBoundary =
+          arith::SelectOp::create(rewriter, loc, isZeroStride, one, boundary)
+              .getResult();
+      Value wrapped = buildEuclideanModulo(term, safeBoundary, loc, rewriter);
+      return arith::SelectOp::create(rewriter, loc, isZeroStride, term, wrapped)
+          .getResult();
+    }
   }
   return buildEuclideanModulo(term, boundary, loc, rewriter);
 }
@@ -2823,6 +2931,48 @@ struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
                    rewriter, op.getLoc(), arith::AtomicRMWKind::assign, value,
                    rankedMemref, ValueRange{totalOffset})
             .getResult();
+      }
+
+      if (std::optional<arith::AtomicRMWKind> atomicKind =
+              getSimpleAtomicRMWKind(kind, valueElementType)) {
+        auto emitAtomic = [&](OpBuilder &builder,
+                              Location loc) -> FailureOr<Value> {
+          return memref::AtomicRMWOp::create(builder, loc, *atomicKind, value,
+                                             rankedMemref,
+                                             ValueRange{totalOffset})
+              .getResult();
+        };
+
+        if (!mask) {
+          return emitAtomic(rewriter, op.getLoc());
+        }
+
+        if (!mask.getType().isInteger(1)) {
+          return failure();
+        }
+
+        if (auto constMask = mask.getDefiningOp<arith::ConstantOp>()) {
+          if (auto boolAttr = dyn_cast<BoolAttr>(constMask.getValue())) {
+            if (boolAttr.getValue()) {
+              return emitAtomic(rewriter, op.getLoc());
+            }
+
+            return getZeroForType(rewriter, op.getLoc(), valueElementType);
+          }
+        }
+
+        auto ifOp = scf::IfOp::create(rewriter, op.getLoc(), valueElementType,
+                                      mask, /*withElseRegion=*/true);
+        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        FailureOr<Value> oldValue = emitAtomic(rewriter, op.getLoc());
+        assert(succeeded(oldValue) && "simple atomic kind must be supported");
+        scf::YieldOp::create(rewriter, op.getLoc(), ValueRange{*oldValue});
+
+        rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        Value zero = getZeroForType(rewriter, op.getLoc(), valueElementType);
+        scf::YieldOp::create(rewriter, op.getLoc(), ValueRange{zero});
+        rewriter.setInsertionPointAfter(ifOp);
+        return ifOp.getResult(0);
       }
 
       auto generic = memref::GenericAtomicRMWOp::create(

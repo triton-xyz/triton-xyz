@@ -951,6 +951,188 @@ public:
   }
 };
 
+class WelfordConverter : public OpConversionPattern<triton::ReduceOp> {
+  using OpConversionPattern<triton::ReduceOp>::OpConversionPattern;
+
+  bool isFloatConstant(Value value, double expected) const {
+    auto constOp = value.getDefiningOp<arith::ConstantOp>();
+    if (!constOp)
+      return false;
+
+    auto floatAttr = dyn_cast<FloatAttr>(constOp.getValue());
+    return floatAttr && floatAttr.getValue().isExactlyValue(expected);
+  }
+
+  Value getZeroInitTensor(ConversionPatternRewriter &rewriter, Type resultType,
+                          Location loc) const {
+    Type elemType = resultType;
+    SmallVector<int64_t> shape;
+    if (auto tensorType = dyn_cast<RankedTensorType>(resultType)) {
+      elemType = tensorType.getElementType();
+      shape.append(tensorType.getShape().begin(), tensorType.getShape().end());
+    }
+
+    auto zero = arith::ConstantOp::create(rewriter, loc, elemType,
+                                          rewriter.getFloatAttr(elemType, 0.0));
+    auto init = tensor::EmptyOp::create(rewriter, loc, shape, elemType);
+    return linalg::FillOp::create(rewriter, loc, ValueRange{zero},
+                                  ValueRange{init})
+        .result();
+  }
+
+  LogicalResult matchWelfordBody(triton::ReduceOp op) const {
+    if (op.getOperands().size() != 3 || op.getNumResults() != 3)
+      return failure();
+
+    for (Type elemType : op.getElementTypes()) {
+      if (!isa<FloatType>(elemType))
+        return failure();
+    }
+
+    Block *block = op.getBody();
+    if (block->getNumArguments() != 6)
+      return failure();
+
+    auto termOp = dyn_cast<triton::ReduceReturnOp>(block->getTerminator());
+    if (!termOp || termOp.getOperands().size() != 3)
+      return failure();
+
+    auto ops = llvm::map_to_vector(block->without_terminator(),
+                                   [](Operation &op) { return &op; });
+    if (ops.size() != 14)
+      return failure();
+
+    Value meanX = block->getArgument(0);
+    Value countX = block->getArgument(1);
+    Value m2X = block->getArgument(2);
+    Value meanY = block->getArgument(3);
+    Value countY = block->getArgument(4);
+    Value m2Y = block->getArgument(5);
+
+    auto count = dyn_cast<arith::AddFOp>(ops[0]);
+    if (!count || count.getLhs() != countX || count.getRhs() != countY)
+      return failure();
+
+    auto clampedCount = dyn_cast<arith::MaxNumFOp>(ops[1]);
+    if (!clampedCount || clampedCount.getLhs() != count ||
+        !isFloatConstant(clampedCount.getRhs(), 1.0))
+      return failure();
+
+    auto scaledMeanX = dyn_cast<arith::MulFOp>(ops[2]);
+    if (!scaledMeanX || scaledMeanX.getLhs() != meanX ||
+        scaledMeanX.getRhs() != countX)
+      return failure();
+
+    auto scaledMeanY = dyn_cast<arith::MulFOp>(ops[3]);
+    if (!scaledMeanY || scaledMeanY.getLhs() != meanY ||
+        scaledMeanY.getRhs() != countY)
+      return failure();
+
+    auto meanNumerator = dyn_cast<arith::AddFOp>(ops[4]);
+    if (!meanNumerator || meanNumerator.getLhs() != scaledMeanX ||
+        meanNumerator.getRhs() != scaledMeanY)
+      return failure();
+
+    auto mean = dyn_cast<arith::DivFOp>(ops[5]);
+    if (!mean || mean.getLhs() != meanNumerator ||
+        mean.getRhs() != clampedCount)
+      return failure();
+
+    auto meanTermX = dyn_cast<arith::MulFOp>(ops[6]);
+    if (!meanTermX || meanTermX.getLhs() != scaledMeanX ||
+        meanTermX.getRhs() != meanX)
+      return failure();
+
+    auto m2WithX = dyn_cast<arith::AddFOp>(ops[7]);
+    if (!m2WithX || m2WithX.getLhs() != m2X || m2WithX.getRhs() != meanTermX)
+      return failure();
+
+    auto m2WithY = dyn_cast<arith::AddFOp>(ops[8]);
+    if (!m2WithY || m2WithY.getLhs() != m2WithX || m2WithY.getRhs() != m2Y)
+      return failure();
+
+    auto meanTermY = dyn_cast<arith::MulFOp>(ops[9]);
+    if (!meanTermY || meanTermY.getLhs() != scaledMeanY ||
+        meanTermY.getRhs() != meanY)
+      return failure();
+
+    auto combinedM2Numerator = dyn_cast<arith::AddFOp>(ops[10]);
+    if (!combinedM2Numerator || combinedM2Numerator.getLhs() != m2WithY ||
+        combinedM2Numerator.getRhs() != meanTermY)
+      return failure();
+
+    auto scaledMean = dyn_cast<arith::MulFOp>(ops[11]);
+    if (!scaledMean || scaledMean.getLhs() != count ||
+        scaledMean.getRhs() != mean)
+      return failure();
+
+    auto squaredScaledMean = dyn_cast<arith::MulFOp>(ops[12]);
+    if (!squaredScaledMean || squaredScaledMean.getLhs() != scaledMean ||
+        squaredScaledMean.getRhs() != mean)
+      return failure();
+
+    auto m2 = dyn_cast<arith::SubFOp>(ops[13]);
+    if (!m2 || m2.getLhs() != combinedM2Numerator ||
+        m2.getRhs() != squaredScaledMean)
+      return failure();
+
+    if (termOp.getOperands()[0] != mean || termOp.getOperands()[1] != count ||
+        termOp.getOperands()[2] != m2)
+      return failure();
+
+    return success();
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(triton::ReduceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (failed(matchWelfordBody(op)))
+      return failure();
+
+    auto loc = op.getLoc();
+    SmallVector<Value> outputs;
+    outputs.reserve(op.getNumResults());
+    for (Type resultType : op.getResultTypes()) {
+      outputs.push_back(getZeroInitTensor(rewriter, resultType, loc));
+    }
+
+    auto linalgOp = linalg::ReduceOp::create(
+        rewriter, loc, adaptor.getOperands(), outputs,
+        SmallVector<int64_t>{op.getAxis()},
+        [&](OpBuilder &b, Location loc, ValueRange inputs) {
+          auto tritonReduceBlock = op.getBody();
+          IRMapping mapping;
+          mapping.map(tritonReduceBlock->getArguments(), inputs);
+
+          for (Operation &op : tritonReduceBlock->without_terminator())
+            b.clone(op, mapping);
+
+          auto tritonYield = tritonReduceBlock->getTerminator();
+          auto results =
+              llvm::map_to_vector(tritonYield->getOperands(), [&](Value val) {
+                return mapping.lookup(val);
+              });
+          linalg::YieldOp::create(b, loc, results);
+        });
+
+    SmallVector<Value> replacements;
+    replacements.reserve(op.getNumResults());
+    for (auto [resultType, result] :
+         llvm::zip(op.getResultTypes(), linalgOp.getResults())) {
+      if (isa<RankedTensorType>(resultType)) {
+        replacements.push_back(result);
+      } else {
+        replacements.push_back(tensor::ExtractOp::create(
+            rewriter, loc, resultType, result, ValueRange{}));
+      }
+    }
+
+    rewriter.replaceOp(op, replacements);
+    return success();
+  }
+};
+
 template <typename T>
 class ArgMinMaxBaseConverter : public OpConversionPattern<triton::ReduceOp> {
   using OpConversionPattern<triton::ReduceOp>::OpConversionPattern;
@@ -1003,13 +1185,17 @@ class ArgMinMaxBaseConverter : public OpConversionPattern<triton::ReduceOp> {
     //   tie = value1 == value2 and index1 < index2
 
     // matching: %11 = arith.cmpf oeq, %arg9, %arg11 : f32
+    //        or %11 = arith.cmpi eq, %arg9, %arg11 : i32
     LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
-    auto eqCmpOp = dyn_cast<arith::CmpFOp>(*it++);
-    if (eqCmpOp) {
-      if (eqCmpOp.getPredicate() != arith::CmpFPredicate::OEQ) {
+    Operation *eqCmpOp = &*it++;
+    if (auto cmpOp = dyn_cast<arith::CmpFOp>(eqCmpOp)) {
+      if (cmpOp.getPredicate() != arith::CmpFPredicate::OEQ ||
+          currValue != cmpOp.getLhs() || reduceValue != cmpOp.getRhs()) {
         return failure();
       }
-      if (currValue != eqCmpOp.getLhs() || reduceValue != eqCmpOp.getRhs()) {
+    } else if (auto cmpOp = dyn_cast<arith::CmpIOp>(eqCmpOp)) {
+      if (cmpOp.getPredicate() != arith::CmpIPredicate::eq ||
+          currValue != cmpOp.getLhs() || reduceValue != cmpOp.getRhs()) {
         return failure();
       }
     } else {
@@ -1034,7 +1220,8 @@ class ArgMinMaxBaseConverter : public OpConversionPattern<triton::ReduceOp> {
     LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
     auto andOp = dyn_cast<arith::AndIOp>(*it++);
     if (andOp) {
-      if (andOp.getLhs() != eqCmpOp || andOp.getRhs() != sltCmpOp) {
+      if (andOp.getLhs() != eqCmpOp->getResult(0) ||
+          andOp.getRhs() != sltCmpOp) {
         return failure();
       }
     } else {
@@ -1159,9 +1346,11 @@ public:
     // the result value to either -inf or +inf depending on
     // whether we're dealing with argmax or argmin
     auto valueType = elemTypes[0];
-    auto valuesAccBaseVal = arith::ConstantOp::create(
-        rewriter, loc, valueType,
-        rewriter.getFloatAttr(valueType, T::getBaseReductionValue()));
+    TypedAttr valuesAccBaseAttr = T::getBaseReductionAttr(rewriter, valueType);
+    if (!valuesAccBaseAttr)
+      return failure();
+    auto valuesAccBaseVal =
+        arith::ConstantOp::create(rewriter, loc, valueType, valuesAccBaseAttr);
 
     // Set the initial value of the rank-0 tensor containing the index of the
     // min or max value to -1
@@ -1225,24 +1414,40 @@ struct ArgMaxConverter : public ArgMinMaxBaseConverter<ArgMaxConverter> {
                                              mlir::Block::iterator &it,
                                              Value &comparisonResult) {
     // %14 = arith.cmpf ogt, %arg9, %arg11 : f32
+    // or
+    // %14 = arith.cmpi sgt, %arg9, %arg11 : i32
     // This corresponds to section 2. of the sample snippet in
     // ArgMinMaxBaseConverter
-    auto cmpOp = dyn_cast<arith::CmpFOp>(*it++);
-    if (cmpOp) {
-      if (cmpOp.getPredicate() != arith::CmpFPredicate::OGT ||
-          currValue != cmpOp.getLhs() || reduceValue != cmpOp.getRhs()) {
+    Operation *cmpOp = &*it++;
+    if (auto floatCmpOp = dyn_cast<arith::CmpFOp>(cmpOp)) {
+      if (floatCmpOp.getPredicate() != arith::CmpFPredicate::OGT ||
+          currValue != floatCmpOp.getLhs() ||
+          reduceValue != floatCmpOp.getRhs()) {
+        return failure();
+      }
+    } else if (auto intCmpOp = dyn_cast<arith::CmpIOp>(cmpOp)) {
+      if (intCmpOp.getPredicate() != arith::CmpIPredicate::sgt ||
+          currValue != intCmpOp.getLhs() || reduceValue != intCmpOp.getRhs()) {
         return failure();
       }
     } else {
       return failure();
     }
 
-    comparisonResult = cmpOp;
+    comparisonResult = cmpOp->getResult(0);
     return success();
   }
 
-  static float getBaseReductionValue() {
-    return -std::numeric_limits<float>::infinity();
+  static TypedAttr getBaseReductionAttr(Builder &builder, Type valueType) {
+    if (isa<FloatType>(valueType)) {
+      return builder.getFloatAttr(valueType,
+                                  -std::numeric_limits<float>::infinity());
+    }
+    if (auto intType = dyn_cast<IntegerType>(valueType)) {
+      return builder.getIntegerAttr(valueType,
+                                    llvm::minIntN(intType.getWidth()));
+    }
+    return {};
   }
 
   ArgMaxConverter(MLIRContext *context) : ArgMinMaxBaseConverter(context) {}
@@ -1255,25 +1460,41 @@ struct ArgMinConverter : public ArgMinMaxBaseConverter<ArgMinConverter> {
                                              mlir::Block::iterator &it,
                                              Value &comparisonResult) {
     // %14 = arith.cmpf olt, %arg9, %arg11 : f32
+    // or
+    // %14 = arith.cmpi slt, %arg9, %arg11 : i32
     // This corresponds to section 2. of the sample snippet in
     // ArgMinMaxBaseConverter
     LLVM_DEBUG(llvm::dbgs() << "Matching: " << *it << "\n");
-    auto cmpOp = dyn_cast<arith::CmpFOp>(*it++);
-    if (cmpOp) {
-      if (cmpOp.getPredicate() != arith::CmpFPredicate::OLT ||
-          currValue != cmpOp.getLhs() || reduceValue != cmpOp.getRhs()) {
+    Operation *cmpOp = &*it++;
+    if (auto floatCmpOp = dyn_cast<arith::CmpFOp>(cmpOp)) {
+      if (floatCmpOp.getPredicate() != arith::CmpFPredicate::OLT ||
+          currValue != floatCmpOp.getLhs() ||
+          reduceValue != floatCmpOp.getRhs()) {
+        return failure();
+      }
+    } else if (auto intCmpOp = dyn_cast<arith::CmpIOp>(cmpOp)) {
+      if (intCmpOp.getPredicate() != arith::CmpIPredicate::slt ||
+          currValue != intCmpOp.getLhs() || reduceValue != intCmpOp.getRhs()) {
         return failure();
       }
     } else {
       return failure();
     }
 
-    comparisonResult = cmpOp;
+    comparisonResult = cmpOp->getResult(0);
     return success();
   }
 
-  static float getBaseReductionValue() {
-    return std::numeric_limits<float>::infinity();
+  static TypedAttr getBaseReductionAttr(Builder &builder, Type valueType) {
+    if (isa<FloatType>(valueType)) {
+      return builder.getFloatAttr(valueType,
+                                  std::numeric_limits<float>::infinity());
+    }
+    if (auto intType = dyn_cast<IntegerType>(valueType)) {
+      return builder.getIntegerAttr(valueType,
+                                    llvm::maxIntN(intType.getWidth()));
+    }
+    return {};
   }
 
   ArgMinConverter(MLIRContext *context) : ArgMinMaxBaseConverter(context) {}
@@ -1578,6 +1799,7 @@ void mlir::triton::populateTritonArithToLinalgConversionPatterns(
   // aren't always multiple of 2s, which are sub-optimal for certain hardwares.
   patterns.add<ArgMinConverter>(patterns.getContext());
   patterns.add<ArgMaxConverter>(patterns.getContext());
+  patterns.add<WelfordConverter>(patterns.getContext());
   patterns.add<ReduceConverter>(patterns.getContext(), transposeReduceToRank0);
 
   // Note: the ordering here matters!

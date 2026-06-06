@@ -74,36 +74,12 @@ def _patch_flag_gems_libtuner_and_libentry_for_first_config():
     original_libtuner_run = libentry_mod.LibTuner.run
     original_libentry_run = libentry_mod.LibEntry.run
 
-    def patched_libtuner(
-        configs,
-        key,
-        prune_configs_by=None,
-        reset_to_zero=None,
-        restore_value=None,
-        pre_hook=None,
-        post_hook=None,
-        warmup=25,
-        rep=100,
-        use_cuda_graph=False,
-        do_bench=None,
-        strategy="default",
-        policy="default",
-    ):
-        return original_libtuner(
-            _first_config_only(configs),
-            key,
-            prune_configs_by=prune_configs_by,
-            reset_to_zero=reset_to_zero,
-            restore_value=restore_value,
-            pre_hook=pre_hook,
-            post_hook=post_hook,
-            warmup=warmup,
-            rep=rep,
-            use_cuda_graph=use_cuda_graph,
-            do_bench=do_bench,
-            strategy=strategy,
-            policy=policy,
-        )
+    def patched_libtuner(*args, **kwargs):
+        if args:
+            args = (_first_config_only(args[0]), *args[1:])
+        elif "configs" in kwargs:
+            kwargs["configs"] = _first_config_only(kwargs["configs"])
+        return original_libtuner(*args, **kwargs)
 
     def patched_libentry():
         decorator = original_libentry()

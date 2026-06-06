@@ -88,6 +88,14 @@ def _promote_to_fp32(b, handle, dtype):
     return handle
 
 
+def _cast_to_pow_compute(tensor, _semantic):
+    """Promote low precision and integer pow operands to fp32."""
+    scalar = _scalar_dtype(tensor.type)
+    if scalar.is_fp16() or scalar.is_bf16() or scalar.is_int():
+        return _semantic.cast(tensor, tl.float32)
+    return tensor
+
+
 def _trunc_from_fp32(b, handle, dtype):
     """Truncate fp32 back to fp16/bf16 if needed. Preserves block shape."""
     if _scalar_dtype(dtype).is_fp16() or _scalar_dtype(dtype).is_bf16():
@@ -123,34 +131,23 @@ def _wrap_tensor(b, handle, dtype):
 
 @core.builtin
 def pow(x, y, _semantic=None):
-    """pow(x, y): for integer y uses repeated multiplication; otherwise exp(y*log(x))."""
+    """pow(x, y): lower to a libdevice-style elementwise pow operation."""
     x = _semantic.to_tensor(x)
     y = _semantic.to_tensor(y)
-    b = _semantic.builder
-    dtype = x.type
-    y_handle = y.handle
-    y_scalar = _scalar_dtype(y.type)
-
-    # Handle integer exponent via multiplication (avoids log of negative x)
-    if y_scalar.is_int():
-        # Check if y is a small positive integer constant
-        # For pow(x, 2): return x * x; pow(x, 3): return x * x * x; etc.
-        # Use a simple loop: result = exp(y_as_float * log(abs(x))) * sign handling
-        abs_x = b.create_fabs(x.handle)
-        log_abs = b.create_log(abs_x)
-        y_fp32 = b.create_si_to_fp(y_handle, tl.float32.to_ir(b))
-        y_fp32 = _to_block(b, dtype, y_fp32)
-        y_log_abs = b.create_fmul(y_fp32, log_abs)
-        result = b.create_exp(y_log_abs)
-        # Handle sign for odd exponents
-        # This is a simplification — for the common case pow(x, 2), sign is always +
-        return _wrap_tensor(b, result, dtype)
-
-    # General case: exp(y * log(x)) — only valid for x > 0
-    y_promoted = _promote_to_fp32(b, y_handle, y.type)
-    log_x = b.create_log(x.handle)
-    y_log_x = b.create_fmul(y_promoted, log_x)
-    return _wrap_tensor(b, b.create_exp(y_log_x), dtype)
+    x, y = _semantic.binary_op_type_checking_impl(x, y)
+    x = _cast_to_pow_compute(x, _semantic)
+    y = _cast_to_pow_compute(y, _semantic)
+    return core.extern_elementwise(
+        "",
+        "",
+        [x, y],
+        {
+            (tl.float32, tl.float32): ("__nv_powf", tl.float32),
+            (tl.float64, tl.float64): ("__nv_pow", tl.float64),
+        },
+        is_pure=True,
+        _semantic=_semantic,
+    )
 
 
 @core.builtin
@@ -187,8 +184,8 @@ def trunc(x, _semantic=None):
     b = _semantic.builder
     dtype = x.type
     scalar = _scalar_dtype(dtype)
-    int_ty = b.get_int32_ty() if scalar.is_fp32() else b.get_int64_ty()
-    as_int = b.create_fp_to_si(x.handle, int_ty)
+    int_ty = _block_type_for(dtype, tl.int32 if scalar.is_fp32() else tl.int64)
+    as_int = b.create_fp_to_si(x.handle, int_ty.to_ir(b))
     return core.tensor(b.create_si_to_fp(as_int, dtype.to_ir(b)), dtype)
 
 
@@ -208,12 +205,13 @@ def fmod(x, y, _semantic=None):
     """fmod(x, y) = x - trunc(x/y) * y"""
     x = _semantic.to_tensor(x)
     y = _semantic.to_tensor(y)
+    x, y = _semantic.binary_op_type_checking_impl(x, y, div_or_mod=True)
     b = _semantic.builder
     dtype = x.type
     div = b.create_fdiv(x.handle, y.handle)
     scalar = _scalar_dtype(dtype)
-    int_ty = b.get_int32_ty() if scalar.is_fp32() else b.get_int64_ty()
-    div_int = b.create_fp_to_si(div, int_ty)
+    int_ty = _block_type_for(dtype, tl.int32 if scalar.is_fp32() else tl.int64)
+    div_int = b.create_fp_to_si(div, int_ty.to_ir(b))
     div_trunc = b.create_si_to_fp(div_int, dtype.to_ir(b))
     prod = b.create_fmul(div_trunc, y.handle)
     return core.tensor(b.create_fsub(x.handle, prod), dtype)
@@ -228,8 +226,8 @@ def div_rz(x, y, _semantic=None):
     dtype = x.type
     div = b.create_fdiv(x.handle, y.handle)
     scalar = _scalar_dtype(dtype)
-    int_ty = b.get_int32_ty() if scalar.is_fp32() else b.get_int64_ty()
-    div_int = b.create_fp_to_si(div, int_ty)
+    int_ty = _block_type_for(dtype, tl.int32 if scalar.is_fp32() else tl.int64)
+    div_int = b.create_fp_to_si(div, int_ty.to_ir(b))
     return core.tensor(b.create_si_to_fp(div_int, dtype.to_ir(b)), dtype)
 
 

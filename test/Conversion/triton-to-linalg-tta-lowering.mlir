@@ -105,11 +105,8 @@ module {
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[ARG0]] : memref<*xi32> to memref<?xi32>
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[CONSTANT_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
-// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_0]], %[[ARG1]] : i32
-// CHECK:             %[[SELECT_0:.*]] = arith.select %[[ARG2]], %[[ADDI_0]], %[[VAL_0]] : i32
-// CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
+// CHECK:           scf.if %[[ARG2]] {
+// CHECK:             %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[ARG1]], %[[CAST_0]]{{\[}}%[[CONSTANT_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           }
 // CHECK:           return
 // CHECK:         }

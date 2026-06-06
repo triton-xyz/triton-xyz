@@ -4,6 +4,8 @@ set -euo pipefail
 DUMP_DIR="${DUMP_DIR:-$PWD/debug_agent/flaggems-pytest-one}"
 mkdir -p "$DUMP_DIR"
 
+export PATH="$PWD/build/bin:$PWD/llvm-triton/llvm-project/build/bin:$PATH"
+
 export TRITON_HOME="${TRITON_HOME:-$DUMP_DIR}"
 export TRITON_ALWAYS_COMPILE="${TRITON_ALWAYS_COMPILE:-1}"
 export MLIR_ENABLE_DUMP="${MLIR_ENABLE_DUMP:-0}"

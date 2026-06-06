@@ -8,11 +8,7 @@ module {
 // CHECK:           %[[SRC:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
 // CHECK:           %[[CAST:.*]] = memref.cast %[[SRC]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[OFFSET:.*]] = arith.index_cast %[[ARG1]] : i32 to index
-// CHECK:           %[[GENERIC:.*]] = memref.generic_atomic_rmw %[[CAST]]{{\[}}%[[OFFSET]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[CUR:.*]]: i32):
-// CHECK:             %[[UPDATED:.*]] = arith.addi %[[CUR]], %[[ARG2]] : i32
-// CHECK:             memref.atomic_yield %[[UPDATED]] : i32
-// CHECK:           }
+// CHECK:           %[[ATOMIC:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST]]{{\[}}%[[OFFSET]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @block_atomic_add_scalar(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
@@ -28,6 +24,7 @@ module {
 module {
 // CHECK-LABEL:   tt.func @block_atomic_add_tensor(
 // CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
+// CHECK:           %[[ZERO:.*]] = arith.constant 0 : i32
 // CHECK:           %[[OFFSETS:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
 // CHECK:           %[[VALUES:.*]] = arith.constant dense<[10, 11, 12, 13]> : tensor<4xi32>
 // CHECK:           %[[MASK:.*]] = arith.constant dense<[true, false, true, true]> : tensor<4xi1>
@@ -37,13 +34,13 @@ module {
 // CHECK:             %[[VAL:.*]] = tensor.extract %[[VALUES]]{{\[}}%[[IV]]] : tensor<4xi32>
 // CHECK:             %[[LANE_MASK:.*]] = tensor.extract %[[MASK]]{{\[}}%[[IV]]] : tensor<4xi1>
 // CHECK:             %[[CASTED:.*]] = arith.index_cast %[[OFF]] : i32 to index
-// CHECK:             %[[GENERIC:.*]] = memref.generic_atomic_rmw %{{.*}}{{\[}}%[[CASTED]]] : memref<?xi32> {
-// CHECK:             ^bb0(%[[CUR:.*]]: i32):
-// CHECK:               %[[UPDATED:.*]] = arith.addi %[[CUR]], %[[VAL]] : i32
-// CHECK:               %[[SELECT:.*]] = arith.select %[[LANE_MASK]], %[[UPDATED]], %[[CUR]] : i32
-// CHECK:               memref.atomic_yield %[[SELECT]] : i32
+// CHECK:             %[[IF:.*]] = scf.if %[[LANE_MASK]] -> (i32) {
+// CHECK:               %[[ATOMIC:.*]] = memref.atomic_rmw addi %[[VAL]], %{{.*}}{{\[}}%[[CASTED]]] : (i32, memref<?xi32>) -> i32
+// CHECK:               scf.yield %[[ATOMIC]] : i32
+// CHECK:             } else {
+// CHECK:               scf.yield %[[ZERO]] : i32
 // CHECK:             }
-// CHECK:             %[[NEXT:.*]] = tensor.insert %[[GENERIC]] into %[[ACC]]{{\[}}%[[IV]]] : tensor<4xi32>
+// CHECK:             %[[NEXT:.*]] = tensor.insert %[[IF]] into %[[ACC]]{{\[}}%[[IV]]] : tensor<4xi32>
 // CHECK:             scf.yield %[[NEXT]] : tensor<4xi32>
 // CHECK:           }
 // CHECK:           tt.return

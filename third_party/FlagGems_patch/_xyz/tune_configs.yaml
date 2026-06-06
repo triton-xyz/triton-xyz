@@ -1,1 +1,6 @@
-{}
+kron:
+  - META:
+      BLOCK_M: 1
+      BLOCK_N: 64
+    num_warps: 1
+    num_stages: 1

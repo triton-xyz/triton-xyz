@@ -8,11 +8,13 @@
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
 #include "mlir/Dialect/Ptr/IR/PtrEnums.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -76,8 +78,8 @@ struct TritonBitcastOpConversion
                   ConversionPatternRewriter &rewriter) const override {
     auto src = adaptor.getSrc();
     auto resultType = getTypeConverter()->convertType(op.getResult().getType());
-    auto cast = rewriter.create<UnrealizedConversionCastOp>(op.getLoc(),
-                                                            resultType, src);
+    auto cast = UnrealizedConversionCastOp::create(rewriter, op.getLoc(),
+                                                   resultType, src);
     rewriter.replaceOp(op, cast.getResult(0));
     return success();
   }
@@ -101,8 +103,8 @@ struct ErfOpConversion : public ConvertOpToLLVMPattern<math::ErfOp> {
     if (!module.lookupSymbol(funcName)) {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(module.getBody());
-      rewriter.create<LLVM::LLVMFuncOp>(
-          op.getLoc(), funcName,
+      LLVM::LLVMFuncOp::create(
+          rewriter, op.getLoc(), funcName,
           LLVM::LLVMFunctionType::get(resultType, {operand.getType()}));
     }
     rewriter.replaceOpWithNewOp<LLVM::CallOp>(op, resultType, funcName,
@@ -158,6 +160,79 @@ struct PtrStoreOpConversion : public ConvertOpToLLVMPattern<ptr::StoreOp> {
   }
 };
 
+struct FloatGenericAtomicRMWOpConversion
+    : public ConvertOpToLLVMPattern<memref::GenericAtomicRMWOp> {
+  explicit FloatGenericAtomicRMWOpConversion(
+      const LLVMTypeConverter &typeConverter, PatternBenefit benefit = 2)
+      : ConvertOpToLLVMPattern(typeConverter, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(memref::GenericAtomicRMWOp atomicOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto floatType = dyn_cast<FloatType>(atomicOp.getResult().getType());
+    if (!floatType)
+      return failure();
+
+    Location loc = atomicOp.getLoc();
+    Type valueType =
+        getTypeConverter()->convertType(atomicOp.getResult().getType());
+    if (!valueType)
+      return failure();
+    Type intType =
+        IntegerType::get(atomicOp.getContext(), floatType.getWidth());
+
+    auto *initBlock = rewriter.getInsertionBlock();
+    auto *loopBlock = rewriter.splitBlock(initBlock, Block::iterator(atomicOp));
+    loopBlock->addArgument(intType, loc);
+
+    auto *endBlock =
+        rewriter.splitBlock(loopBlock, Block::iterator(atomicOp)++);
+
+    rewriter.setInsertionPointToEnd(initBlock);
+    auto memRefType = cast<MemRefType>(atomicOp.getMemref().getType());
+    Value dataPtr = getStridedElementPtr(
+        rewriter, loc, memRefType, adaptor.getMemref(), adaptor.getIndices());
+    Value init = LLVM::LoadOp::create(rewriter, loc, intType, dataPtr);
+    LLVM::BrOp::create(rewriter, loc, init, loopBlock);
+
+    rewriter.setInsertionPointToStart(loopBlock);
+    Value loopArgument = loopBlock->getArgument(0);
+    Value current =
+        LLVM::BitcastOp::create(rewriter, loc, valueType, loopArgument);
+
+    IRMapping mapping;
+    mapping.map(atomicOp.getCurrentValue(), current);
+    Block &entryBlock = atomicOp.body().front();
+    for (auto &nestedOp : entryBlock.without_terminator()) {
+      Operation *clone = rewriter.clone(nestedOp, mapping);
+      mapping.map(nestedOp.getResults(), clone->getResults());
+    }
+
+    Value result =
+        mapping.lookupOrNull(entryBlock.getTerminator()->getOperand(0));
+    if (!result)
+      return atomicOp.emitError("result not defined in region");
+    Value resultBits = LLVM::BitcastOp::create(rewriter, loc, intType, result);
+
+    auto successOrdering = LLVM::AtomicOrdering::acq_rel;
+    auto failureOrdering = LLVM::AtomicOrdering::monotonic;
+    auto cmpxchg = LLVM::AtomicCmpXchgOp::create(
+        rewriter, loc, dataPtr, loopArgument, resultBits, successOrdering,
+        failureOrdering);
+    Value newLoaded = LLVM::ExtractValueOp::create(rewriter, loc, cmpxchg, 0);
+    Value ok = LLVM::ExtractValueOp::create(rewriter, loc, cmpxchg, 1);
+
+    LLVM::CondBrOp::create(rewriter, loc, ok, endBlock, ArrayRef<Value>(),
+                           loopBlock, newLoaded);
+
+    rewriter.setInsertionPoint(atomicOp);
+    Value newLoadedValue =
+        LLVM::BitcastOp::create(rewriter, loc, valueType, newLoaded);
+    rewriter.replaceOp(atomicOp, {newLoadedValue});
+    return success();
+  }
+};
+
 class ConvertXyzToLLVMPass
     : public triton::impl::ConvertXyzToLLVMBase<ConvertXyzToLLVMPass> {
   using Base = triton::impl::ConvertXyzToLLVMBase<ConvertXyzToLLVMPass>;
@@ -191,6 +266,7 @@ public:
     patterns.add<ErfOpConversion>(typeConverter);
 
     populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
+    patterns.add<FloatGenericAtomicRMWOpConversion>(typeConverter);
     ptr::populatePtrToLLVMConversionPatterns(typeConverter, patterns);
     patterns.add<PtrLoadOpConversion, PtrStoreOpConversion>(typeConverter);
 

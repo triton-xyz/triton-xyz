@@ -1267,16 +1267,17 @@ module {
 // CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
 // CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK:           %[[ZERO_I32:.*]] = arith.constant 0 : i32
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
-// CHECK:             %[[ADDI_0:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
-// CHECK:             %[[SELECT_0:.*]] = arith.select %[[ARG3]], %[[ADDI_0]], %[[VAL_0]] : i32
-// CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
+// CHECK:           %[[IF_0:.*]] = scf.if %[[ARG3]] -> (i32) {
+// CHECK:             %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
+// CHECK:             scf.yield %[[ATOMIC_RMW_0]] : i32
+// CHECK:           } else {
+// CHECK:             scf.yield %[[ZERO_I32]] : i32
 // CHECK:           }
-// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw assign %[[GENERIC_ATOMIC_RMW_0]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
+// CHECK:           %[[ATOMIC_RMW_1:.*]] = memref.atomic_rmw assign %[[IF_0]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_basic(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %mask: i1) {
@@ -1307,11 +1308,7 @@ module {
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
-// CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
-// CHECK:             memref.atomic_yield %[[ADDI_2]] : i32
-// CHECK:           }
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST_0]]{{\[}}%[[SELECT_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_wrap_boundary(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
@@ -1340,11 +1337,7 @@ module {
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ADDI_1]], %[[REMSI_0]] : index
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
-// CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
-// CHECK:             memref.atomic_yield %[[ADDI_2]] : i32
-// CHECK:           }
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST_0]]{{\[}}%[[SELECT_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_wrap_negative_boundary(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
@@ -1375,11 +1368,7 @@ module {
 // CHECK:           %[[CMPI_1:.*]] = arith.cmpi slt, %[[REMSI_0]], %[[CONSTANT_0]] : index
 // CHECK:           %[[ADDI_1:.*]] = arith.addi %[[REMSI_0]], %[[ARG3]] : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[CMPI_1]], %[[ADDI_1]], %[[REMSI_0]] : index
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[SELECT_0]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
-// CHECK:             %[[ADDI_2:.*]] = arith.addi %[[VAL_0]], %[[ARG2]] : i32
-// CHECK:             memref.atomic_yield %[[ADDI_2]] : i32
-// CHECK:           }
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST_0]]{{\[}}%[[SELECT_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_scalar_wrap_dynamic_boundary(%ptr: !tt.ptr<i32>, %off: i32, %val: i32, %boundary: index) {
@@ -1400,11 +1389,7 @@ module {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f32> to memref<*xf32>
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xf32> to memref<?xf32>
 // CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
-// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xf32> {
-// CHECK:           ^bb0(%[[VAL_0:.*]]: f32):
-// CHECK:             %[[ADDF_0:.*]] = arith.addf %[[VAL_0]], %[[ARG2]] : f32
-// CHECK:             memref.atomic_yield %[[ADDF_0]] : f32
-// CHECK:           }
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addf %[[ARG2]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (f32, memref<?xf32>) -> f32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @atomic_float_add(%ptr: !tt.ptr<f32>, %off: i32, %val: f32) {

@@ -198,3 +198,41 @@ module {
     tt.return
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   tt.func @scalar_ptr_truthy_load(
+// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
+// CHECK-SAME:      %[[OFF:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> f32 {
+// CHECK:           %[[C0:.*]] = arith.constant 0 : index
+// CHECK:           %[[ONE:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK:           %[[C0_I64:.*]] = arith.constant 0 : i64
+// CHECK:           %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<*xf32> -> index
+// CHECK:           %[[PTR_INT:.*]] = arith.index_cast %[[INTPTR]] : index to i64
+// CHECK:           %[[PRED:.*]] = arith.cmpi ne, %[[PTR_INT]], %[[C0_I64]] : i64
+// CHECK:           %[[IF:.*]] = scf.if %[[PRED]] -> (f32) {
+// CHECK:             %[[IDX:.*]] = arith.index_cast %[[OFF]] : i32 to index
+// CHECK:             %[[VIEW:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: [%[[IDX]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             %[[LOAD:.*]] = memref.load %[[VIEW]][%[[C0]]] : memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             scf.yield %[[LOAD]] : f32
+// CHECK:           } else {
+// CHECK:             scf.yield %[[ONE]] : f32
+// CHECK:           }
+// CHECK:           tt.return %[[IF]] : f32
+// CHECK:         }
+  tt.func @scalar_ptr_truthy_load(%arg0: !tt.ptr<f32>, %off: i32) -> f32 {
+    %c0_i64 = arith.constant 0 : i64
+    %one = arith.constant 1.000000e+00 : f32
+    %i = tt.ptr_to_int %arg0 : !tt.ptr<f32> -> i64
+    %pred = arith.cmpi ne, %i, %c0_i64 : i64
+    %res = scf.if %pred -> (f32) {
+      %p = tt.addptr %arg0, %off : !tt.ptr<f32>, i32
+      %v = tt.load %p : !tt.ptr<f32>
+      scf.yield %v : f32
+    } else {
+      scf.yield %one : f32
+    }
+    tt.return %res : f32
+  }
+}

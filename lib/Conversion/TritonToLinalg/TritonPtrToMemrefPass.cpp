@@ -45,6 +45,11 @@ struct ScalarMemrefAccess {
   Value index;
 };
 
+struct ScalarPtrBaseAccess {
+  Value memref;
+  Value offset;
+};
+
 static bool isOneToOneUnrealizedCast(UnrealizedConversionCastOp op) {
   return op && op.getInputs().size() == 1 && op->getNumResults() == 1;
 }
@@ -136,6 +141,101 @@ static Value castToIndex(OpBuilder &b, Location loc, Value value) {
     return arith::IndexCastOp::create(b, loc, b.getIndexType(), value);
   }
   return Value();
+}
+
+static Value makeIndexConstant(Location loc, int64_t value,
+                               PatternRewriter &rewriter) {
+  return arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(value))
+      .getResult();
+}
+
+static Value buildRank1ScalarMemrefWindow(Value baseMemref, Value offset,
+                                          Type elementType,
+                                          PatternRewriter &rewriter,
+                                          Location loc) {
+  auto baseType = cast<BaseMemRefType>(baseMemref.getType());
+  auto layout =
+      StridedLayoutAttr::get(rewriter.getContext(), ShapedType::kDynamic, {1});
+  auto rank1Type =
+      MemRefType::get({1}, elementType, layout, baseType.getMemorySpace());
+  SmallVector<OpFoldResult> sizes{rewriter.getIndexAttr(1)};
+  SmallVector<OpFoldResult> strides{rewriter.getIndexAttr(1)};
+  return memref::ReinterpretCastOp::create(rewriter, loc, rank1Type, baseMemref,
+                                           offset, sizes, strides)
+      .getResult();
+}
+
+static std::optional<Value> getMemrefFromScalarPtrCast(Value ptr) {
+  auto ptrType = dyn_cast<triton::PointerType>(ptr.getType());
+  if (!ptrType) {
+    return std::nullopt;
+  }
+
+  auto castOp = ptr.getDefiningOp<UnrealizedConversionCastOp>();
+  if (!isOneToOneUnrealizedCast(castOp)) {
+    return std::nullopt;
+  }
+
+  Value memref = castOp.getInputs().front();
+  auto memrefType = dyn_cast<BaseMemRefType>(memref.getType());
+  if (!memrefType || memrefType.getElementType() != ptrType.getPointeeType()) {
+    return std::nullopt;
+  }
+
+  return memref;
+}
+
+static std::optional<ScalarPtrBaseAccess>
+getScalarPtrBaseAccess(Value ptr, PatternRewriter &rewriter) {
+  auto ptrType = dyn_cast<triton::PointerType>(ptr.getType());
+  if (!ptrType) {
+    return std::nullopt;
+  }
+
+  Location loc = ptr.getLoc();
+  if (auto baseMemref = getMemrefFromScalarPtrCast(ptr)) {
+    return ScalarPtrBaseAccess{*baseMemref,
+                               makeIndexConstant(loc, 0, rewriter)};
+  }
+
+  auto addPtr = ptr.getDefiningOp<triton::AddPtrOp>();
+  if (!addPtr) {
+    return std::nullopt;
+  }
+
+  auto baseAccess = getScalarPtrBaseAccess(addPtr.getPtr(), rewriter);
+  if (!baseAccess) {
+    return std::nullopt;
+  }
+
+  Value offset = castToIndex(rewriter, loc, addPtr.getOffset());
+  if (!offset) {
+    return std::nullopt;
+  }
+
+  Value totalOffset =
+      arith::AddIOp::create(rewriter, loc, baseAccess->offset, offset)
+          .getResult();
+  return ScalarPtrBaseAccess{baseAccess->memref, totalOffset};
+}
+
+static std::optional<ScalarMemrefAccess>
+getScalarMemrefAccessFromScalarPtr(Value ptr, PatternRewriter &rewriter) {
+  auto ptrType = dyn_cast<triton::PointerType>(ptr.getType());
+  if (!ptrType) {
+    return std::nullopt;
+  }
+
+  auto baseAccess = getScalarPtrBaseAccess(ptr, rewriter);
+  if (!baseAccess) {
+    return std::nullopt;
+  }
+
+  Location loc = ptr.getLoc();
+  Value rank1Memref =
+      buildRank1ScalarMemrefWindow(baseAccess->memref, baseAccess->offset,
+                                   ptrType.getPointeeType(), rewriter, loc);
+  return ScalarMemrefAccess{rank1Memref, makeIndexConstant(loc, 0, rewriter)};
 }
 
 static std::optional<ScalarMemrefAccess>
@@ -476,6 +576,88 @@ struct TensorPtrLoadToMemref : public OpRewritePattern<triton::LoadOp> {
   }
 };
 
+struct ScalarPtrLoadToMemref : public OpRewritePattern<triton::LoadOp> {
+  using OpRewritePattern<triton::LoadOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(triton::LoadOp op,
+                                PatternRewriter &rewriter) const override {
+    if (isa<ShapedType>(op.getType())) {
+      return failure();
+    }
+    if (op.getMask() && isa<ShapedType>(op.getMask().getType())) {
+      return failure();
+    }
+
+    auto memrefAccess =
+        getScalarMemrefAccessFromScalarPtr(op.getPtr(), rewriter);
+    if (!memrefAccess) {
+      return failure();
+    }
+
+    auto loadValue = [&](OpBuilder &b, Location loc) {
+      return memref::LoadOp::create(b, loc, memrefAccess->memref,
+                                    memrefAccess->index)
+          .getResult();
+    };
+
+    if (op.getMask()) {
+      auto ifOp = scf::IfOp::create(
+          rewriter, op->getLoc(), op.getMask(),
+          [&](OpBuilder &b, Location loc) {
+            scf::YieldOp::create(b, loc, loadValue(b, loc));
+          },
+          [&](OpBuilder &b, Location loc) {
+            if (op.getOther()) {
+              scf::YieldOp::create(b, loc, op.getOther());
+            } else {
+              auto zeroAttr = b.getZeroAttr(op.getType());
+              assert(zeroAttr && "unexpected element type");
+              Value val =
+                  arith::ConstantOp::create(b, loc, zeroAttr).getResult();
+              scf::YieldOp::create(b, loc, val);
+            }
+          });
+      rewriter.replaceOp(op, ifOp);
+    } else {
+      rewriter.replaceOp(op, loadValue(rewriter, op.getLoc()));
+    }
+
+    return success();
+  }
+};
+
+struct ScalarPtrToIntToMemref : public OpRewritePattern<triton::PtrToIntOp> {
+  using OpRewritePattern<triton::PtrToIntOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(triton::PtrToIntOp op,
+                                PatternRewriter &rewriter) const override {
+    if (isa<ShapedType>(op.getType())) {
+      return failure();
+    }
+
+    auto memref = getMemrefFromScalarPtrCast(op.getSrc());
+    if (!memref) {
+      return failure();
+    }
+
+    Value ptrAsIndex = memref::ExtractAlignedPointerAsIndexOp::create(
+        rewriter, op.getLoc(), *memref);
+    if (op.getType().isIndex()) {
+      rewriter.replaceOp(op, ptrAsIndex);
+      return success();
+    }
+    if (!isa<IntegerType>(op.getType())) {
+      return failure();
+    }
+
+    auto ptrAsInt = arith::IndexCastOp::create(rewriter, op.getLoc(),
+                                               op.getType(), ptrAsIndex)
+                        .getResult();
+    rewriter.replaceOp(op, ptrAsInt);
+    return success();
+  }
+};
+
 struct TensorPtrStoreToMemref : public OpRewritePattern<triton::StoreOp> {
   using OpRewritePattern<triton::StoreOp>::OpRewritePattern;
 
@@ -641,7 +823,8 @@ public:
     }
 
     RewritePatternSet postPatterns(&getContext());
-    postPatterns.add<FoldPtrSelectToMemrefSelect, TensorPtrLoadToMemref,
+    postPatterns.add<FoldPtrSelectToMemrefSelect, ScalarPtrLoadToMemref,
+                     ScalarPtrToIntToMemref, TensorPtrLoadToMemref,
                      TensorPtrStoreToMemref, TensorPtrAtomicRMWToMemref,
                      TensorPtrAtomicCASToMemref>(&getContext());
     if (failed(applyPatternsGreedily(moduleOp, std::move(postPatterns)))) {

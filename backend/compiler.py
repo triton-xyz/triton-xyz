@@ -513,7 +513,7 @@ class XYZBackend(BaseBackend):
             cmd.extend(
                 [
                     linalg_path,
-                    "--one-shot-bufferize",
+                    "--one-shot-bufferize=allow-return-allocs-from-loops",
                     "--convert-linalg-to-loops",
                     "--lower-affine",
                     "--convert-scf-to-cf",
