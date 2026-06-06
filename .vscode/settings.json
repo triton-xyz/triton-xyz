@@ -1,0 +1,16 @@
+{
+  // "git.autoRepositoryDetection": false,
+  "git.autoRepositoryDetection": "subFolders",
+  "git.scanRepositories": [
+    "./third_party/FlagGems",
+    "./third_party/triton",
+  ],
+  "search.exclude": {
+    "python/triton": true,
+    "llvm-triton": true,
+    "third_party/triton": false,
+    "third_party/FlagGems": false,
+  },
+  "mlir.server_path": "${workspaceFolder}/build/bin/triton-xyz-lsp",
+  "mlir.tablegen_server_path": "${workspaceFolder}/llvm-triton/llvm-project/build/bin/tblgen-lsp-server",
+}
