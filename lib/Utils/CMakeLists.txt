@@ -1,4 +1,4 @@
-add_triton_library(TritonSharedUtils
+add_triton_library(TritonXyzUtils
   Utils.cpp
 
   LINK_LIBS PUBLIC

@@ -33,7 +33,7 @@ class TTA_Op<string mnemonic, list<Trait> traits = []> :
     Op<Triton_Address_Dialect, mnemonic, traits> {
 }
 
-include "triton-shared/Dialect/TritonAddress/IR/TritonAddressTypes.td"
+include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressTypes.td"
 
 def TTA_IndexTensorLike : AnyTypeOf<[I32Tensor, I64Tensor]>;
 

@@ -1,4 +1,4 @@
-#include "triton-shared/Dialect/Triton/IR/TritonDialectXyz.h"
+#include "triton-xyz/Dialect/Triton/IR/TritonDialectXyz.h"
 
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/OperationSupport.h"
@@ -7,7 +7,7 @@ using namespace mlir;
 using namespace mlir::triton;
 
 #define GET_OP_CLASSES
-#include "triton-shared/Dialect/Triton/IR/TritonXyzOps.cpp.inc"
+#include "triton-xyz/Dialect/Triton/IR/TritonXyzOps.cpp.inc"
 
 namespace mlir::triton::xyz {
 

@@ -2,8 +2,8 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h"
-#include "triton-shared/Pipelines/Pipelines.h"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h"
+#include "triton-xyz/Pipelines/Pipelines.h"
 
 void mlir::triton::buildTritonToXyzPipeline(
     OpPassManager &pm, const TritonToXyzPipelineOptions &options) {

@@ -3,7 +3,7 @@
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
-include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.td"
+include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.td"
 
 class TritonAddressTypeDef<string name, string _mnemonic,
                            list<Trait> traits = []>

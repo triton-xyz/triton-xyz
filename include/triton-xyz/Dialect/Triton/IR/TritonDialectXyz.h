@@ -13,4 +13,4 @@ void registerTritonDialectXyzExtension(DialectRegistry &registry);
 } // namespace mlir::triton::xyz
 
 #define GET_OP_CLASSES
-#include "triton-shared/Dialect/Triton/IR/TritonXyzOps.h.inc"
+#include "triton-xyz/Dialect/Triton/IR/TritonXyzOps.h.inc"

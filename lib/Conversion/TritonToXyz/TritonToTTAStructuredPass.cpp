@@ -2,16 +2,16 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/Analysis/AnalysisAddress.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Analysis/AnalysisAddress.h"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include <optional>
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOTTASTRUCTURED
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace mlir::triton
 
 #define DEBUG_TYPE "triton-to-tta-structured"

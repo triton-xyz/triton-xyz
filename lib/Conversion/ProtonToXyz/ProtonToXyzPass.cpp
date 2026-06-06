@@ -4,14 +4,14 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "proton/Dialect/include/Analysis/ScopeIdAllocation.h"
 #include "proton/Dialect/include/Dialect/Proton/IR/Dialect.h"
-#include "triton-shared/Conversion/ProtonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Conversion/ProtonToXyz/Passes.h" // IWYU pragma: keep
 
 using namespace mlir;
 
 namespace mlir {
 namespace triton {
 #define GEN_PASS_DEF_PROTONTOXYZ
-#include "triton-shared/Conversion/ProtonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/ProtonToXyz/Passes.h.inc"
 } // namespace triton
 } // namespace mlir
 

@@ -1,4 +1,4 @@
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinAttributes.h"

@@ -1,4 +1,4 @@
-#include "triton-shared/Utils/Utils.h"
+#include "triton-xyz/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "triton/Dialect/Triton/IR/Dialect.h" // IWYU pragma: keep

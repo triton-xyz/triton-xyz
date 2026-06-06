@@ -1,1 +1,1 @@
-add_subdirectory(triton-shared)
+add_subdirectory(triton-xyz)

@@ -8,10 +8,10 @@ namespace mlir {
 namespace triton {
 
 #define GEN_PASS_DECL
-#include "triton-shared/Conversion/XyzToLLVM/Passes.h.inc"
+#include "triton-xyz/Conversion/XyzToLLVM/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
-#include "triton-shared/Conversion/XyzToLLVM/Passes.h.inc"
+#include "triton-xyz/Conversion/XyzToLLVM/Passes.h.inc"
 
 } // namespace triton
 } // namespace mlir

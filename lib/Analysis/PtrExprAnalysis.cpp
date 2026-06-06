@@ -1,4 +1,4 @@
-#include "triton-shared/Analysis/PtrExprAnalysis.h"
+#include "triton-xyz/Analysis/PtrExprAnalysis.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -6,7 +6,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 

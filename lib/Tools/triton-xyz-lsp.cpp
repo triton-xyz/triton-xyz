@@ -1,4 +1,4 @@
-#include "RegisterTritonSharedDialects.h"
+#include "RegisterTritonXyzDialects.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
-  registerTritonSharedDialects(registry);
+  registerTritonXyzDialects(registry);
 
   return mlir::failed(mlir::MlirLspServerMain(argc, argv, registry));
 }

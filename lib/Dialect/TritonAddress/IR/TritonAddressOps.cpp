@@ -7,7 +7,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Support/LogicalResult.h"
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/STLExtras.h"

@@ -1,13 +1,13 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_VERIFYTTALOWERED
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace mlir::triton
 
 using namespace mlir;

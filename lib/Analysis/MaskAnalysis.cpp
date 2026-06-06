@@ -1,11 +1,11 @@
-#include "triton-shared/Analysis/MaskAnalysis.h"
+#include "triton-xyz/Analysis/MaskAnalysis.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "llvm/Support/Casting.h"

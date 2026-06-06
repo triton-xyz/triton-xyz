@@ -1,13 +1,13 @@
-#include "triton-shared/Analysis/AnalysisAddress.h"
+#include "triton-xyz/Analysis/AnalysisAddress.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "triton-shared/Analysis/MaskAnalysis.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
-#include "triton-shared/Utils/Utils.h"
+#include "triton-xyz/Analysis/MaskAnalysis.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 

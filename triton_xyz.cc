@@ -2,7 +2,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
-#include "triton-shared/Dialect/Triton/IR/TritonDialectXyz.h"
+#include "triton-xyz/Dialect/Triton/IR/TritonDialectXyz.h"
 
 #include <pybind11/pybind11.h>
 #include <stdexcept>

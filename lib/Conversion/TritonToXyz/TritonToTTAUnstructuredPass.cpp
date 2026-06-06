@@ -15,11 +15,11 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
-#include "triton-shared/Analysis/AnalysisAddress.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
-#include "triton-shared/Utils/Utils.h"
+#include "triton-xyz/Analysis/AnalysisAddress.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -41,7 +41,7 @@ using namespace mlir;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONTOTTAUNSTRUCTURED
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

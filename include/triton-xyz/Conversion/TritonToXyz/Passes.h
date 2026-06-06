@@ -8,10 +8,10 @@ namespace mlir {
 namespace triton {
 
 #define GEN_PASS_DECL
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 
 void populateTritonArithToLinalgCanonicalizationPatterns(
     RewritePatternSet &patterns);

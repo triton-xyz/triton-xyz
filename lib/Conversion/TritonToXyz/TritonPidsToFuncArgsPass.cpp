@@ -1,6 +1,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #define DEBUG_TYPE "triton-pids-to-func-args"
@@ -10,7 +10,7 @@ using namespace mlir;
 namespace mlir {
 namespace triton {
 #define GEN_PASS_DEF_TRITONPIDSTOFUNCARGS
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace triton
 } // namespace mlir
 

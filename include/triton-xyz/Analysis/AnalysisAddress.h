@@ -3,7 +3,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
-#include "triton-shared/Analysis/PtrExprAnalysis.h"
+#include "triton-xyz/Analysis/PtrExprAnalysis.h"
 
 #include <optional>
 

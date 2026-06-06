@@ -1,4 +1,4 @@
-add_triton_library(TritonSharedAnalysis
+add_triton_library(TritonXyzAnalysis
   AnalysisAddress.cpp
   MaskAnalysis.cpp
   OpFoldResultUtils.cpp
@@ -10,6 +10,6 @@ add_triton_library(TritonSharedAnalysis
 
   LINK_LIBS PUBLIC
   TritonAddressIR
-  TritonSharedUtils
+  TritonXyzUtils
   MLIRAnalysis
 )

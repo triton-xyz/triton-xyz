@@ -31,6 +31,6 @@ add_triton_library(TritonToXyz
   TritonIR
   TritonTransforms
   TritonAddressIR
-  TritonSharedAnalysis
-  TritonSharedUtils
+  TritonXyzAnalysis
+  TritonXyzUtils
 )

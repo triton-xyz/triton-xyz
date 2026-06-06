@@ -16,10 +16,10 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Analysis/AnalysisAddress.h"
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Analysis/AnalysisAddress.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -35,7 +35,7 @@ using namespace mlir;
 namespace mlir {
 namespace triton {
 #define GEN_PASS_DEF_TTATOMEMREF
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace triton
 } // namespace mlir
 

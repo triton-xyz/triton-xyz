@@ -18,7 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h" // IWYU pragma: keep
-#include "triton-shared/Analysis/OpFoldResultUtils.h"
+#include "triton-xyz/Analysis/OpFoldResultUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -30,7 +30,7 @@ using namespace mlir;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONPTRTOMEMREF
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

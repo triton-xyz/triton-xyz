@@ -1,11 +1,11 @@
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 
 #include "mlir/IR/DialectImplementation.h" // IWYU pragma: keep
 
 #include "llvm/ADT/TypeSwitch.h" // IWYU pragma: keep
 
 #define GET_TYPEDEF_CLASSES
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressTypes.cpp.inc"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressTypes.cpp.inc"
 
 using namespace mlir;
 using namespace mlir::tta;
@@ -29,15 +29,15 @@ LogicalResult AddrType::verify(function_ref<InFlightDiagnostic()> emitError,
 void mlir::tta::TritonAddressDialect::initialize() {
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressTypes.cpp.inc"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressTypes.cpp.inc"
       >();
 
   addOperations<
 #define GET_OP_LIST
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressOps.cpp.inc"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressOps.cpp.inc"
       >();
 }
 
 #define GET_OP_CLASSES
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.cpp.inc"
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressOps.cpp.inc"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.cpp.inc"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressOps.cpp.inc"

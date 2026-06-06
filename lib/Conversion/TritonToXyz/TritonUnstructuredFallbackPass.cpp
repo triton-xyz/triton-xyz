@@ -4,7 +4,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
@@ -13,7 +13,7 @@ using namespace mlir;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONUNSTRUCTUREDFALLBACK
-#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
+#include "triton-xyz/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

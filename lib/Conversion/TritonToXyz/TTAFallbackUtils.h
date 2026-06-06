@@ -4,7 +4,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
-#include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
+#include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 
 #include "llvm/ADT/StringRef.h"
 
