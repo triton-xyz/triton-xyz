@@ -24,7 +24,9 @@
 
 #include "llvm/ADT/SmallVector.h"
 
+#include <cassert>
 #include <optional>
+#include <string>
 
 #define DEBUG_TYPE "tta-to-memref"
 
@@ -77,6 +79,22 @@ using AddressFeatures = mlir::triton::address::AddressFeatures;
 using DimRule = mlir::triton::address::DimRule;
 using LayoutKind = mlir::triton::address::LayoutKind;
 
+struct IndirectDimInfo {
+  int64_t dim;
+  Value index;
+  Value mask;
+};
+
+struct IndirectInfo {
+  SmallVector<IndirectDimInfo> dims;
+};
+
+enum class AddressLoweringPath {
+  Direct,
+  Indirect,
+  WrapAware,
+};
+
 static std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
   if (auto ptrTensorType = dyn_cast<RankedTensorType>(type)) {
     auto elementPtrType =
@@ -110,22 +128,6 @@ static std::optional<LoadedAddressInfo> getLoadedAddressInfo(Type type) {
 
   return std::nullopt;
 }
-
-struct IndirectDimInfo {
-  int64_t dim;
-  Value index;
-  Value mask;
-};
-
-struct IndirectInfo {
-  SmallVector<IndirectDimInfo> dims;
-};
-
-enum class AddressLoweringPath {
-  Direct,
-  Indirect,
-  WrapAware,
-};
 
 struct ForIterArgInfo {
   scf::ForOp forOp;
@@ -458,66 +460,6 @@ static bool canProveNoWrapAccess(const AddressDescriptor &descriptor,
   }
 
   return true;
-}
-
-struct Rank1WrapSegments {
-  int64_t firstSourceOffset = 0;
-  int64_t firstSize = 0;
-  int64_t secondSourceOffset = 0;
-  int64_t secondSize = 0;
-};
-
-static FailureOr<Rank1WrapSegments> buildRank1WrapSegments(
-    const AddressDescriptor &descriptor, const IndirectInfo &indirectInfo,
-    ArrayRef<int64_t> loadedShape, ArrayRef<OpFoldResult> maskDims) {
-  if (descriptor.layoutKind == LayoutKind::Block ||
-      descriptor.dims.size() != 1 || loadedShape.size() != 1 ||
-      !maskDims.empty()) {
-    return failure();
-  }
-  if (hasAnyIndirectAccess(indirectInfo)) {
-    return failure();
-  }
-  if (ShapedType::isDynamic(loadedShape[0]) || loadedShape[0] <= 0) {
-    return failure();
-  }
-
-  const DimRule &dim = descriptor.dims.front();
-  if (!dim.wrapBoundary.has_value() ||
-      hasConstZero(dim.wrapBoundary->boundary)) {
-    return failure();
-  }
-
-  auto maybeStride = getIntAttr(dim.stride);
-  auto maybeOffset = getIntAttr(dim.offset);
-  auto maybeBoundary = getIntAttr(dim.wrapBoundary->boundary);
-  if (!maybeStride || !maybeOffset || !maybeBoundary || *maybeBoundary <= 0 ||
-      *maybeStride != 1) {
-    return failure();
-  }
-
-  int64_t totalSize = loadedShape[0];
-  if (totalSize > *maybeBoundary) {
-    return failure();
-  }
-
-  int64_t start = *maybeOffset % *maybeBoundary;
-  if (start < 0) {
-    start += *maybeBoundary;
-  }
-  if (start + totalSize <= *maybeBoundary) {
-    return failure();
-  }
-
-  Rank1WrapSegments segments;
-  segments.firstSourceOffset = start;
-  segments.firstSize = *maybeBoundary - start;
-  segments.secondSourceOffset = 0;
-  segments.secondSize = totalSize - segments.firstSize;
-  if (segments.firstSize <= 0 || segments.secondSize <= 0) {
-    return failure();
-  }
-  return segments;
 }
 
 static FailureOr<AddressStepInfo>
@@ -1387,72 +1329,6 @@ createExtractSlice(Value source, ArrayRef<OpFoldResult> offsets,
                                         source, offsets, sizes, strides);
 }
 
-static Value getTensorDimValue(OpBuilder &builder, Location loc, Value tensor,
-                               int64_t dim, int64_t dimSize) {
-  if (!ShapedType::isDynamic(dimSize)) {
-    return arith::ConstantOp::create(builder, loc,
-                                     builder.getIndexAttr(dimSize))
-        .getResult();
-  }
-  return tensor::DimOp::create(builder, loc, tensor, dim).getResult();
-}
-
-static Value extractTensorOrScalarElement(OpBuilder &builder, Location loc,
-                                          Value value,
-                                          ArrayRef<Value> indices) {
-  if (!value) {
-    return Value();
-  }
-  if (isa<RankedTensorType>(value.getType())) {
-    return tensor::ExtractOp::create(builder, loc, value, indices).getResult();
-  }
-  return value;
-}
-
-template <typename BuildElementFn>
-static Value
-buildTensorElementwiseResult(Value shapeSource, RankedTensorType resultType,
-                             Location loc, ConversionPatternRewriter &rewriter,
-                             BuildElementFn &&buildElement) {
-  SmallVector<Value> dynamicDims;
-  for (auto [dim, dimSize] : llvm::enumerate(resultType.getShape())) {
-    if (ShapedType::isDynamic(dimSize)) {
-      dynamicDims.push_back(
-          tensor::DimOp::create(rewriter, loc, shapeSource, dim).getResult());
-    }
-  }
-
-  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
-                                       resultType.getElementType(), dynamicDims)
-                   .getResult();
-  Value zero = makeIndexConstant(loc, 0, rewriter);
-  Value one = makeIndexConstant(loc, 1, rewriter);
-  SmallVector<Value> indices;
-
-  auto buildLoop = [&](auto &&self, int64_t dim, Value iterTensor) -> Value {
-    if (dim == resultType.getRank()) {
-      Value scalar = buildElement(indices);
-      return tensor::InsertOp::create(rewriter, loc, scalar, iterTensor,
-                                      indices)
-          .getResult();
-    }
-
-    Value upper = getTensorDimValue(rewriter, loc, shapeSource, dim,
-                                    resultType.getDimSize(dim));
-    auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
-                                    ValueRange{iterTensor});
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointToStart(forOp.getBody());
-    indices.push_back(forOp.getInductionVar());
-    Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
-    scf::YieldOp::create(rewriter, loc, next);
-    indices.pop_back();
-    return forOp.getResult(0);
-  };
-
-  return buildLoop(buildLoop, 0, init);
-}
-
 static FailureOr<Value> createReinterpretCast(
     Value baseMemref, Type elementType, ArrayRef<int64_t> resultShape,
     ArrayRef<int64_t> sourceSizes, ArrayRef<OpFoldResult> sourceOffsets,
@@ -1524,118 +1400,6 @@ castIndirectIndexToIndex(Value indirectIndex, Location loc,
       .getResult();
 }
 
-static FailureOr<Value>
-castAtomicOffsetToIndex(Value offset, Location loc,
-                        ConversionPatternRewriter &rewriter) {
-  if (offset.getType().isIndex()) {
-    return offset;
-  }
-
-  if (offset.getType().isIntOrIndex()) {
-    return arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(),
-                                      offset)
-        .getResult();
-  }
-
-  return failure();
-}
-
-static std::optional<Value>
-buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
-                          StringRef kind, Value current, Value value) {
-  Type elementType = current.getType();
-  if (isa<FloatType>(elementType)) {
-    if (kind == "add" || kind == "fadd") {
-      return arith::AddFOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "max") {
-      return arith::MaximumFOp::create(rewriter, loc, current, value)
-          .getResult();
-    }
-    if (kind == "min") {
-      return arith::MinimumFOp::create(rewriter, loc, current, value)
-          .getResult();
-    }
-    if (kind == "xchg") {
-      return std::nullopt;
-    }
-    return std::nullopt;
-  }
-
-  if (isa<IntegerType>(elementType)) {
-    if (kind == "add") {
-      return arith::AddIOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "and") {
-      return arith::AndIOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "or") {
-      return arith::OrIOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "xor") {
-      return arith::XOrIOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "max") {
-      return arith::MaxSIOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "min") {
-      return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
-    }
-    if (kind == "xchg") {
-      return std::nullopt;
-    }
-    return std::nullopt;
-  }
-
-  return std::nullopt;
-}
-
-static std::optional<arith::AtomicRMWKind>
-getSimpleAtomicRMWKind(StringRef kind, Type elementType) {
-  if (isa<FloatType>(elementType)) {
-    if (kind == "add" || kind == "fadd") {
-      return arith::AtomicRMWKind::addf;
-    }
-    if (kind == "max") {
-      return arith::AtomicRMWKind::maximumf;
-    }
-    if (kind == "min") {
-      return arith::AtomicRMWKind::minimumf;
-    }
-    return std::nullopt;
-  }
-
-  if (isa<IntegerType>(elementType)) {
-    if (kind == "add") {
-      return arith::AtomicRMWKind::addi;
-    }
-    if (kind == "and") {
-      return arith::AtomicRMWKind::andi;
-    }
-    if (kind == "or") {
-      return arith::AtomicRMWKind::ori;
-    }
-    if (kind == "xor") {
-      return arith::AtomicRMWKind::xori;
-    }
-    if (kind == "max") {
-      return arith::AtomicRMWKind::maxs;
-    }
-    if (kind == "min") {
-      return arith::AtomicRMWKind::mins;
-    }
-    return std::nullopt;
-  }
-
-  return std::nullopt;
-}
-
-static Value getZeroForType(OpBuilder &builder, Location loc, Type type) {
-  TypedAttr zeroAttr = builder.getZeroAttr(type);
-  assert(zeroAttr && "expected scalar type with zero attribute");
-  return arith::ConstantOp::create(builder, loc, type, zeroAttr).getResult();
-}
-
 static Value computeIndirectUpperBound(Value offsetSize,
                                        ArrayRef<OpFoldResult> maskDims,
                                        int64_t gatherDim, bool hasIndirectMask,
@@ -1699,145 +1463,6 @@ static void maybeFillWithOther(Value alloc, Value other, Location loc,
     return;
   }
   linalg::FillOp::create(rewriter, loc, ValueRange{other}, ValueRange{alloc});
-}
-
-static FailureOr<Value>
-castBaseMemrefToLinear(Value baseMemref, Type elementType, Location loc,
-                       ConversionPatternRewriter &rewriter);
-
-static LogicalResult lowerRank1WrappedLoadByCopy(
-    tta::LoadOp op, const AddressDescriptor &descriptor,
-    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
-    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
-    Value baseMemref, Value alloc, ConversionPatternRewriter &rewriter) {
-  auto maybeSegments =
-      buildRank1WrapSegments(descriptor, indirectInfo, loadedShape, maskDims);
-  if (failed(maybeSegments)) {
-    return failure();
-  }
-
-  auto elementType = cast<MemRefType>(alloc.getType()).getElementType();
-  auto maybeLinearBase =
-      castBaseMemrefToLinear(baseMemref, elementType, op.getLoc(), rewriter);
-  if (failed(maybeLinearBase)) {
-    return failure();
-  }
-
-  SmallVector<OpFoldResult> sourceStrides = collectAddressStrides(descriptor);
-  SmallVector<OpFoldResult> unitStride = getOneStrides(/*rank=*/1, rewriter);
-  const Rank1WrapSegments &segments = *maybeSegments;
-
-  {
-    SmallVector<int64_t> firstShape{segments.firstSize};
-    SmallVector<OpFoldResult> firstSrcOffsets{
-        rewriter.getIndexAttr(segments.firstSourceOffset)};
-    auto maybeFirstSrc = createReinterpretCast(
-        *maybeLinearBase, elementType, firstShape, sourceSizes, firstSrcOffsets,
-        sourceStrides, /*gatherDim=*/std::nullopt, op.getLoc(), rewriter);
-    if (failed(maybeFirstSrc)) {
-      return failure();
-    }
-
-    SmallVector<OpFoldResult> dstOffsets{rewriter.getIndexAttr(0)};
-    SmallVector<OpFoldResult> dstSizes{
-        rewriter.getIndexAttr(segments.firstSize)};
-    auto firstDst = createSubview(alloc, dstOffsets, dstSizes, unitStride,
-                                  op.getLoc(), rewriter);
-    memref::CopyOp::create(rewriter, op.getLoc(), *maybeFirstSrc, firstDst);
-  }
-
-  {
-    SmallVector<int64_t> secondShape{segments.secondSize};
-    SmallVector<OpFoldResult> secondSrcOffsets{
-        rewriter.getIndexAttr(segments.secondSourceOffset)};
-    auto maybeSecondSrc = createReinterpretCast(
-        *maybeLinearBase, elementType, secondShape, sourceSizes,
-        secondSrcOffsets, sourceStrides, /*gatherDim=*/std::nullopt,
-        op.getLoc(), rewriter);
-    if (failed(maybeSecondSrc)) {
-      return failure();
-    }
-
-    SmallVector<OpFoldResult> dstOffsets{
-        rewriter.getIndexAttr(segments.firstSize)};
-    SmallVector<OpFoldResult> dstSizes{
-        rewriter.getIndexAttr(segments.secondSize)};
-    auto secondDst = createSubview(alloc, dstOffsets, dstSizes, unitStride,
-                                   op.getLoc(), rewriter);
-    memref::CopyOp::create(rewriter, op.getLoc(), *maybeSecondSrc, secondDst);
-  }
-
-  return success();
-}
-
-static LogicalResult lowerRank1WrappedStoreByCopy(
-    tta::StoreOp op, const AddressDescriptor &descriptor,
-    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
-    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
-    Value baseMemref, Value valueTensor, ConversionPatternRewriter &rewriter) {
-  auto maybeSegments =
-      buildRank1WrapSegments(descriptor, indirectInfo, loadedShape, maskDims);
-  if (failed(maybeSegments)) {
-    return failure();
-  }
-
-  auto elementType =
-      cast<RankedTensorType>(valueTensor.getType()).getElementType();
-  auto maybeLinearBase =
-      castBaseMemrefToLinear(baseMemref, elementType, op.getLoc(), rewriter);
-  if (failed(maybeLinearBase)) {
-    return failure();
-  }
-
-  SmallVector<OpFoldResult> sourceStrides = collectAddressStrides(descriptor);
-  SmallVector<OpFoldResult> unitStride = getOneStrides(/*rank=*/1, rewriter);
-  const Rank1WrapSegments &segments = *maybeSegments;
-
-  {
-    SmallVector<int64_t> firstShape{segments.firstSize};
-    SmallVector<OpFoldResult> firstDstOffsets{
-        rewriter.getIndexAttr(segments.firstSourceOffset)};
-    auto maybeFirstDst = createReinterpretCast(
-        *maybeLinearBase, elementType, firstShape, sourceSizes, firstDstOffsets,
-        sourceStrides, /*gatherDim=*/std::nullopt, op.getLoc(), rewriter);
-    if (failed(maybeFirstDst)) {
-      return failure();
-    }
-
-    SmallVector<OpFoldResult> srcOffsets{rewriter.getIndexAttr(0)};
-    SmallVector<OpFoldResult> srcSizes{
-        rewriter.getIndexAttr(segments.firstSize)};
-    auto firstSlice = createExtractSlice(valueTensor, srcOffsets, srcSizes,
-                                         unitStride, op.getLoc(), rewriter);
-    auto firstStore = bufferization::MaterializeInDestinationOp::create(
-        rewriter, op.getLoc(), firstSlice.getResult(), *maybeFirstDst);
-    firstStore.setWritable(true);
-  }
-
-  {
-    SmallVector<int64_t> secondShape{segments.secondSize};
-    SmallVector<OpFoldResult> secondDstOffsets{
-        rewriter.getIndexAttr(segments.secondSourceOffset)};
-    auto maybeSecondDst = createReinterpretCast(
-        *maybeLinearBase, elementType, secondShape, sourceSizes,
-        secondDstOffsets, sourceStrides, /*gatherDim=*/std::nullopt,
-        op.getLoc(), rewriter);
-    if (failed(maybeSecondDst)) {
-      return failure();
-    }
-
-    SmallVector<OpFoldResult> srcOffsets{
-        rewriter.getIndexAttr(segments.firstSize)};
-    SmallVector<OpFoldResult> srcSizes{
-        rewriter.getIndexAttr(segments.secondSize)};
-    auto secondSlice = createExtractSlice(valueTensor, srcOffsets, srcSizes,
-                                          unitStride, op.getLoc(), rewriter);
-    auto secondStore = bufferization::MaterializeInDestinationOp::create(
-        rewriter, op.getLoc(), secondSlice.getResult(), *maybeSecondDst);
-    secondStore.setWritable(true);
-  }
-
-  return success();
 }
 
 static FailureOr<Value>
@@ -2258,6 +1883,440 @@ static LogicalResult lowerWrapAwareStore(tta::StoreOp op,
   return emitLoopNest(emitLoopNest, 0);
 }
 
+} // namespace
+
+namespace {
+
+struct Rank1WrapSegments {
+  int64_t firstSourceOffset = 0;
+  int64_t firstSize = 0;
+  int64_t secondSourceOffset = 0;
+  int64_t secondSize = 0;
+};
+
+struct SingleDimWrapSegments {
+  int64_t wrapDim = -1;
+  int64_t firstSourceOffset = 0;
+  int64_t firstSize = 0;
+  int64_t secondSourceOffset = 0;
+  int64_t secondSize = 0;
+};
+
+static FailureOr<Rank1WrapSegments> buildRank1WrapSegments(
+    const AddressDescriptor &descriptor, const IndirectInfo &indirectInfo,
+    ArrayRef<int64_t> loadedShape, ArrayRef<OpFoldResult> maskDims) {
+  if (descriptor.layoutKind == LayoutKind::Block ||
+      descriptor.dims.size() != 1 || loadedShape.size() != 1 ||
+      !maskDims.empty()) {
+    return failure();
+  }
+  if (hasAnyIndirectAccess(indirectInfo)) {
+    return failure();
+  }
+  if (ShapedType::isDynamic(loadedShape[0]) || loadedShape[0] <= 0) {
+    return failure();
+  }
+
+  const DimRule &dim = descriptor.dims.front();
+  if (!dim.wrapBoundary.has_value() ||
+      hasConstZero(dim.wrapBoundary->boundary)) {
+    return failure();
+  }
+
+  auto maybeStride = getIntAttr(dim.stride);
+  auto maybeOffset = getIntAttr(dim.offset);
+  auto maybeBoundary = getIntAttr(dim.wrapBoundary->boundary);
+  if (!maybeStride || !maybeOffset || !maybeBoundary || *maybeBoundary <= 0 ||
+      *maybeStride != 1) {
+    return failure();
+  }
+
+  int64_t totalSize = loadedShape[0];
+  if (totalSize > *maybeBoundary) {
+    return failure();
+  }
+
+  int64_t start = *maybeOffset % *maybeBoundary;
+  if (start < 0) {
+    start += *maybeBoundary;
+  }
+  if (start + totalSize <= *maybeBoundary) {
+    return failure();
+  }
+
+  Rank1WrapSegments segments;
+  segments.firstSourceOffset = start;
+  segments.firstSize = *maybeBoundary - start;
+  segments.secondSourceOffset = 0;
+  segments.secondSize = totalSize - segments.firstSize;
+  if (segments.firstSize <= 0 || segments.secondSize <= 0) {
+    return failure();
+  }
+  return segments;
+}
+
+static FailureOr<SingleDimWrapSegments> buildSingleDimWrapSegments(
+    const AddressDescriptor &descriptor, const IndirectInfo &indirectInfo,
+    ArrayRef<int64_t> loadedShape, ArrayRef<OpFoldResult> maskDims) {
+  if (descriptor.layoutKind == LayoutKind::Block ||
+      descriptor.dims.size() < 2 ||
+      descriptor.dims.size() != loadedShape.size() || !maskDims.empty()) {
+    return failure();
+  }
+  if (hasAnyIndirectAccess(indirectInfo)) {
+    return failure();
+  }
+
+  int64_t wrapDim = -1;
+  for (auto [dim, rule] : llvm::enumerate(descriptor.dims)) {
+    if (!rule.wrapBoundary.has_value() ||
+        hasConstZero(rule.wrapBoundary->boundary)) {
+      continue;
+    }
+    if (wrapDim != -1) {
+      return failure();
+    }
+    wrapDim = static_cast<int64_t>(dim);
+  }
+  if (wrapDim != 0) {
+    return failure();
+  }
+
+  for (int64_t size : loadedShape) {
+    if (ShapedType::isDynamic(size) || size <= 0) {
+      return failure();
+    }
+  }
+
+  const DimRule &dim = descriptor.dims[wrapDim];
+  auto maybeStride = getConstantIntValue(dim.stride);
+  auto maybeOffset = getConstantIntValue(dim.offset);
+  auto maybeBoundary = getConstantIntValue(dim.wrapBoundary->boundary);
+  if (!maybeStride || !maybeOffset || !maybeBoundary || *maybeBoundary <= 0 ||
+      *maybeStride <= 0) {
+    return failure();
+  }
+
+  // Restrict the copy fast path to a single logical row wrap while avoiding
+  // duplicate destination stores.
+  if (*maybeBoundary % *maybeStride != 0) {
+    return failure();
+  }
+  int64_t period = *maybeBoundary / *maybeStride;
+  int64_t totalSize = loadedShape[wrapDim];
+  if (totalSize > period) {
+    return failure();
+  }
+
+  int64_t start = *maybeOffset % *maybeBoundary;
+  if (start < 0) {
+    start += *maybeBoundary;
+  }
+  if (start % *maybeStride != 0) {
+    return failure();
+  }
+
+  int64_t firstSize = (*maybeBoundary - start) / *maybeStride;
+  if (totalSize <= firstSize) {
+    return failure();
+  }
+
+  SingleDimWrapSegments segments;
+  segments.wrapDim = wrapDim;
+  segments.firstSourceOffset = start;
+  segments.firstSize = firstSize;
+  segments.secondSourceOffset = 0;
+  segments.secondSize = totalSize - firstSize;
+  if (segments.firstSize <= 0 || segments.secondSize <= 0) {
+    return failure();
+  }
+  return segments;
+}
+
+static LogicalResult lowerRank1WrappedLoadByCopy(
+    tta::LoadOp op, const AddressDescriptor &descriptor,
+    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
+    Value baseMemref, Value alloc, ConversionPatternRewriter &rewriter) {
+  auto maybeSegments =
+      buildRank1WrapSegments(descriptor, indirectInfo, loadedShape, maskDims);
+  if (failed(maybeSegments)) {
+    return failure();
+  }
+
+  auto elementType = cast<MemRefType>(alloc.getType()).getElementType();
+  auto maybeLinearBase =
+      castBaseMemrefToLinear(baseMemref, elementType, op.getLoc(), rewriter);
+  if (failed(maybeLinearBase)) {
+    return failure();
+  }
+
+  SmallVector<OpFoldResult> sourceStrides = collectAddressStrides(descriptor);
+  SmallVector<OpFoldResult> unitStride = getOneStrides(/*rank=*/1, rewriter);
+  const Rank1WrapSegments &segments = *maybeSegments;
+
+  {
+    SmallVector<int64_t> firstShape{segments.firstSize};
+    SmallVector<OpFoldResult> firstSrcOffsets{
+        rewriter.getIndexAttr(segments.firstSourceOffset)};
+    auto maybeFirstSrc = createReinterpretCast(
+        *maybeLinearBase, elementType, firstShape, sourceSizes, firstSrcOffsets,
+        sourceStrides, /*gatherDim=*/std::nullopt, op.getLoc(), rewriter);
+    if (failed(maybeFirstSrc)) {
+      return failure();
+    }
+
+    SmallVector<OpFoldResult> dstOffsets{rewriter.getIndexAttr(0)};
+    SmallVector<OpFoldResult> dstSizes{
+        rewriter.getIndexAttr(segments.firstSize)};
+    auto firstDst = createSubview(alloc, dstOffsets, dstSizes, unitStride,
+                                  op.getLoc(), rewriter);
+    memref::CopyOp::create(rewriter, op.getLoc(), *maybeFirstSrc, firstDst);
+  }
+
+  {
+    SmallVector<int64_t> secondShape{segments.secondSize};
+    SmallVector<OpFoldResult> secondSrcOffsets{
+        rewriter.getIndexAttr(segments.secondSourceOffset)};
+    auto maybeSecondSrc = createReinterpretCast(
+        *maybeLinearBase, elementType, secondShape, sourceSizes,
+        secondSrcOffsets, sourceStrides, /*gatherDim=*/std::nullopt,
+        op.getLoc(), rewriter);
+    if (failed(maybeSecondSrc)) {
+      return failure();
+    }
+
+    SmallVector<OpFoldResult> dstOffsets{
+        rewriter.getIndexAttr(segments.firstSize)};
+    SmallVector<OpFoldResult> dstSizes{
+        rewriter.getIndexAttr(segments.secondSize)};
+    auto secondDst = createSubview(alloc, dstOffsets, dstSizes, unitStride,
+                                   op.getLoc(), rewriter);
+    memref::CopyOp::create(rewriter, op.getLoc(), *maybeSecondSrc, secondDst);
+  }
+
+  return success();
+}
+
+static LogicalResult lowerRank1WrappedStoreByCopy(
+    tta::StoreOp op, const AddressDescriptor &descriptor,
+    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
+    Value baseMemref, Value valueTensor, ConversionPatternRewriter &rewriter) {
+  auto maybeSegments =
+      buildRank1WrapSegments(descriptor, indirectInfo, loadedShape, maskDims);
+  if (failed(maybeSegments)) {
+    return failure();
+  }
+
+  auto elementType =
+      cast<RankedTensorType>(valueTensor.getType()).getElementType();
+  auto maybeLinearBase =
+      castBaseMemrefToLinear(baseMemref, elementType, op.getLoc(), rewriter);
+  if (failed(maybeLinearBase)) {
+    return failure();
+  }
+
+  SmallVector<OpFoldResult> sourceStrides = collectAddressStrides(descriptor);
+  SmallVector<OpFoldResult> unitStride = getOneStrides(/*rank=*/1, rewriter);
+  const Rank1WrapSegments &segments = *maybeSegments;
+
+  {
+    SmallVector<int64_t> firstShape{segments.firstSize};
+    SmallVector<OpFoldResult> firstDstOffsets{
+        rewriter.getIndexAttr(segments.firstSourceOffset)};
+    auto maybeFirstDst = createReinterpretCast(
+        *maybeLinearBase, elementType, firstShape, sourceSizes, firstDstOffsets,
+        sourceStrides, /*gatherDim=*/std::nullopt, op.getLoc(), rewriter);
+    if (failed(maybeFirstDst)) {
+      return failure();
+    }
+
+    SmallVector<OpFoldResult> srcOffsets{rewriter.getIndexAttr(0)};
+    SmallVector<OpFoldResult> srcSizes{
+        rewriter.getIndexAttr(segments.firstSize)};
+    auto firstSlice = createExtractSlice(valueTensor, srcOffsets, srcSizes,
+                                         unitStride, op.getLoc(), rewriter);
+    auto firstStore = bufferization::MaterializeInDestinationOp::create(
+        rewriter, op.getLoc(), firstSlice.getResult(), *maybeFirstDst);
+    firstStore.setWritable(true);
+  }
+
+  {
+    SmallVector<int64_t> secondShape{segments.secondSize};
+    SmallVector<OpFoldResult> secondDstOffsets{
+        rewriter.getIndexAttr(segments.secondSourceOffset)};
+    auto maybeSecondDst = createReinterpretCast(
+        *maybeLinearBase, elementType, secondShape, sourceSizes,
+        secondDstOffsets, sourceStrides, /*gatherDim=*/std::nullopt,
+        op.getLoc(), rewriter);
+    if (failed(maybeSecondDst)) {
+      return failure();
+    }
+
+    SmallVector<OpFoldResult> srcOffsets{
+        rewriter.getIndexAttr(segments.firstSize)};
+    SmallVector<OpFoldResult> srcSizes{
+        rewriter.getIndexAttr(segments.secondSize)};
+    auto secondSlice = createExtractSlice(valueTensor, srcOffsets, srcSizes,
+                                          unitStride, op.getLoc(), rewriter);
+    auto secondStore = bufferization::MaterializeInDestinationOp::create(
+        rewriter, op.getLoc(), secondSlice.getResult(), *maybeSecondDst);
+    secondStore.setWritable(true);
+  }
+
+  return success();
+}
+
+static LogicalResult lowerSingleDimWrappedLoadByCopy(
+    tta::LoadOp op, const AddressDescriptor &descriptor,
+    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
+    Value baseMemref, Value alloc, ConversionPatternRewriter &rewriter) {
+  auto maybeSegments = buildSingleDimWrapSegments(descriptor, indirectInfo,
+                                                  loadedShape, maskDims);
+  if (failed(maybeSegments)) {
+    return failure();
+  }
+
+  auto elementType = cast<MemRefType>(alloc.getType()).getElementType();
+  SmallVector<OpFoldResult> sourceBaseOffsets =
+      collectAddressOffsets(descriptor);
+  SmallVector<OpFoldResult> sourceStrides = collectAddressStrides(descriptor);
+  SmallVector<OpFoldResult> unitStrides =
+      getOneStrides(loadedShape.size(), rewriter);
+  const SingleDimWrapSegments &segments = *maybeSegments;
+
+  auto copySegment = [&](int64_t sourceOffset, int64_t destOffset,
+                         int64_t segmentSize) -> LogicalResult {
+    SmallVector<int64_t> segmentShape(loadedShape.begin(), loadedShape.end());
+    segmentShape[segments.wrapDim] = segmentSize;
+
+    SmallVector<OpFoldResult> sourceOffsets(sourceBaseOffsets.begin(),
+                                            sourceBaseOffsets.end());
+    sourceOffsets[segments.wrapDim] = rewriter.getIndexAttr(sourceOffset);
+    auto maybeSrc = createReinterpretCast(
+        baseMemref, elementType, segmentShape, sourceSizes, sourceOffsets,
+        sourceStrides, /*gatherDim=*/std::nullopt, op.getLoc(), rewriter);
+    if (failed(maybeSrc)) {
+      return failure();
+    }
+
+    SmallVector<OpFoldResult> dstOffsets =
+        getZeroOffsets(loadedShape.size(), rewriter);
+    dstOffsets[segments.wrapDim] = rewriter.getIndexAttr(destOffset);
+    SmallVector<OpFoldResult> dstSizes =
+        getMixedStaticSizes(segmentShape, rewriter);
+    auto dstSubview = createSubview(alloc, dstOffsets, dstSizes, unitStrides,
+                                    op.getLoc(), rewriter);
+    memref::CopyOp::create(rewriter, op.getLoc(), *maybeSrc, dstSubview);
+    return success();
+  };
+
+  if (failed(copySegment(segments.firstSourceOffset, /*destOffset=*/0,
+                         segments.firstSize))) {
+    return failure();
+  }
+  if (failed(copySegment(segments.secondSourceOffset, segments.firstSize,
+                         segments.secondSize))) {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult lowerSingleDimWrappedStoreByCopy(
+    tta::StoreOp op, const AddressDescriptor &descriptor,
+    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
+    Value baseMemref, Value valueTensor, ConversionPatternRewriter &rewriter) {
+  auto maybeSegments = buildSingleDimWrapSegments(descriptor, indirectInfo,
+                                                  loadedShape, maskDims);
+  if (failed(maybeSegments)) {
+    return failure();
+  }
+
+  auto elementType =
+      cast<RankedTensorType>(valueTensor.getType()).getElementType();
+  SmallVector<OpFoldResult> destBaseOffsets = collectAddressOffsets(descriptor);
+  SmallVector<OpFoldResult> destStrides = collectAddressStrides(descriptor);
+  SmallVector<OpFoldResult> unitStrides =
+      getOneStrides(loadedShape.size(), rewriter);
+  const SingleDimWrapSegments &segments = *maybeSegments;
+
+  auto storeSegment = [&](int64_t destOffset, int64_t valueOffset,
+                          int64_t segmentSize) -> LogicalResult {
+    SmallVector<int64_t> segmentShape(loadedShape.begin(), loadedShape.end());
+    segmentShape[segments.wrapDim] = segmentSize;
+
+    SmallVector<OpFoldResult> valueOffsets =
+        getZeroOffsets(loadedShape.size(), rewriter);
+    valueOffsets[segments.wrapDim] = rewriter.getIndexAttr(valueOffset);
+    SmallVector<OpFoldResult> valueSizes =
+        getMixedStaticSizes(segmentShape, rewriter);
+    auto valueSlice = createExtractSlice(valueTensor, valueOffsets, valueSizes,
+                                         unitStrides, op.getLoc(), rewriter);
+
+    SmallVector<OpFoldResult> destOffsets(destBaseOffsets.begin(),
+                                          destBaseOffsets.end());
+    destOffsets[segments.wrapDim] = rewriter.getIndexAttr(destOffset);
+    auto maybeDst = createReinterpretCast(
+        baseMemref, elementType, segmentShape, sourceSizes, destOffsets,
+        destStrides, /*gatherDim=*/std::nullopt, op.getLoc(), rewriter);
+    if (failed(maybeDst)) {
+      return failure();
+    }
+
+    auto storeOp = bufferization::MaterializeInDestinationOp::create(
+        rewriter, op.getLoc(), valueSlice.getResult(), *maybeDst);
+    storeOp.setWritable(true);
+    return success();
+  };
+
+  if (failed(storeSegment(segments.firstSourceOffset, /*valueOffset=*/0,
+                          segments.firstSize))) {
+    return failure();
+  }
+  if (failed(storeSegment(segments.secondSourceOffset, segments.firstSize,
+                          segments.secondSize))) {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult lowerWrappedLoadByCopy(
+    tta::LoadOp op, const AddressDescriptor &descriptor,
+    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
+    Value baseMemref, Value alloc, ConversionPatternRewriter &rewriter) {
+  if (succeeded(lowerRank1WrappedLoadByCopy(op, descriptor, indirectInfo,
+                                            loadedShape, maskDims, sourceSizes,
+                                            baseMemref, alloc, rewriter))) {
+    return success();
+  }
+  return lowerSingleDimWrappedLoadByCopy(op, descriptor, indirectInfo,
+                                         loadedShape, maskDims, sourceSizes,
+                                         baseMemref, alloc, rewriter);
+}
+
+static LogicalResult lowerWrappedStoreByCopy(
+    tta::StoreOp op, const AddressDescriptor &descriptor,
+    const IndirectInfo &indirectInfo, ArrayRef<int64_t> loadedShape,
+    ArrayRef<OpFoldResult> maskDims, ArrayRef<int64_t> sourceSizes,
+    Value baseMemref, Value valueTensor, ConversionPatternRewriter &rewriter) {
+  if (succeeded(lowerRank1WrappedStoreByCopy(
+          op, descriptor, indirectInfo, loadedShape, maskDims, sourceSizes,
+          baseMemref, valueTensor, rewriter))) {
+    return success();
+  }
+  return lowerSingleDimWrappedStoreByCopy(op, descriptor, indirectInfo,
+                                          loadedShape, maskDims, sourceSizes,
+                                          baseMemref, valueTensor, rewriter);
+}
+
+} // namespace
+
+namespace {
+
 struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
   using OpConversionPattern<tta::LoadOp>::OpConversionPattern;
 
@@ -2335,9 +2394,9 @@ struct ConvertTTALoadPattern : public OpConversionPattern<tta::LoadOp> {
 
     if (loweringPath == AddressLoweringPath::WrapAware &&
         !hasAnyIndirectAccess(*maybeIndirectInfo) &&
-        succeeded(lowerRank1WrappedLoadByCopy(
-            op, descriptor, *maybeIndirectInfo, loadedShape, maskDims,
-            *maybeSizes, *maybeBaseMemref, alloc, rewriter))) {
+        succeeded(lowerWrappedLoadByCopy(op, descriptor, *maybeIndirectInfo,
+                                         loadedShape, maskDims, *maybeSizes,
+                                         *maybeBaseMemref, alloc, rewriter))) {
       Value resultTensor = bufferization::ToTensorOp::create(
                                rewriter, op.getLoc(),
                                cast<RankedTensorType>(op.getType()), alloc,
@@ -2627,7 +2686,7 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
 
     if (loweringPath == AddressLoweringPath::WrapAware &&
         !hasAnyIndirectAccess(*maybeIndirectInfo) &&
-        succeeded(lowerRank1WrappedStoreByCopy(
+        succeeded(lowerWrappedStoreByCopy(
             op, descriptor, *maybeIndirectInfo, loadedShape, maskDims,
             *maybeSizes, *maybeBaseMemref, adaptor.getValue(), rewriter))) {
       rewriter.eraseOp(op);
@@ -2813,6 +2872,187 @@ struct ConvertTTAStorePattern : public OpConversionPattern<tta::StoreOp> {
     return success();
   }
 };
+
+static void
+populateTTAToMemrefBasePatterns(RewritePatternSet &patterns,
+                                const TypeConverter &typeConverter) {
+  patterns.add<ConvertTTALoadPattern, ConvertTTAStorePattern>(
+      typeConverter, patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+static FailureOr<Value>
+castAtomicOffsetToIndex(Value offset, Location loc,
+                        ConversionPatternRewriter &rewriter) {
+  if (offset.getType().isIndex()) {
+    return offset;
+  }
+
+  if (offset.getType().isIntOrIndex()) {
+    return arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      offset)
+        .getResult();
+  }
+
+  return failure();
+}
+
+static std::optional<Value>
+buildAtomicUpdateFromKind(ConversionPatternRewriter &rewriter, Location loc,
+                          StringRef kind, Value current, Value value) {
+  Type elementType = current.getType();
+  if (isa<FloatType>(elementType)) {
+    if (kind == "add" || kind == "fadd") {
+      return arith::AddFOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "max") {
+      return arith::MaximumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    }
+    if (kind == "min") {
+      return arith::MinimumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    }
+    return std::nullopt;
+  }
+
+  if (isa<IntegerType>(elementType)) {
+    if (kind == "add") {
+      return arith::AddIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "and") {
+      return arith::AndIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "or") {
+      return arith::OrIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "xor") {
+      return arith::XOrIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "max") {
+      return arith::MaxSIOp::create(rewriter, loc, current, value).getResult();
+    }
+    if (kind == "min") {
+      return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
+    }
+  }
+
+  return std::nullopt;
+}
+
+static std::optional<arith::AtomicRMWKind>
+getSimpleAtomicRMWKind(StringRef kind, Type elementType) {
+  if (isa<FloatType>(elementType)) {
+    if (kind == "add" || kind == "fadd") {
+      return arith::AtomicRMWKind::addf;
+    }
+    if (kind == "max") {
+      return arith::AtomicRMWKind::maximumf;
+    }
+    if (kind == "min") {
+      return arith::AtomicRMWKind::minimumf;
+    }
+    return std::nullopt;
+  }
+
+  if (isa<IntegerType>(elementType)) {
+    if (kind == "add") {
+      return arith::AtomicRMWKind::addi;
+    }
+    if (kind == "and") {
+      return arith::AtomicRMWKind::andi;
+    }
+    if (kind == "or") {
+      return arith::AtomicRMWKind::ori;
+    }
+    if (kind == "xor") {
+      return arith::AtomicRMWKind::xori;
+    }
+    if (kind == "max") {
+      return arith::AtomicRMWKind::maxs;
+    }
+    if (kind == "min") {
+      return arith::AtomicRMWKind::mins;
+    }
+  }
+
+  return std::nullopt;
+}
+
+static Value getZeroForType(OpBuilder &builder, Location loc, Type type) {
+  TypedAttr zeroAttr = builder.getZeroAttr(type);
+  assert(zeroAttr && "expected scalar type with zero attribute");
+  return arith::ConstantOp::create(builder, loc, type, zeroAttr).getResult();
+}
+
+static Value getTensorDimValue(OpBuilder &builder, Location loc, Value tensor,
+                               int64_t dim, int64_t dimSize) {
+  if (!ShapedType::isDynamic(dimSize)) {
+    return arith::ConstantOp::create(builder, loc,
+                                     builder.getIndexAttr(dimSize))
+        .getResult();
+  }
+  return tensor::DimOp::create(builder, loc, tensor, dim).getResult();
+}
+
+static Value extractTensorOrScalarElement(OpBuilder &builder, Location loc,
+                                          Value value,
+                                          ArrayRef<Value> indices) {
+  if (!value) {
+    return Value();
+  }
+  if (isa<RankedTensorType>(value.getType())) {
+    return tensor::ExtractOp::create(builder, loc, value, indices).getResult();
+  }
+  return value;
+}
+
+template <typename BuildElementFn>
+static Value
+buildTensorElementwiseResult(Value shapeSource, RankedTensorType resultType,
+                             Location loc, ConversionPatternRewriter &rewriter,
+                             BuildElementFn &&buildElement) {
+  SmallVector<Value> dynamicDims;
+  for (auto [dim, dimSize] : llvm::enumerate(resultType.getShape())) {
+    if (ShapedType::isDynamic(dimSize)) {
+      dynamicDims.push_back(
+          tensor::DimOp::create(rewriter, loc, shapeSource, dim).getResult());
+    }
+  }
+
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType(), dynamicDims)
+                   .getResult();
+  Value zero = makeIndexConstant(loc, 0, rewriter);
+  Value one = makeIndexConstant(loc, 1, rewriter);
+  SmallVector<Value> indices;
+
+  auto buildLoop = [&](auto &&self, int64_t dim, Value iterTensor) -> Value {
+    if (dim == resultType.getRank()) {
+      Value scalar = buildElement(indices);
+      return tensor::InsertOp::create(rewriter, loc, scalar, iterTensor,
+                                      indices)
+          .getResult();
+    }
+
+    Value upper = getTensorDimValue(rewriter, loc, shapeSource, dim,
+                                    resultType.getDimSize(dim));
+    auto forOp = scf::ForOp::create(rewriter, loc, zero, upper, one,
+                                    ValueRange{iterTensor});
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(forOp.getBody());
+    indices.push_back(forOp.getInductionVar());
+    Value next = self(self, dim + 1, forOp.getRegionIterArg(0));
+    scf::YieldOp::create(rewriter, loc, next);
+    indices.pop_back();
+    return forOp.getResult(0);
+  };
+
+  return buildLoop(buildLoop, 0, init);
+}
 
 struct ConvertTTAAtomicPattern : public OpConversionPattern<tta::AtomicOp> {
   using OpConversionPattern<tta::AtomicOp>::OpConversionPattern;
@@ -3209,6 +3449,17 @@ struct ConvertTTAAtomicCASPattern
   }
 };
 
+static void
+populateTTAToMemrefAtomicPatterns(RewritePatternSet &patterns,
+                                  const TypeConverter &typeConverter) {
+  patterns.add<ConvertTTAAtomicPattern, ConvertTTAAtomicCASPattern>(
+      typeConverter, patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TTAToMemrefPass : public triton::impl::TTAToMemrefBase<TTAToMemrefPass> {
   using Base = triton::impl::TTAToMemrefBase<TTAToMemrefPass>;
   using Base::Base;
@@ -3256,9 +3507,8 @@ public:
 
     PtrToUnrankedMemrefConverter typeConverter;
 
-    patterns.add<ConvertTTALoadPattern, ConvertTTAStorePattern,
-                 ConvertTTAAtomicPattern, ConvertTTAAtomicCASPattern>(
-        typeConverter, patterns.getContext());
+    populateTTAToMemrefBasePatterns(patterns, typeConverter);
+    populateTTAToMemrefAtomicPatterns(patterns, typeConverter);
 
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();
