@@ -16,8 +16,10 @@ from triton import knobs
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
 from triton._C.libtriton import ir, llvm, passes  # ty:ignore
 
+
+TT_XYZ_ENABLE_DUMP = knobs.getenv_bool("TT_XYZ_ENABLE_DUMP", False)
 TT_XYZ_ENABLE_DUMP_DIR = os.getenv("TT_XYZ_ENABLE_DUMP_DIR", "").strip()
-if TT_XYZ_ENABLE_DUMP_DIR:
+if TT_XYZ_ENABLE_DUMP and TT_XYZ_ENABLE_DUMP_DIR:
     Path(TT_XYZ_ENABLE_DUMP_DIR).mkdir(parents=True, exist_ok=True)
 # if TT_XYZ_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_compiler", False):
 #     tempfile.TemporaryDirectory = functools.partial(  # ty:ignore
@@ -27,16 +29,6 @@ if TT_XYZ_ENABLE_DUMP_DIR:
 #         delete=False,
 #     )
 #     tempfile._tt_xyz_tmp_wrapped_compiler = True  # ty:ignore
-
-
-def _env_truthy(name: str, default: bool = False) -> bool:
-    val = os.getenv(name)
-    if val is None:
-        return default
-    val = val.strip().lower()
-    if val in ("", "0", "false", "no", "off"):
-        return False
-    return True
 
 
 def _sanitize_dump_component(component: str | None) -> str | None:
@@ -59,7 +51,7 @@ def _get_dump_hash(metadata) -> str | None:
 
 
 def _next_dump_dir(stage: str, kernel_name: str | None = None, dump_hash: str | None = None) -> str | None:
-    base = os.getenv("TT_XYZ_ENABLE_DUMP_DIR", "")
+    base = TT_XYZ_ENABLE_DUMP_DIR
     if not base:
         return None
     kernel_component = _sanitize_dump_component(kernel_name)
@@ -75,7 +67,7 @@ def _next_dump_dir(stage: str, kernel_name: str | None = None, dump_hash: str | 
 
 
 def _mlir_debug_args(stage: str, kernel_name: str | None = None, dump_hash: str | None = None) -> list[str]:
-    if not _env_truthy("TT_XYZ_ENABLE_DUMP"):
+    if not TT_XYZ_ENABLE_DUMP:
         return []
     args = [
         "--mlir-print-ir-after-all",

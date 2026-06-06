@@ -1,5 +1,5 @@
 import ctypes
-import functools
+import functools  # noqa: F401
 import os
 import platform
 import tempfile
@@ -8,11 +8,13 @@ from pathlib import Path
 
 import triton
 
+from triton import knobs
 from triton.backends.driver import DriverBase
 from triton.backends.compiler import GPUTarget
 
+TT_XYZ_ENABLE_DUMP = knobs.getenv_bool("TT_XYZ_ENABLE_DUMP", False)
 TT_XYZ_ENABLE_DUMP_DIR = os.getenv("TT_XYZ_ENABLE_DUMP_DIR", "").strip()
-if TT_XYZ_ENABLE_DUMP_DIR:
+if TT_XYZ_ENABLE_DUMP and TT_XYZ_ENABLE_DUMP_DIR:
     Path(TT_XYZ_ENABLE_DUMP_DIR).mkdir(parents=True, exist_ok=True)
 # if TT_XYZ_ENABLE_DUMP_DIR and not getattr(tempfile, "_tt_xyz_tmp_wrapped_driver", False):
 #     tempfile.NamedTemporaryFile = functools.partial(  # ty:ignore
