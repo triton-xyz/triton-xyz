@@ -1,16 +1,23 @@
-add_triton_library(TritonToLinalgTTA
+add_triton_library(TritonToXyz
   TTANormalizePass.cpp
   TTAToMemrefPass.cpp
+  TritonArithToLinalg.cpp
+  TritonArithToLinalgPass.cpp
+  TritonPidsToFuncArgsPass.cpp
+  TritonPtrToMemrefPass.cpp
+  TritonScanToSCFPass.cpp
   TritonToTTAStructuredPass.cpp
+  TritonToTTAUnstructuredPass.cpp
+  TritonUnstructuredFallbackPass.cpp
   VerifyTTABridgeEliminatedPass.cpp
   VerifyTTALoweredPass.cpp
-  TritonToTTAUnstructuredPass.cpp
 
   DEPENDS
-  TritonToLinalgTTAConversionPassIncGen
+  TritonToXyzConversionPassIncGen
 
   LINK_LIBS PUBLIC
   MLIRSCFTransforms
+  MLIRLinalgTransforms
   MLIRArithDialect
   MLIRDialectUtils
   MLIRIR
@@ -21,11 +28,9 @@ add_triton_library(TritonToLinalgTTA
   MLIRTransforms
   MLIRSupport
   MLIRReconcileUnrealizedCasts
-  MLIRPtrToLLVM
   TritonIR
   TritonTransforms
   TritonAddressIR
   TritonSharedAnalysis
   TritonSharedUtils
-  TritonArithToLinalg
 )

@@ -4,8 +4,8 @@
 
 namespace mlir::triton {
 
-struct TritonToLinalgPipelineOptions
-    : public PassPipelineOptions<TritonToLinalgPipelineOptions> {
+struct TritonToXyzPipelineOptions
+    : public PassPipelineOptions<TritonToXyzPipelineOptions> {
   PassOptions::Option<bool> pidsToFuncArgs{
       *this, "pids-to-func-args",
       llvm::cl::desc("Convert tt.get_program_id and tt.get_num_programs to "
@@ -16,9 +16,9 @@ struct TritonToLinalgPipelineOptions
       llvm::cl::init(true)};
 };
 
-void buildTritonToLinalgTTAPipeline(
-    OpPassManager &pm, const TritonToLinalgPipelineOptions &options);
+void buildTritonToXyzPipeline(OpPassManager &pm,
+                              const TritonToXyzPipelineOptions &options);
 
-void registerTritonToLinalgTTAPipelines();
+void registerTritonToXyzPipelines();
 
 } // namespace mlir::triton

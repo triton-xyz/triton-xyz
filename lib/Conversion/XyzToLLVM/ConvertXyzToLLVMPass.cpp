@@ -16,14 +16,14 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h" // IWYU pragma: keep
+#include "triton-shared/Conversion/XyzToLLVM/Passes.h" // IWYU pragma: keep
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_CONVERTXYZTOLLVM
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
+#include "triton-shared/Conversion/XyzToLLVM/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {

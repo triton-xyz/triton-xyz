@@ -4,7 +4,7 @@ set -euo pipefail
 # get cmd from lit test, only support basic style
 
 # usage:
-# tools/lit_run_cmd.sh test/Conversion/triton-to-linalg-tta-lowering.mlir
+# tools/lit_run_cmd.sh test/Conversion/triton-to-xyz-lowering.mlir
 
 file="${1:?usage: $0 <test.mlir>}"
 rg '^[[:space:]]*//[[:space:]]*RUN:' "$file" |

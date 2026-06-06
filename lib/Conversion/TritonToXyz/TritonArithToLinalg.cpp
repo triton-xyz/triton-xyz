@@ -6,8 +6,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton-shared/Analysis/MaskAnalysis.h"
 #include "triton-shared/Analysis/OpFoldResultUtils.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/ConversionTools.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
+#include "triton-shared/Conversion/TritonToXyz/ConversionTools.h"
+#include "triton-shared/Conversion/TritonToXyz/Passes.h"
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 

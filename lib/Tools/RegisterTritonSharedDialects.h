@@ -4,9 +4,8 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h"
+#include "triton-shared/Conversion/TritonToXyz/Passes.h"
+#include "triton-shared/Conversion/XyzToLLVM/Passes.h"
 #include "triton-shared/Dialect/Triton/IR/TritonDialectXyz.h"
 #include "triton-shared/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-shared/Pipelines/Pipelines.h"
@@ -28,10 +27,9 @@ inline void registerTritonSharedDialects(mlir::DialectRegistry &registry) {
 
   mlir::triton::registerTritonPasses();
 
-  mlir::triton::registerTritonToLinalgPasses();
-  mlir::triton::registerTritonToLinalgTTAPasses();
-  mlir::triton::registerTritonArithToLinalgPasses();
-  mlir::triton::registerTritonToLinalgTTAPipelines();
+  mlir::triton::registerTritonToXyzPasses();
+  mlir::triton::registerXyzToLLVMPasses();
+  mlir::triton::registerTritonToXyzPipelines();
 #if defined(TRITON_XYZ_BUILD_PROTON)
   mlir::triton::registerProtonToXyzPasses();
 #endif

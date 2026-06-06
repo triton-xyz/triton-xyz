@@ -2,13 +2,11 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h"
-#include "triton-shared/Conversion/TritonToLinalgTTA/Passes.h"
+#include "triton-shared/Conversion/TritonToXyz/Passes.h"
 #include "triton-shared/Pipelines/Pipelines.h"
 
-void mlir::triton::buildTritonToLinalgTTAPipeline(
-    OpPassManager &pm, const TritonToLinalgPipelineOptions &options) {
+void mlir::triton::buildTritonToXyzPipeline(
+    OpPassManager &pm, const TritonToXyzPipelineOptions &options) {
   pm.addPass(createTritonToTTAStructured());
   pm.addPass(createTritonToTTAUnstructured());
   pm.addPass(createTritonUnstructuredFallback());
@@ -30,8 +28,7 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
   pm.addPass(createVerifyTTALowered());
 }
 
-void mlir::triton::registerTritonToLinalgTTAPipelines() {
-  PassPipelineRegistration<TritonToLinalgPipelineOptions>(
-      "triton-to-linalg-tta", "Convert Triton to Linalg dialect via TTA.",
-      buildTritonToLinalgTTAPipeline);
+void mlir::triton::registerTritonToXyzPipelines() {
+  PassPipelineRegistration<TritonToXyzPipelineOptions>(
+      "triton-to-xyz", "Convert Triton to XYZ IR.", buildTritonToXyzPipeline);
 }

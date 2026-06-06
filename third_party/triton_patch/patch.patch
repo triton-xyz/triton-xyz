@@ -59,6 +59,15 @@ index fb20e52..97229bd 100644
      cmdclass={
          "bdist_wheel": plugin_bdist_wheel,
          "build_ext": CMakeBuild,
+diff --git a/python/triton/compiler/compiler.py b/python/triton/compiler/compiler.py
+index 16e9884..2b225cc 100644
+--- a/python/triton/compiler/compiler.py
++++ b/python/triton/compiler/compiler.py
+@@ -138,3 +138,3 @@ def max_shared_mem(device):
+ def parse(full_name, ext, context):
+-    if ext == "ttir" or ext == "ttgir":
++    if ext == "ttir" or ext == "ttgir" or ext == "xyz":
+         module = ir.parse_mlir_module(full_name, context)
 diff --git a/third_party/nvidia/CMakeLists.txt b/third_party/nvidia/CMakeLists.txt
 index 8486f90..14b3694 100644
 --- a/third_party/nvidia/CMakeLists.txt

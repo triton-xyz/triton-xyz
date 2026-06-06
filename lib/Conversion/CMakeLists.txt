@@ -1,6 +1,5 @@
-add_subdirectory(TritonArithToLinalg)
-add_subdirectory(TritonToLinalg)
-add_subdirectory(TritonToLinalgTTA)
+add_subdirectory(TritonToXyz)
+add_subdirectory(XyzToLLVM)
 if(TRITON_XYZ_BUILD_PROTON)
   add_subdirectory(ProtonToXyz)
 endif()

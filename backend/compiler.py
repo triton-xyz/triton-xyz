@@ -467,17 +467,17 @@ class XYZBackend(BaseBackend):
         return mod
 
     @staticmethod
-    def make_linalg(mod, metadata, options: CPUOptions):
+    def make_xyz(mod, metadata, options: CPUOptions):
         ttir_code = str(mod)
         kernel_name = metadata.get("name")
         dump_hash = _get_dump_hash(metadata)
         with tempfile.TemporaryDirectory() as tmpdir:
             src_path = os.path.join(tmpdir, "ttir.mlir")
-            dst_path = os.path.join(tmpdir, "linalg.mlir")
+            dst_path = os.path.join(tmpdir, "xyz.mlir")
             Path(src_path).write_text(ttir_code)
-            pipeline = "triton-to-linalg-tta"
+            pipeline = "triton-to-xyz"
             cmd = [_find_tool("triton-xyz-opt")]
-            cmd.extend(_mlir_debug_args("ttir_to_linalg", kernel_name, dump_hash))
+            cmd.extend(_mlir_debug_args("triton_to_xyz", kernel_name, dump_hash))
             if options.instrumentation_mode:
                 cmd.append("--proton-to-xyz")
             cmd.extend(
@@ -496,15 +496,15 @@ class XYZBackend(BaseBackend):
         kernel_name = metadata.get("name")
         dump_hash = _get_dump_hash(metadata)
         with tempfile.TemporaryDirectory() as tmpdir:
-            linalg_path = os.path.join(tmpdir, "linalg.mlir")
+            xyz_path = os.path.join(tmpdir, "xyz.mlir")
             llvm_path = os.path.join(tmpdir, "llvm.mlir")
             llir_path = os.path.join(tmpdir, "ll.ll")
-            Path(linalg_path).write_text(src)
+            Path(xyz_path).write_text(src)
             cmd = [_find_tool("triton-xyz-opt")]
             cmd.extend(_mlir_debug_args("xyz_to_llvm", kernel_name, dump_hash))
             cmd.extend(
                 [
-                    linalg_path,
+                    xyz_path,
                     "--one-shot-bufferize=allow-return-allocs-from-loops",
                     "--convert-linalg-to-loops",
                     "--lower-affine",
@@ -588,7 +588,7 @@ class XYZBackend(BaseBackend):
         if language == Language.GLUON:
             raise Exception("GLUON is not supported")
         stages["ttir"] = lambda src, metadata: self.make_ttir(src, metadata, options)
-        stages["linalg"] = lambda src, metadata: self.make_linalg(src, metadata, options)
+        stages["xyz"] = lambda src, metadata: self.make_xyz(src, metadata, options)
         stages["llir"] = lambda src, metadata: self.make_llir(src, metadata, options)
         stages["asm"] = lambda src, metadata: self.make_asm(src, metadata, options)
         stages["so"] = lambda src, metadata: self.make_library(src, metadata, options)

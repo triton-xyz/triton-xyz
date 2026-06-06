@@ -7,7 +7,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h"
+#include "triton-shared/Conversion/TritonToXyz/Passes.h"
 #include "triton-shared/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
@@ -18,7 +18,7 @@ using namespace mlir;
 namespace mlir {
 namespace triton {
 #define GEN_PASS_DEF_TRITONARITHTOLINALG
-#include "triton-shared/Conversion/TritonArithToLinalg/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace triton
 } // namespace mlir
 

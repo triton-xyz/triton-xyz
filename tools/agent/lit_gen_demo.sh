@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MLIR=test/Conversion/triton-to-linalg-tta-lowering.mlir
+MLIR=test/Conversion/triton-to-xyz-lowering.mlir
 # get `ARGS` from `MLIR`
-ARGS=(--split-input-file --triton-to-linalg-tta)
+ARGS=(--split-input-file --triton-to-xyz)
 # defalut `CHECK`
 PREFIX="CHECK"
 SOURCE_DELIM_REGEX='^(?!\s*//)\s*(tt\.func|func\.func|llvm\.func)\b'

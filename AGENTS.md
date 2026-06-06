@@ -8,9 +8,10 @@
 - `build/` holds local build artifacts and is safe to regenerate.
 - `llvm-triton/llvm-project/` contains a vendored `llvm-project` checkout. `llvm-triton/llvm-project/mlir/` is the upstream MLIR source; `llvm-triton/llvm-project/mlir/test/` is a reference for MLIR test structure and `FileCheck` style.
 - `third_party/triton/` is a vendored upstream Triton checkout for reference on Triton behavior, APIs, and tests.
-- `lib/Conversion/TritonToLinalg/` keeps shared pointer/memref lowering utilities that remain in use outside the removed baseline route.
-- `lib/Conversion/TritonToLinalgTTA/` keeps TTA-route conversion passes used by `triton-to-linalg-tta`.
-- `lib/Pipelines/TritonToLinalgTTA.cpp` is the retained Triton-to-Linalg pipeline entrypoint.
+- `lib/Conversion/ProtonToXyz/` lowers Proton instrumentation ops into XYZ CPU runtime calls.
+- `lib/Conversion/TritonToXyz/` keeps Triton-to-XYZ conversion passes, including TTA import, TTA-to-memref, Triton arithmetic, pointer, scan, and fallback lowering.
+- `lib/Conversion/XyzToLLVM/` keeps XYZ-to-LLVM conversion passes, including ptr-aware memory space lowering.
+- `lib/Pipelines/TritonToXyz.cpp` is the retained Triton-to-XYZ pipeline entrypoint.
 - You can create a `debug_agent/` directory to store intermediate validation/testing/experimentation scripts, IR, or files instead of using `/tmp`.
 
 ## Upstream Source References
@@ -40,10 +41,10 @@ bash tools/agent/build_cmake.sh
 cmake --build build --target triton-xyz-opt
 ```
 
-- Run the retained TTA pipeline.
+- Run the retained Triton-to-XYZ pipeline.
 
 ```bash
-build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
+build/bin/triton-xyz-opt --triton-to-xyz input.mlir -o -
 ```
 
 - `lit -v test` runs the MLIR regression suite; narrow scope with paths like `lit -v test/Conversion`.
@@ -60,11 +61,12 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 - Use upstream references in `third_party/triton/python/tutorials/`, `third_party/triton/python/test/`, and `third_party/triton/python/triton_kernels/` for API patterns and expected semantics.
 - When a kernel change relies on compiler transformations, add/update a focused `lit` test in `test/Conversion/` in addition to Python runtime coverage.
 
-## Pipeline Mode (`triton-to-linalg-tta`)
+## Pipeline Mode (`triton-to-xyz`)
 
-- `triton-to-linalg-tta` is the retained Triton-to-Linalg route.
+- `triton-to-xyz` is the retained Triton-to-XYZ route.
 - Prefer adding TTA-specific passes (for example, `triton-to-tta-unstructured`) instead of reintroducing a second Triton-to-Linalg route.
-- Shared non-route-specific passes may stay under `lib/Conversion/TritonToLinalg/` until they are moved elsewhere.
+- Shared Triton-to-XYZ lowering passes should stay under `lib/Conversion/TritonToXyz/`.
+- XYZ-to-LLVM lowering passes should stay under `lib/Conversion/XyzToLLVM/`.
 
 ## Coding Style & Naming Conventions
 
@@ -76,7 +78,7 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 
 - Tests are `.mlir` files run by `lit` and verified with `FileCheck` in `// RUN:` lines.
 - Add new tests under the closest feature area (for example, `test/Conversion/tta-to-memref.mlir`).
-- TTA behavior tests should use `--triton-to-linalg-tta` or `--triton-to-tta-*`.
+- TTA behavior tests should use `--triton-to-xyz` or `--triton-to-tta-*`.
 - Keep baseline and TTA expectations in separate test files or split-input sections; avoid mixing unrelated routes in one check flow.
 - Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features, organizing multi module tests with `--split-input-file` and `// -----`.
 - Keep each case minimal and use focused `CHECK:` patterns to avoid over-specifying behavior.

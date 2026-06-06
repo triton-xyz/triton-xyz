@@ -30,7 +30,7 @@ using namespace mlir;
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_TRITONPTRTOMEMREF
-#include "triton-shared/Conversion/TritonToLinalg/Passes.h.inc"
+#include "triton-shared/Conversion/TritonToXyz/Passes.h.inc"
 } // namespace mlir::triton
 
 namespace {
