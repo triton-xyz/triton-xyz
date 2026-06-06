@@ -11,9 +11,6 @@ struct TritonToLinalgPipelineOptions
       llvm::cl::desc("Convert tt.get_program_id and tt.get_num_programs to "
                      "reference to function arguments"),
       llvm::cl::init(false)};
-  PassOptions::Option<bool> ttToFuncFunc{
-      *this, "tt-to-func-func", llvm::cl::desc("Convert tt.func to func.func"),
-      llvm::cl::init(true)};
   PassOptions::Option<bool> assertToCf{
       *this, "assert-to-cf", llvm::cl::desc("Convert tt.assert to cf.assert"),
       llvm::cl::init(true)};

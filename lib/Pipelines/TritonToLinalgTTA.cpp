@@ -19,7 +19,6 @@ void mlir::triton::buildTritonToLinalgTTAPipeline(
     pm.addPass(createTritonPidsToFuncArgs());
   }
   TritonArithToLinalgOptions tritonArithToLinalgOptions;
-  tritonArithToLinalgOptions.ttToFuncFunc = options.ttToFuncFunc;
   tritonArithToLinalgOptions.assertToCf = options.assertToCf;
   pm.addPass(createTritonArithToLinalg(tritonArithToLinalgOptions));
 

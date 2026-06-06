@@ -766,14 +766,9 @@ namespace {
 
 struct ReduceConverter : public OpConversionPattern<triton::ReduceOp> {
 
-  ReduceConverter(MLIRContext *context, bool transposeToRank0 = true,
-                  PatternBenefit benefit = 1)
-      : OpConversionPattern(context, benefit),
-        transposeToRank0(transposeToRank0) {}
+  using OpConversionPattern<triton::ReduceOp>::OpConversionPattern;
 
 private:
-  bool transposeToRank0;
-
   llvm::SmallVector<Operation *> getRedOps(triton::ReduceOp redOp) const {
     auto reduceBlock = redOp.getBody();
     return llvm::map_to_vector(reduceBlock->without_terminator(),
@@ -909,27 +904,19 @@ private:
     // forward this will be removed. Doing the transpose here lacks a wider
     // scope of analysis that might indicate that the transpose to a given axis
     // is not optimal.
-    if (transposeToRank0) {
-      // if it is not a vector reduce, we can transpose the source
-      // so that the reduction axis is the first dimension.
-      if (!isVectorReduce && axis != 0) {
-        SmallVector<int32_t> order;
-        order.reserve(rank);
-        order.push_back(axis);
-        for (int i = 0; i < rank; ++i) {
-          if (i != axis) {
-            order.push_back(i);
-          }
+    // If it is not a vector reduce, transpose the source so that the reduction
+    // axis is the first dimension.
+    if (!isVectorReduce && axis != 0) {
+      SmallVector<int32_t> order;
+      order.reserve(rank);
+      order.push_back(axis);
+      for (int i = 0; i < rank; ++i) {
+        if (i != axis) {
+          order.push_back(i);
         }
-        source = getTransposedValue(source, op.getLoc(), rewriter, order);
-        axis = 0;
       }
-    } else {
-      // preserving old behavior until we remove the transpose entirely.
-      if (axis == rank - 1 && !isVectorReduce) {
-        source = getTransposedValue(source, op.getLoc(), rewriter);
-        axis = rank - 2;
-      }
+      source = getTransposedValue(source, op.getLoc(), rewriter, order);
+      axis = 0;
     }
 
     bool convertToF32Precision = requiresF32Conversion(resType, rop);
@@ -1562,12 +1549,11 @@ struct ArgMinConverter : public ArgMinMaxBaseConverter<ArgMinConverter> {
 };
 
 static void
-populateReduceTritonArithToLinalgPatterns(RewritePatternSet &patterns,
-                                          bool transposeReduceToRank0) {
+populateReduceTritonArithToLinalgPatterns(RewritePatternSet &patterns) {
   patterns.add<ArgMinConverter>(patterns.getContext());
   patterns.add<ArgMaxConverter>(patterns.getContext());
   patterns.add<WelfordConverter>(patterns.getContext());
-  patterns.add<ReduceConverter>(patterns.getContext(), transposeReduceToRank0);
+  patterns.add<ReduceConverter>(patterns.getContext());
 }
 
 } // namespace
@@ -1867,7 +1853,7 @@ void mlir::triton::populateTritonArithToLinalgCanonicalizationPatterns(
 }
 
 void mlir::triton::populateTritonArithToLinalgConversionPatterns(
-    bool assertToCf, bool transposeReduceToRank0, RewritePatternSet &patterns) {
+    bool assertToCf, RewritePatternSet &patterns) {
   populateTensorShapeTritonArithToLinalgPatterns(patterns);
   populateScalarTritonArithToLinalgPatterns(assertToCf, patterns);
   populateTensorAggregateTritonArithToLinalgPatterns(patterns);
@@ -1884,7 +1870,7 @@ void mlir::triton::populateTritonArithToLinalgConversionPatterns(
   // the first elements along the reduction axis and perform the reduction on
   // the remaining elements. However, this results in creatings sub-tensors that
   // aren't always multiple of 2s, which are sub-optimal for certain hardwares.
-  populateReduceTritonArithToLinalgPatterns(patterns, transposeReduceToRank0);
+  populateReduceTritonArithToLinalgPatterns(patterns);
 
   // Note: the ordering here matters!
   // These patterns are added last to they will be tried last.
