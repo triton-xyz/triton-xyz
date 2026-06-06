@@ -45,18 +45,21 @@ struct ScanOpLowering : public OpRewritePattern<triton::ScanOp> {
 
     // Allocate result memref.
     auto memrefType = MemRefType::get({dimSize}, elemType);
-    Value alloc = rewriter.create<memref::AllocOp>(loc, memrefType);
+    Value alloc =
+        memref::AllocOp::create(rewriter, loc, memrefType).getMemref();
 
-    Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value c1 = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    Value dim = rewriter.create<arith::ConstantIndexOp>(loc, dimSize);
-    Value zeroElem = rewriter.create<arith::ConstantOp>(
-        loc, elemType, rewriter.getZeroAttr(elemType));
+    Value c0 = arith::ConstantIndexOp::create(rewriter, loc, 0).getResult();
+    Value c1 = arith::ConstantIndexOp::create(rewriter, loc, 1).getResult();
+    Value dim =
+        arith::ConstantIndexOp::create(rewriter, loc, dimSize).getResult();
+    Value zeroElem = arith::ConstantOp::create(rewriter, loc, elemType,
+                                               rewriter.getZeroAttr(elemType))
+                         .getResult();
 
     // Build scf.for loop that reads from the input tensor/array
     // and writes prefix sum into our allocated memref.
-    auto loop = rewriter.create<scf::ForOp>(
-        loc, c0, dim, c1, ValueRange{zeroElem},
+    auto loop = scf::ForOp::create(
+        rewriter, loc, c0, dim, c1, ValueRange{zeroElem},
         [&](OpBuilder &b, Location loc, Value i, ValueRange iterArgs) {
           Value running = iterArgs[0];
 
@@ -64,30 +67,32 @@ struct ScanOpLowering : public OpRewritePattern<triton::ScanOp> {
           // or already a memref (from TTA path). Handle both.
           Value val;
           if (isa<MemRefType>(input.getType())) {
-            val = b.create<memref::LoadOp>(loc, input, ValueRange{i});
+            val = memref::LoadOp::create(b, loc, input, ValueRange{i})
+                      .getResult();
           } else {
-            val = b.create<tensor::ExtractOp>(loc, input, ValueRange{i});
+            val = tensor::ExtractOp::create(b, loc, input, ValueRange{i})
+                      .getResult();
           }
 
           // Add to running sum.
           Value sum;
           if (isa<FloatType>(elemType)) {
-            sum = b.create<arith::AddFOp>(loc, running, val);
+            sum = arith::AddFOp::create(b, loc, running, val).getResult();
           } else {
-            sum = b.create<arith::AddIOp>(loc, running, val);
+            sum = arith::AddIOp::create(b, loc, running, val).getResult();
           }
 
           // Store into result memref.
-          b.create<memref::StoreOp>(loc, sum, alloc, ValueRange{i});
-          b.create<scf::YieldOp>(loc, ValueRange{sum});
+          memref::StoreOp::create(b, loc, sum, alloc, ValueRange{i});
+          scf::YieldOp::create(b, loc, ValueRange{sum});
         });
 
     // Convert result memref back to tensor for downstream consumers.
-    Value resultTensor = bufferization::ToTensorOp::create(
-                             rewriter, loc, tensorType, alloc,
-                             /*restrict=*/true,
-                             /*writable=*/true)
-                             .getResult();
+    Value resultTensor =
+        bufferization::ToTensorOp::create(rewriter, loc, tensorType, alloc,
+                                          /*restrict=*/true,
+                                          /*writable=*/true)
+            .getResult();
     rewriter.replaceOp(scanOp, resultTensor);
     return success();
   }
