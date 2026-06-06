@@ -405,7 +405,7 @@ class XYZBackend(BaseBackend):
     def parse_options(self, options):
         args = {
             "arch": os.getenv("TRITON_CPU_ARCH", ""),
-            "use_tta": _env_truthy("TRITON_XYZ_USE_TTA", default=True),
+            "use_tta": knobs.getenv_bool("TRITON_XYZ_USE_TTA", True),
         }
         args.update(
             {k: options[k] for k in CPUOptions.__dataclass_fields__.keys() if k in options if options[k] is not None}
