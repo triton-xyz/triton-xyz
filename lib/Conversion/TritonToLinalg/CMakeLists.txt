@@ -1,20 +1,14 @@
 add_triton_library(TritonToLinalg
   TritonPtrToMemrefPass.cpp
-  ReconcilePtrCastsPass.cpp
   ConvertXyzToLLVMPass.cpp
-  TritonToPtrPass.cpp
   TritonScanToSCFPass.cpp
-  CollapseShape.cpp
 
   TritonUnstructuredFallbackPass.cpp
-  TritonTensorPtrToLinalgPass.cpp
-  TritonPtrToPtrPass.cpp
 
   DEPENDS
   TritonToLinalgConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRSCFTransforms
   MLIRArithDialect
   MLIRDialectUtils
   MLIRIR
@@ -24,12 +18,9 @@ add_triton_library(TritonToLinalg
   MLIRTensorDialect
   MLIRTransforms
   MLIRSupport
-  MLIRReconcileUnrealizedCasts
   MLIRPtrToLLVM
   TritonIR
   TritonTransforms
   TritonAddressIR
   TritonSharedAnalysis
-  TritonSharedUtils
-  TritonArithToLinalg
 )

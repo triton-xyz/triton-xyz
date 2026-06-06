@@ -70,12 +70,12 @@ build/bin/triton-xyz-opt --triton-to-linalg-tta input.mlir -o -
 
 - C++ formatting follows LLVM style via `.clang-format`; run `clang-format` on touched C/C++ files.
 - Python utilities are formatted/linted with ruff (see pre-commit hooks).
-- Prefer descriptive file names that match the existing pattern (for example, `TritonToStructuredPass.cpp`).
+- Prefer descriptive file names that match the existing pattern (for example, `TritonToTTAUnstructuredPass.cpp`).
 
 ## Testing Guidelines
 
 - Tests are `.mlir` files run by `lit` and verified with `FileCheck` in `// RUN:` lines.
-- Add new tests under the closest feature area (for example, `test/Conversion/TritonToPtr`).
+- Add new tests under the closest feature area (for example, `test/Conversion/tta-to-memref.mlir`).
 - TTA behavior tests should use `--triton-to-linalg-tta` or `--triton-to-tta-*`.
 - Keep baseline and TTA expectations in separate test files or split-input sections; avoid mixing unrelated routes in one check flow.
 - Prefer grouping related cases that exercise the same pass in a single file; avoid mixing unrelated features, organizing multi module tests with `--split-input-file` and `// -----`.
