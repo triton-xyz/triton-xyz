@@ -137,6 +137,19 @@ class StorePtrToLinalgConverter : public OpConversionPattern<triton::StoreOp> {
   }
 };
 
+static void populateTensorPtrToLinalgPatterns(RewritePatternSet &patterns) {
+  // Patterns for converting tensor pointer operations to linalg.generic.
+  patterns.add<StorePtrToLinalgConverter, TensorOpConverter<triton::LoadOp>,
+               TensorOpConverter<triton::IntToPtrOp>,
+               TensorOpConverter<triton::PtrToIntOp>,
+               TensorOpConverter<triton::BitcastOp>, AddPtrConverter>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonTensorPtrToLinalgPass
     : public triton::impl::TritonTensorPtrToLinalgBase<
           TritonTensorPtrToLinalgPass> {
@@ -179,12 +192,7 @@ public:
       return !isa<RankedTensorType>(op.getResult().getType());
     });
 
-    // Patterns for converting tensor pointer operations to linalg.generic
-    patterns.add<StorePtrToLinalgConverter, TensorOpConverter<triton::LoadOp>,
-                 TensorOpConverter<triton::IntToPtrOp>,
-                 TensorOpConverter<triton::PtrToIntOp>,
-                 TensorOpConverter<triton::BitcastOp>, AddPtrConverter>(
-        patterns.getContext());
+    populateTensorPtrToLinalgPatterns(patterns);
 
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();

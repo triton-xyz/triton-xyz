@@ -28,27 +28,6 @@ namespace mlir::triton {
 
 namespace {
 
-static LLVM::AtomicOrdering
-convertAtomicOrdering(ptr::AtomicOrdering ordering) {
-  switch (ordering) {
-  case ptr::AtomicOrdering::not_atomic:
-    return LLVM::AtomicOrdering::not_atomic;
-  case ptr::AtomicOrdering::unordered:
-    return LLVM::AtomicOrdering::unordered;
-  case ptr::AtomicOrdering::monotonic:
-    return LLVM::AtomicOrdering::monotonic;
-  case ptr::AtomicOrdering::acquire:
-    return LLVM::AtomicOrdering::acquire;
-  case ptr::AtomicOrdering::release:
-    return LLVM::AtomicOrdering::release;
-  case ptr::AtomicOrdering::acq_rel:
-    return LLVM::AtomicOrdering::acq_rel;
-  case ptr::AtomicOrdering::seq_cst:
-    return LLVM::AtomicOrdering::seq_cst;
-  }
-  return LLVM::AtomicOrdering::not_atomic;
-}
-
 static void
 addPtrAwareMemRefAddressSpaceConversions(LLVMTypeConverter &typeConverter) {
   typeConverter.addTypeAttributeConversion(
@@ -69,6 +48,10 @@ addPtrAwareMemRefAddressSpaceConversions(LLVMTypeConverter &typeConverter) {
       });
 }
 
+} // namespace
+
+namespace {
+
 struct TritonBitcastOpConversion
     : public ConvertOpToLLVMPattern<triton::BitcastOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
@@ -84,6 +67,15 @@ struct TritonBitcastOpConversion
     return success();
   }
 };
+
+static void populateXyzTritonToLLVMConversionPatterns(
+    const LLVMTypeConverter &typeConverter, RewritePatternSet &patterns) {
+  patterns.add<TritonBitcastOpConversion>(typeConverter);
+}
+
+} // namespace
+
+namespace {
 
 struct ErfOpConversion : public ConvertOpToLLVMPattern<math::ErfOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
@@ -112,6 +104,37 @@ struct ErfOpConversion : public ConvertOpToLLVMPattern<math::ErfOp> {
     return success();
   }
 };
+
+static void
+populateXyzMathToLLVMConversionPatterns(const LLVMTypeConverter &typeConverter,
+                                        RewritePatternSet &patterns) {
+  patterns.add<ErfOpConversion>(typeConverter);
+}
+
+} // namespace
+
+namespace {
+
+static LLVM::AtomicOrdering
+convertAtomicOrdering(ptr::AtomicOrdering ordering) {
+  switch (ordering) {
+  case ptr::AtomicOrdering::not_atomic:
+    return LLVM::AtomicOrdering::not_atomic;
+  case ptr::AtomicOrdering::unordered:
+    return LLVM::AtomicOrdering::unordered;
+  case ptr::AtomicOrdering::monotonic:
+    return LLVM::AtomicOrdering::monotonic;
+  case ptr::AtomicOrdering::acquire:
+    return LLVM::AtomicOrdering::acquire;
+  case ptr::AtomicOrdering::release:
+    return LLVM::AtomicOrdering::release;
+  case ptr::AtomicOrdering::acq_rel:
+    return LLVM::AtomicOrdering::acq_rel;
+  case ptr::AtomicOrdering::seq_cst:
+    return LLVM::AtomicOrdering::seq_cst;
+  }
+  return LLVM::AtomicOrdering::not_atomic;
+}
 
 struct PtrLoadOpConversion : public ConvertOpToLLVMPattern<ptr::LoadOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
@@ -159,6 +182,16 @@ struct PtrStoreOpConversion : public ConvertOpToLLVMPattern<ptr::StoreOp> {
     return success();
   }
 };
+
+static void
+populateXyzPtrToLLVMConversionPatterns(const LLVMTypeConverter &typeConverter,
+                                       RewritePatternSet &patterns) {
+  patterns.add<PtrLoadOpConversion, PtrStoreOpConversion>(typeConverter);
+}
+
+} // namespace
+
+namespace {
 
 struct FloatGenericAtomicRMWOpConversion
     : public ConvertOpToLLVMPattern<memref::GenericAtomicRMWOp> {
@@ -233,6 +266,15 @@ struct FloatGenericAtomicRMWOpConversion
   }
 };
 
+static void populateXyzMemRefToLLVMConversionPatterns(
+    const LLVMTypeConverter &typeConverter, RewritePatternSet &patterns) {
+  patterns.add<FloatGenericAtomicRMWOpConversion>(typeConverter);
+}
+
+} // namespace
+
+namespace {
+
 class ConvertXyzToLLVMPass
     : public triton::impl::ConvertXyzToLLVMBase<ConvertXyzToLLVMPass> {
   using Base = triton::impl::ConvertXyzToLLVMBase<ConvertXyzToLLVMPass>;
@@ -263,14 +305,14 @@ public:
                                               patterns);
 
     populateMathToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<ErfOpConversion>(typeConverter);
+    populateXyzMathToLLVMConversionPatterns(typeConverter, patterns);
 
     populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<FloatGenericAtomicRMWOpConversion>(typeConverter);
+    populateXyzMemRefToLLVMConversionPatterns(typeConverter, patterns);
     ptr::populatePtrToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<PtrLoadOpConversion, PtrStoreOpConversion>(typeConverter);
+    populateXyzPtrToLLVMConversionPatterns(typeConverter, patterns);
 
-    patterns.add<TritonBitcastOpConversion>(typeConverter);
+    populateXyzTritonToLLVMConversionPatterns(typeConverter, patterns);
     target.addIllegalOp<triton::BitcastOp>();
     target.addIllegalOp<ptr::LoadOp, ptr::StoreOp>();
     target.addLegalOp<UnrealizedConversionCastOp>();

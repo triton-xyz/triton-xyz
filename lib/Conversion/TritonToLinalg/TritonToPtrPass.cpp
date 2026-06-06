@@ -116,6 +116,18 @@ struct TensorExtractConverter : public OpConversionPattern<tensor::ExtractOp> {
   }
 };
 
+static void
+populateTritonToPtrTensorPatterns(RewritePatternSet &patterns,
+                                  const TypeConverter &typeConverter) {
+  patterns.add<ExpandShapeConverter, TensorExtractConverter,
+               InsertSliceConverter, EmptyTensorConverter>(
+      typeConverter, patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 // arith.select could operate on triton pointers. Convert to use !ptr.ptr
 struct SelectOpConverter : public OpConversionPattern<arith::SelectOp> {
   using OpConversionPattern<arith::SelectOp>::OpConversionPattern;
@@ -133,6 +145,16 @@ struct SelectOpConverter : public OpConversionPattern<arith::SelectOp> {
     return success();
   }
 };
+
+static void
+populateTritonToPtrArithPatterns(RewritePatternSet &patterns,
+                                 const TypeConverter &typeConverter) {
+  patterns.add<SelectOpConverter>(typeConverter, patterns.getContext());
+}
+
+} // namespace
+
+namespace {
 
 // Convert bitcast which is a no-op because !ptr.ptr is opaque with no pointee
 // type.
@@ -315,6 +337,18 @@ struct IntToPtrConverter : public OpConversionPattern<triton::IntToPtrOp> {
   }
 };
 
+static void
+populateTritonToPtrTritonPatterns(RewritePatternSet &patterns,
+                                  const TypeConverter &typeConverter) {
+  patterns.add<AddPtrConverter, BitCastConverter, StoreConverter, LoadConverter,
+               PtrToIntConverter, IntToPtrConverter>(typeConverter,
+                                                     patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 // Convert a linalg op on triton pointer to use !ptr.ptr
 // The conversion infrastructrure will recursively handle the inner op
 // which could be either tt.load, tt.store, tt.bitcast, tt.int_to_ptr, and
@@ -395,6 +429,18 @@ struct LinalgFillPtrConverter : public OpConversionPattern<linalg::FillOp> {
   }
 };
 
+static void
+populateTritonToPtrLinalgPatterns(RewritePatternSet &patterns,
+                                  const TypeConverter &typeConverter) {
+  patterns
+      .add<LinalgFillPtrConverter, LinalgPtrConverter, LinalgYieldConverter>(
+          typeConverter, patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonPtrTypeConverter : public TypeConverter {
 public:
   TritonPtrTypeConverter(MLIRContext *context) {
@@ -420,6 +466,10 @@ public:
     addSourceMaterialization(createCast);
   }
 };
+
+} // namespace
+
+namespace {
 
 class TritonToPtrPass : public triton::impl::TritonToPtrBase<TritonToPtrPass> {
   using Base = triton::impl::TritonToPtrBase<TritonToPtrPass>;
@@ -456,12 +506,10 @@ public:
                            ptr::PtrDialect, memref::MemRefDialect>();
     target.addLegalOp<UnrealizedConversionCastOp>();
 
-    patterns
-        .add<AddPtrConverter, BitCastConverter, StoreConverter, LoadConverter,
-             PtrToIntConverter, IntToPtrConverter, ExpandShapeConverter,
-             TensorExtractConverter, SelectOpConverter, InsertSliceConverter,
-             EmptyTensorConverter, LinalgFillPtrConverter, LinalgPtrConverter,
-             LinalgYieldConverter>(typeConverter, patterns.getContext());
+    populateTritonToPtrTensorPatterns(patterns, typeConverter);
+    populateTritonToPtrArithPatterns(patterns, typeConverter);
+    populateTritonToPtrTritonPatterns(patterns, typeConverter);
+    populateTritonToPtrLinalgPatterns(patterns, typeConverter);
 
     mlir::scf::populateSCFStructuralTypeConversionsAndLegality(
         typeConverter, patterns, target);

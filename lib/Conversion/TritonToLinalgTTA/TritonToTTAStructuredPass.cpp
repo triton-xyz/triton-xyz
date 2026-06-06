@@ -186,6 +186,15 @@ struct ConvertTTStorePattern : OpRewritePattern<triton::StoreOp> {
   }
 };
 
+static void populateTritonToTTAStructuredPatterns(RewritePatternSet &patterns) {
+  patterns.add<ConvertTTLoadPattern, ConvertTTStorePattern>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonToTTAStructuredPass
     : public mlir::triton::impl::TritonToTTAStructuredBase<
           TritonToTTAStructuredPass> {
@@ -197,7 +206,7 @@ public:
   void runOnOperation() override {
     MLIRContext *context = &getContext();
     RewritePatternSet patterns(context);
-    patterns.add<ConvertTTLoadPattern, ConvertTTStorePattern>(context);
+    populateTritonToTTAStructuredPatterns(patterns);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

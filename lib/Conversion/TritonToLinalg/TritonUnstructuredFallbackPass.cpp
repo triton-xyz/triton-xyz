@@ -312,8 +312,8 @@ class ScalarizeTensorAddPtr : public OpRewritePattern<triton::AddPtrOp> {
             tensor::ExtractOp::create(rewriter, loc, ptrTensor, indices);
         Value scalarOffset =
             extractElement(rewriter, loc, offsetTensor, indices);
-        Value scalar =
-            triton::AddPtrOp::create(rewriter, loc, scalarPtr.getType(), scalarPtr, scalarOffset);
+        Value scalar = triton::AddPtrOp::create(
+            rewriter, loc, scalarPtr.getType(), scalarPtr, scalarOffset);
         return tensor::InsertOp::create(rewriter, loc, scalar, iterTensor,
                                         indices);
       }
@@ -336,6 +336,17 @@ class ScalarizeTensorAddPtr : public OpRewritePattern<triton::AddPtrOp> {
   }
 };
 
+static void
+populateTritonUnstructuredFallbackPatterns(RewritePatternSet &patterns) {
+  patterns.add<ScalarizeTensorAddPtr, ScalarizeTensorLoad, ScalarizeTensorStore,
+               ScalarizeTensorAtomicRMW, ScalarizeTensorAtomicCAS>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonUnstructuredFallbackPass
     : public triton::impl::TritonUnstructuredFallbackBase<
           TritonUnstructuredFallbackPass> {
@@ -346,9 +357,7 @@ class TritonUnstructuredFallbackPass
 public:
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<ScalarizeTensorAddPtr, ScalarizeTensorLoad, ScalarizeTensorStore,
-                 ScalarizeTensorAtomicRMW, ScalarizeTensorAtomicCAS>(
-        &getContext());
+    populateTritonUnstructuredFallbackPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

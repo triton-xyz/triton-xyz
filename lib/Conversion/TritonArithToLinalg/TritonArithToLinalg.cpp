@@ -93,8 +93,12 @@ static std::optional<unsigned> getBitWidth(Type a) {
   return std::nullopt;
 }
 
+} // namespace
+
+namespace {
+
 //===----------------------------------------------------------------------===//
-// Op Lowering Patterns
+// Tensor Shape Patterns
 //===----------------------------------------------------------------------===//
 
 struct SplatConverter : public OpConversionPattern<triton::SplatOp> {
@@ -297,6 +301,24 @@ struct MakeRangeConverter : public OpConversionPattern<triton::MakeRangeOp> {
     return success();
   }
 };
+
+static void
+populateTensorShapeTritonArithToLinalgPatterns(RewritePatternSet &patterns) {
+  patterns.add<BroadcastConverter>(patterns.getContext());
+  patterns.add<TransposeConverter>(patterns.getContext());
+  patterns.add<MakeRangeConverter>(patterns.getContext());
+  patterns.add<ExpandDimsConverter>(patterns.getContext());
+  patterns.add<SplatConverter>(patterns.getContext());
+  patterns.add<UnsplatConverter>(patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+//===----------------------------------------------------------------------===//
+// Scalar, Elementwise, And Control Patterns
+//===----------------------------------------------------------------------===//
 
 struct AssertConverter : public OpConversionPattern<triton::AssertOp> {
   using OpConversionPattern<triton::AssertOp>::OpConversionPattern;
@@ -517,6 +539,45 @@ struct PreciseDivConverter : public OpConversionPattern<triton::PreciseDivFOp> {
   }
 };
 
+struct MulHiUIOpConverter : public OpConversionPattern<triton::MulhiUIOp> {
+  using OpConversionPattern<triton::MulhiUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::MulhiUIOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    auto mulResult =
+        arith::MulUIExtendedOp::create(rewriter, loc, adaptor.getOperands());
+    rewriter.replaceOp(op, mulResult.getHigh());
+
+    return success();
+  }
+};
+
+static void
+populateScalarTritonArithToLinalgPatterns(bool assertToCf,
+                                          RewritePatternSet &patterns) {
+  if (assertToCf) {
+    patterns.add<AssertConverter>(patterns.getContext());
+  }
+  patterns.add<BitcastConverter>(patterns.getContext());
+  patterns.add<CallConverter>(patterns.getContext());
+  patterns.add<FpToFpConverter>(patterns.getContext());
+  patterns.add<ClampConverter>(patterns.getContext());
+  patterns.add<PreciseSqrtConverter>(patterns.getContext());
+  patterns.add<PreciseDivConverter>(patterns.getContext());
+  patterns.add<MulHiUIOpConverter>(patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+//===----------------------------------------------------------------------===//
+// Tensor Aggregate Patterns
+//===----------------------------------------------------------------------===//
+
 struct CatConverter : public OpConversionPattern<triton::CatOp> {
   using OpConversionPattern<triton::CatOp>::OpConversionPattern;
 
@@ -613,22 +674,6 @@ struct JoinConverter : public OpConversionPattern<triton::JoinOp> {
   }
 };
 
-struct MulHiUIOpConverter : public OpConversionPattern<triton::MulhiUIOp> {
-  using OpConversionPattern<triton::MulhiUIOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(triton::MulhiUIOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-
-    auto mulResult =
-        arith::MulUIExtendedOp::create(rewriter, loc, adaptor.getOperands());
-    rewriter.replaceOp(op, mulResult.getHigh());
-
-    return success();
-  }
-};
-
 struct MatmulConverter : public OpConversionPattern<triton::DotOp> {
   using OpConversionPattern<triton::DotOp>::OpConversionPattern;
 
@@ -702,6 +747,22 @@ struct MatmulConverter : public OpConversionPattern<triton::DotOp> {
     return success();
   }
 };
+
+static void populateTensorAggregateTritonArithToLinalgPatterns(
+    RewritePatternSet &patterns) {
+  patterns.add<CatConverter>(patterns.getContext());
+  patterns.add<SplitConverter>(patterns.getContext());
+  patterns.add<JoinConverter>(patterns.getContext());
+  patterns.add<MatmulConverter>(patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+//===----------------------------------------------------------------------===//
+// Reduce Patterns
+//===----------------------------------------------------------------------===//
 
 struct ReduceConverter : public OpConversionPattern<triton::ReduceOp> {
 
@@ -1500,6 +1561,23 @@ struct ArgMinConverter : public ArgMinMaxBaseConverter<ArgMinConverter> {
   ArgMinConverter(MLIRContext *context) : ArgMinMaxBaseConverter(context) {}
 };
 
+static void
+populateReduceTritonArithToLinalgPatterns(RewritePatternSet &patterns,
+                                          bool transposeReduceToRank0) {
+  patterns.add<ArgMinConverter>(patterns.getContext());
+  patterns.add<ArgMaxConverter>(patterns.getContext());
+  patterns.add<WelfordConverter>(patterns.getContext());
+  patterns.add<ReduceConverter>(patterns.getContext(), transposeReduceToRank0);
+}
+
+} // namespace
+
+namespace {
+
+//===----------------------------------------------------------------------===//
+// Canonicalization Patterns
+//===----------------------------------------------------------------------===//
+
 // Convert a pair of cmpf and select to either min or max.
 // Leave the pattern as simple as possible because triton has plans to emit
 // min and max directly.
@@ -1578,6 +1656,20 @@ struct MinMaxConverter : public OpRewritePattern<CmpOp> {
   }
 };
 
+static void populateTritonArithToLinalgMinMaxCanonicalizationPatterns(
+    RewritePatternSet &patterns) {
+  patterns.add<MinMaxConverter<arith::CmpFOp>, MinMaxConverter<arith::CmpIOp>>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+//===----------------------------------------------------------------------===//
+// Tensor Utility Patterns
+//===----------------------------------------------------------------------===//
+
 struct DenseConstantConverter : public OpConversionPattern<arith::ConstantOp> {
   using OpConversionPattern<arith::ConstantOp>::OpConversionPattern;
   LogicalResult
@@ -1646,6 +1738,20 @@ public:
     return success();
   }
 };
+
+static void
+populateTensorUtilityTritonArithToLinalgPatterns(RewritePatternSet &patterns) {
+  patterns.add<DenseConstantConverter>(patterns.getContext());
+  patterns.add<ReshapeConverter>(patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+//===----------------------------------------------------------------------===//
+// Extern Elementwise Patterns
+//===----------------------------------------------------------------------===//
 
 class ExternElementwiseBinaryOpConverter
     : public OpConversionPattern<triton::ExternElementwiseOp> {
@@ -1745,7 +1851,8 @@ public:
   }
 };
 
-static void populateExternElementwiseOpToMLIROps(RewritePatternSet &patterns) {
+static void populateExternElementwiseTritonArithToLinalgPatterns(
+    RewritePatternSet &patterns) {
   patterns.add<ExternElementwiseBinaryOpConverter,
                ExternElementwiseUnaryOpConverter>(patterns.getContext());
 }
@@ -1756,36 +1863,16 @@ using namespace mlir;
 
 void mlir::triton::populateTritonArithToLinalgCanonicalizationPatterns(
     RewritePatternSet &patterns) {
-  patterns.add<MinMaxConverter<arith::CmpFOp>, MinMaxConverter<arith::CmpIOp>>(
-      patterns.getContext());
+  populateTritonArithToLinalgMinMaxCanonicalizationPatterns(patterns);
 }
 
 void mlir::triton::populateTritonArithToLinalgConversionPatterns(
     bool assertToCf, bool transposeReduceToRank0, RewritePatternSet &patterns) {
-  if (assertToCf) {
-    patterns.add<AssertConverter>(patterns.getContext());
-  }
-  patterns.add<BroadcastConverter>(patterns.getContext());
-  patterns.add<TransposeConverter>(patterns.getContext());
-  patterns.add<MakeRangeConverter>(patterns.getContext());
-  patterns.add<ExpandDimsConverter>(patterns.getContext());
-  patterns.add<BitcastConverter>(patterns.getContext());
-  patterns.add<CallConverter>(patterns.getContext());
-  patterns.add<MulHiUIOpConverter>(patterns.getContext());
-  patterns.add<PreciseSqrtConverter>(patterns.getContext());
-  patterns.add<PreciseDivConverter>(patterns.getContext());
-  patterns.add<CatConverter>(patterns.getContext());
-  patterns.add<SplitConverter>(patterns.getContext());
-  patterns.add<JoinConverter>(patterns.getContext());
-  patterns.add<FpToFpConverter>(patterns.getContext());
-  patterns.add<ClampConverter>(patterns.getContext());
-  patterns.add<MatmulConverter>(patterns.getContext());
-  patterns.add<SplatConverter>(patterns.getContext());
-  patterns.add<UnsplatConverter>(patterns.getContext());
-  patterns.add<DenseConstantConverter>(patterns.getContext());
-  patterns.add<ReshapeConverter>(patterns.getContext());
-
-  populateExternElementwiseOpToMLIROps(patterns);
+  populateTensorShapeTritonArithToLinalgPatterns(patterns);
+  populateScalarTritonArithToLinalgPatterns(assertToCf, patterns);
+  populateTensorAggregateTritonArithToLinalgPatterns(patterns);
+  populateTensorUtilityTritonArithToLinalgPatterns(patterns);
+  populateExternElementwiseTritonArithToLinalgPatterns(patterns);
 
   // Reduce converters
   // Triton's reduce op is idential to linalg.reduce op, so we can clone
@@ -1797,10 +1884,7 @@ void mlir::triton::populateTritonArithToLinalgConversionPatterns(
   // the first elements along the reduction axis and perform the reduction on
   // the remaining elements. However, this results in creatings sub-tensors that
   // aren't always multiple of 2s, which are sub-optimal for certain hardwares.
-  patterns.add<ArgMinConverter>(patterns.getContext());
-  patterns.add<ArgMaxConverter>(patterns.getContext());
-  patterns.add<WelfordConverter>(patterns.getContext());
-  patterns.add<ReduceConverter>(patterns.getContext(), transposeReduceToRank0);
+  populateReduceTritonArithToLinalgPatterns(patterns, transposeReduceToRank0);
 
   // Note: the ordering here matters!
   // These patterns are added last to they will be tried last.

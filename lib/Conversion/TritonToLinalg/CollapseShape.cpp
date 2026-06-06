@@ -476,6 +476,16 @@ struct CollapseReduce : public OpRewritePattern<linalg::ReduceOp> {
   }
 };
 
+static void populateCollapseShapePatterns(RewritePatternSet &patterns) {
+  patterns
+      .add<CollapseFill, CollapseBroadCast, CollapseTranspose, CollapseReduce>(
+          patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class CollapseShapePasss
     : public triton::impl::CollapseShapeBase<CollapseShapePasss> {
   using Base = triton::impl::CollapseShapeBase<CollapseShapePasss>;
@@ -485,8 +495,7 @@ public:
   void runOnOperation() override {
     auto moduleOp = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns.add<CollapseFill, CollapseBroadCast, CollapseTranspose,
-                 CollapseReduce>(&getContext());
+    populateCollapseShapePatterns(patterns);
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
     }

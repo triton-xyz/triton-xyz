@@ -379,55 +379,9 @@ getScalarMemrefAccessFromPtr(Value ptr, PatternRewriter &rewriter) {
                                             rewriter);
 }
 
-static std::optional<Value> buildAtomicRMWUpdate(PatternRewriter &rewriter,
-                                                 Location loc,
-                                                 triton::RMWOp rmwOp,
-                                                 Value current, Value value) {
-  auto elemType = current.getType();
-  if (isa<FloatType>(elemType)) {
-    switch (rmwOp) {
-    case triton::RMWOp::FADD:
-      return arith::AddFOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::MAX:
-      return arith::MaximumFOp::create(rewriter, loc, current, value)
-          .getResult();
-    case triton::RMWOp::MIN:
-      return arith::MinimumFOp::create(rewriter, loc, current, value)
-          .getResult();
-    case triton::RMWOp::XCHG:
-      return value;
-    default:
-      return std::nullopt;
-    }
-  }
+} // namespace
 
-  if (isa<IntegerType>(elemType)) {
-    switch (rmwOp) {
-    case triton::RMWOp::ADD:
-      return arith::AddIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::AND:
-      return arith::AndIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::OR:
-      return arith::OrIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::XOR:
-      return arith::XOrIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::MAX:
-      return arith::MaxSIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::MIN:
-      return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::UMAX:
-      return arith::MaxUIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::UMIN:
-      return arith::MinUIOp::create(rewriter, loc, current, value).getResult();
-    case triton::RMWOp::XCHG:
-      return value;
-    default:
-      return std::nullopt;
-    }
-  }
-
-  return std::nullopt;
-}
+namespace {
 
 class TritonFunctionSignatureConverter : public TypeConverter {
 public:
@@ -455,6 +409,10 @@ public:
     addSourceMaterialization(createUnrealizedCast);
   }
 };
+
+} // namespace
+
+namespace {
 
 struct FoldPtrSelectToMemrefSelect : public OpRewritePattern<arith::SelectOp> {
   using OpRewritePattern<arith::SelectOp>::OpRewritePattern;
@@ -694,6 +652,66 @@ struct TensorPtrStoreToMemref : public OpRewritePattern<triton::StoreOp> {
   }
 };
 
+static void populatePtrToMemrefPostPatterns(RewritePatternSet &patterns) {
+  patterns.add<FoldPtrSelectToMemrefSelect, ScalarPtrLoadToMemref,
+               ScalarPtrToIntToMemref, TensorPtrLoadToMemref,
+               TensorPtrStoreToMemref>(patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
+static std::optional<Value> buildAtomicRMWUpdate(PatternRewriter &rewriter,
+                                                 Location loc,
+                                                 triton::RMWOp rmwOp,
+                                                 Value current, Value value) {
+  auto elemType = current.getType();
+  if (isa<FloatType>(elemType)) {
+    switch (rmwOp) {
+    case triton::RMWOp::FADD:
+      return arith::AddFOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::MAX:
+      return arith::MaximumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    case triton::RMWOp::MIN:
+      return arith::MinimumFOp::create(rewriter, loc, current, value)
+          .getResult();
+    case triton::RMWOp::XCHG:
+      return value;
+    default:
+      return std::nullopt;
+    }
+  }
+
+  if (isa<IntegerType>(elemType)) {
+    switch (rmwOp) {
+    case triton::RMWOp::ADD:
+      return arith::AddIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::AND:
+      return arith::AndIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::OR:
+      return arith::OrIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::XOR:
+      return arith::XOrIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::MAX:
+      return arith::MaxSIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::MIN:
+      return arith::MinSIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::UMAX:
+      return arith::MaxUIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::UMIN:
+      return arith::MinUIOp::create(rewriter, loc, current, value).getResult();
+    case triton::RMWOp::XCHG:
+      return value;
+    default:
+      return std::nullopt;
+    }
+  }
+
+  return std::nullopt;
+}
+
 struct TensorPtrAtomicRMWToMemref
     : public OpRewritePattern<triton::AtomicRMWOp> {
   using OpRewritePattern<triton::AtomicRMWOp>::OpRewritePattern;
@@ -787,6 +805,15 @@ struct TensorPtrAtomicCASToMemref
   }
 };
 
+static void populatePtrAtomicToMemrefPatterns(RewritePatternSet &patterns) {
+  patterns.add<TensorPtrAtomicRMWToMemref, TensorPtrAtomicCASToMemref>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonPtrToMemrefPass
     : public triton::impl::TritonPtrToMemrefBase<TritonPtrToMemrefPass> {
   using Base = triton::impl::TritonPtrToMemrefBase<TritonPtrToMemrefPass>;
@@ -823,10 +850,8 @@ public:
     }
 
     RewritePatternSet postPatterns(&getContext());
-    postPatterns.add<FoldPtrSelectToMemrefSelect, ScalarPtrLoadToMemref,
-                     ScalarPtrToIntToMemref, TensorPtrLoadToMemref,
-                     TensorPtrStoreToMemref, TensorPtrAtomicRMWToMemref,
-                     TensorPtrAtomicCASToMemref>(&getContext());
+    populatePtrToMemrefPostPatterns(postPatterns);
+    populatePtrAtomicToMemrefPatterns(postPatterns);
     if (failed(applyPatternsGreedily(moduleOp, std::move(postPatterns)))) {
       signalPassFailure();
     }

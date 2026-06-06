@@ -80,6 +80,15 @@ struct GetNumProgramsConverter
   }
 };
 
+static void populateProgramInfoAccessPatterns(RewritePatternSet &patterns) {
+  patterns.add<GetProgramIDConverter, GetNumProgramsConverter>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonPidsToFuncArgsPass
     : public triton::impl::TritonPidsToFuncArgsBase<TritonPidsToFuncArgsPass> {
   using Base = triton::impl::TritonPidsToFuncArgsBase<TritonPidsToFuncArgsPass>;
@@ -129,7 +138,7 @@ public:
     }
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<GetProgramIDConverter, GetNumProgramsConverter>(&getContext());
+    populateProgramInfoAccessPatterns(patterns);
 
     ConversionTarget target(getContext());
     target.addLegalOp<ModuleOp, triton::FuncOp, triton::ReturnOp>();

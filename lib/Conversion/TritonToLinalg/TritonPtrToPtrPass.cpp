@@ -20,14 +20,6 @@ namespace mlir::triton {
 
 namespace {
 
-static SmallVector<Value> flattenValues(ArrayRef<ValueRange> values) {
-  SmallVector<Value> result;
-  for (const auto &vals : values) {
-    llvm::append_range(result, vals);
-  }
-  return result;
-}
-
 class TritonPtrSignatureConverter : public TypeConverter {
 public:
   TritonPtrSignatureConverter(MLIRContext *context) {
@@ -54,6 +46,18 @@ public:
     addSourceMaterialization(createCast);
   }
 };
+
+} // namespace
+
+namespace {
+
+static SmallVector<Value> flattenValues(ArrayRef<ValueRange> values) {
+  SmallVector<Value> result;
+  for (const auto &vals : values) {
+    llvm::append_range(result, vals);
+  }
+  return result;
+}
 
 struct TritonCallOpSignatureConversion
     : public OpConversionPattern<triton::CallOp> {
@@ -104,6 +108,19 @@ struct TritonReturnOpTypeConversion
   }
 };
 
+static void
+populateTritonPtrCallOpSignaturePatterns(RewritePatternSet &patterns,
+                                         const TypeConverter &typeConverter) {
+  populateCallOpTypeConversionPattern(patterns, typeConverter);
+  populateReturnOpTypeConversionPattern(patterns, typeConverter);
+  patterns.add<TritonCallOpSignatureConversion, TritonReturnOpTypeConversion>(
+      typeConverter, patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonTtPtrToPtrPass
     : public triton::impl::TritonTtPtrToPtrBase<TritonTtPtrToPtrPass> {
   using Base = triton::impl::TritonTtPtrToPtrBase<TritonTtPtrToPtrPass>;
@@ -144,10 +161,7 @@ public:
         patterns, typeConverter);
     populateFunctionOpInterfaceTypeConversionPattern<triton::FuncOp>(
         patterns, typeConverter);
-    populateCallOpTypeConversionPattern(patterns, typeConverter);
-    populateReturnOpTypeConversionPattern(patterns, typeConverter);
-    patterns.add<TritonCallOpSignatureConversion, TritonReturnOpTypeConversion>(
-        typeConverter, patterns.getContext());
+    populateTritonPtrCallOpSignaturePatterns(patterns, typeConverter);
 
     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
       signalPassFailure();

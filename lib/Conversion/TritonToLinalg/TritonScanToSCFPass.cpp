@@ -98,6 +98,14 @@ struct ScanOpLowering : public OpRewritePattern<triton::ScanOp> {
   }
 };
 
+static void populateTritonScanToSCFPatterns(RewritePatternSet &patterns) {
+  patterns.add<ScanOpLowering>(patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class TritonScanToSCFPass
     : public triton::impl::TritonScanToSCFBase<TritonScanToSCFPass> {
 public:
@@ -106,7 +114,7 @@ public:
   void runOnOperation() override {
     auto moduleOp = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns.add<ScanOpLowering>(&getContext());
+    populateTritonScanToSCFPatterns(patterns);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();

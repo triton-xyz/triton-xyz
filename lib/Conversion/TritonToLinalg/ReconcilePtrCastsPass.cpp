@@ -177,6 +177,15 @@ struct ToMemrefConverter : public OpRewritePattern<UnrealizedConversionCastOp> {
   }
 };
 
+static void populateReconcilePtrCastsPatterns(RewritePatternSet &patterns) {
+  patterns.add<SimplifyUnrealizedCast, FromMemrefConverter, ToMemrefConverter>(
+      patterns.getContext());
+}
+
+} // namespace
+
+namespace {
+
 class ReconcilePtrCastsPass
     : public triton::impl::ReconcilePtrCastsBase<ReconcilePtrCastsPass> {
   using Base = triton::impl::ReconcilePtrCastsBase<ReconcilePtrCastsPass>;
@@ -186,9 +195,7 @@ public:
   void runOnOperation() override {
     auto moduleOp = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns
-        .add<SimplifyUnrealizedCast, FromMemrefConverter, ToMemrefConverter>(
-            &getContext());
+    populateReconcilePtrCastsPatterns(patterns);
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
     }
