@@ -151,7 +151,7 @@ module {
 // CHECK-LABEL:   func.func @masked_2d_fallback(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 8 : index

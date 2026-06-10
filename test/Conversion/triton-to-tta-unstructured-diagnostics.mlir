@@ -4,7 +4,7 @@ module {
 // CHECK-LABEL:   tt.func @local_failure_cat_does_not_block(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i32
@@ -64,7 +64,7 @@ module {
 // CHECK-LABEL:   tt.func @fallback_other_not_scalar(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : i32
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
@@ -118,7 +118,7 @@ module {
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: i1) {
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: i1) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i32
@@ -183,7 +183,7 @@ module {
 // CHECK-LABEL:   tt.func @fallback_atomic_kind_unsupported(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[ARG0]], %[[CONSTANT_0]] : !tt.ptr<i32>, i32
 // CHECK:           %[[ATOMIC_RMW_0:.*]] = tt.atomic_rmw umax, acq_rel, gpu, %[[ADDPTR_0]], %[[ARG1]], %[[ARG2]] {tta.fallback, tta.fallback_reason = "atomic_kind_unsupported"} : (!tt.ptr<i32>, i32, i1) -> i32
@@ -201,7 +201,7 @@ module {
 // CHECK-LABEL:   tt.func @overwrite_existing_fallback_reason(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[ADDPTR_0:.*]] = tt.addptr %[[ARG0]], %[[CONSTANT_0]] : !tt.ptr<i32>, i32
 // CHECK:           %[[ATOMIC_RMW_0:.*]] = tt.atomic_rmw umax, acq_rel, gpu, %[[ADDPTR_0]], %[[ARG1]], %[[ARG2]] {tta.fallback, tta.fallback_reason = "atomic_kind_unsupported"} : (!tt.ptr<i32>, i32, i1) -> i32
@@ -217,7 +217,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @fallback_ptr_to_int_tensor_result(
-// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) -> (tensor<4xf32>, tensor<4xi64>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) -> (tensor<4xf32>, tensor<4xi64>) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
 // CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[CONSTANT_0]] : i32 -> tensor<4xi32>

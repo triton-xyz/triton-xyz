@@ -72,3 +72,14 @@ module {
     return %2 : i32
   }
 }
+
+// -----
+
+module {
+// CHECK-LABEL:   llvm.func @preserve_xyz_warn() attributes {xyz.warn = "scalar_fallback"} {
+// CHECK:           llvm.return
+// CHECK:         }
+  func.func @preserve_xyz_warn() attributes {xyz.warn = "scalar_fallback"} {
+    return
+  }
+}

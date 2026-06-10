@@ -4,7 +4,7 @@ module {
 // CHECK-LABEL:   tt.func @fallback_mask_rank_not_1d(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<2x4xf32>
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant dense<4> : tensor<2x4xi32>
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>
@@ -56,7 +56,7 @@ module {
 // CHECK-LABEL:   tt.func @fallback_mask_analysis_failed(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<4xf32>
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
 // CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -90,7 +90,7 @@ module {
 module {
 // CHECK-LABEL:   tt.func @fallback_other_not_scalar_splat(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32) -> tensor<4xf32> attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0.000000e+00, 1.000000e+00, 2.000000e+00, 3.000000e+00]> : tensor<4xf32>
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
 // CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>
@@ -145,7 +145,7 @@ module {
 // CHECK-LABEL:   tt.func @fallback_scalar_mask_requires_unstructured(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<4xf32>
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>
 // CHECK:           %[[SPLAT_0:.*]] = tt.splat %[[ARG0]] : !tt.ptr<f32> -> tensor<4x!tt.ptr<f32>>

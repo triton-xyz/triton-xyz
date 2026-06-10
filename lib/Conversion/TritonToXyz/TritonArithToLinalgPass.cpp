@@ -1,3 +1,4 @@
+#include "XyzWarnUtils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
@@ -127,6 +128,11 @@ public:
       auto funcFunc = func::FuncOp::create(builder, func.getLoc(), name, type);
       // Preserve the visibility attribute.
       funcFunc.setVisibility(func.getVisibility());
+      if (Attribute warn = func->getAttr(
+              mlir::triton::xyz_conversion::kScalarFallbackWarnAttrName)) {
+        funcFunc->setAttr(
+            mlir::triton::xyz_conversion::kScalarFallbackWarnAttrName, warn);
+      }
       funcFunc.setAllArgAttrs(argAttrs);
       funcFunc.setAllResultAttrs(resAttrs);
 

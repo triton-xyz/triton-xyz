@@ -276,7 +276,7 @@ module {
 // CHECK-LABEL:   tt.func @masked_2d_fallback(
 // CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
 // CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) attributes {xyz.warn = "scalar_fallback"} {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<0.000000e+00> : tensor<2x4xf32>
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant dense<4> : tensor<2x4xi32>
 // CHECK:           %[[MAKE_RANGE_0:.*]] = tt.make_range {end = 2 : i32, start = 0 : i32} : tensor<2xi32>

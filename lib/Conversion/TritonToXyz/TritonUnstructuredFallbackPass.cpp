@@ -1,3 +1,4 @@
+#include "XyzWarnUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -8,6 +9,7 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
+using mlir::triton::xyz_conversion::markScalarFallbackWarn;
 
 #define DEBUG_TYPE "triton-unstructured-fallback"
 
@@ -82,6 +84,7 @@ class ScalarizeTensorLoad : public OpRewritePattern<triton::LoadOp> {
     if (!resultType) {
       return failure();
     }
+    markScalarFallbackWarn(op.getOperation());
 
     auto loc = op.getLoc();
     Value ptrTensor = op.getPtr();
@@ -134,6 +137,7 @@ class ScalarizeTensorStore : public OpRewritePattern<triton::StoreOp> {
     if (!ptrType || !isTensorOfPointers(ptrType)) {
       return failure();
     }
+    markScalarFallbackWarn(op.getOperation());
 
     auto loc = op.getLoc();
     Value ptrTensor = op.getPtr();
@@ -182,6 +186,7 @@ class ScalarizeTensorAtomicRMW : public OpRewritePattern<triton::AtomicRMWOp> {
     if (!resultType) {
       return failure();
     }
+    markScalarFallbackWarn(op.getOperation());
 
     auto loc = op.getLoc();
     Value ptrTensor = op.getPtr();
@@ -239,6 +244,7 @@ class ScalarizeTensorAtomicCAS : public OpRewritePattern<triton::AtomicCASOp> {
     if (!resultType) {
       return failure();
     }
+    markScalarFallbackWarn(op.getOperation());
 
     auto loc = op.getLoc();
     Value ptrTensor = op.getPtr();
@@ -292,6 +298,7 @@ class ScalarizeTensorAddPtr : public OpRewritePattern<triton::AddPtrOp> {
     if (!ptrType || !isTensorOfPointers(ptrType)) {
       return failure();
     }
+    markScalarFallbackWarn(op.getOperation());
 
     auto loc = op.getLoc();
     Value ptrTensor = op.getPtr();
