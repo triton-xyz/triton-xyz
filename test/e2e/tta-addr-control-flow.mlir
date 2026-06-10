@@ -5,9 +5,9 @@
 module {
 // CHECK: #[[$ATTR_0:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @loop_ptr_iter_args_lowering(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0.000000e+00 : f32
@@ -78,9 +78,9 @@ module {
 module {
 // CHECK: #[[$ATTR_1:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @if_ptr_merge_lowering(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index

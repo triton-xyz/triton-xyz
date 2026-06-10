@@ -5,7 +5,7 @@ module {
 // CHECK: #[[$ATTR_1:.+]] = affine_map<(d0, d1) -> (0, d1)>
 // CHECK: #[[$ATTR_2:.+]] = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK-LABEL:   func.func @broadcast_transpose(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) -> tensor<4x2xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: f32) -> tensor<4x2xf32> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_0]]], iterator_types = ["parallel"]} outs(%[[EMPTY_0]] : tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
@@ -52,7 +52,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @reshape_collapse(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<2x2xf32>) -> tensor<4xf32> {
 // CHECK:           %[[COLLAPSE_SHAPE_0:.*]] = tensor.collapse_shape %[[ARG0]] {{\[\[}}0, 1]] : tensor<2x2xf32> into tensor<4xf32>
 // CHECK:           return %[[COLLAPSE_SHAPE_0]] : tensor<4xf32>
 // CHECK:         }
@@ -67,7 +67,7 @@ module {
 module {
 // CHECK: #[[$ATTR_3:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @bitcast_tensor(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xi32>) -> tensor<4xf32> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_3]], #[[$ATTR_3]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xi32>) outs(%[[EMPTY_0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32, %[[VAL_1:.*]]: f32):
@@ -87,7 +87,7 @@ module {
 module {
 // CHECK: #[[$ATTR_4:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_unary(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_4]], #[[$ATTR_4]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32):
 // CHECK:             %[[SQRT_0:.*]] = math.sqrt %[[VAL_0]] : f32
@@ -167,7 +167,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @split_join(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>) -> tensor<2x2xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<2x2xf32>) -> tensor<2x2xf32> {
 // CHECK:           %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[ARG0]][0, 0] [2, 1] [1, 1] : tensor<2x2xf32> to tensor<2xf32>
 // CHECK:           %[[EXTRACT_SLICE_1:.*]] = tensor.extract_slice %[[ARG0]][0, 1] [2, 1] [1, 1] : tensor<2x2xf32> to tensor<2xf32>
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<2x2xf32>
@@ -211,7 +211,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @assert_scalar(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi sgt, %[[ARG0]], %[[CONSTANT_0]] : i32
 // CHECK:           cf.assert %[[CMPI_0]], "Assertion `x > 0` failed"
@@ -244,7 +244,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @call_callee(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           return %[[ARG0]] : tensor<4xf32>
 // CHECK:         }
   tt.func @call_callee(%arg0: tensor<4xf32>) -> tensor<4xf32> {
@@ -252,7 +252,7 @@ module {
   }
 
 // CHECK-LABEL:   func.func @call_caller(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[VAL_0:.*]] = call @call_callee(%[[ARG0]]) : (tensor<4xf32>) -> tensor<4xf32>
 // CHECK:           return %[[VAL_0]] : tensor<4xf32>
 // CHECK:         }
@@ -267,7 +267,7 @@ module {
 module {
 // CHECK: #[[$ATTR_6:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @fptofp_rtne(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf16> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf16> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf16>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_6]], #[[$ATTR_6]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[EMPTY_0]] : tensor<4xf16>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f16):
@@ -287,9 +287,9 @@ module {
 module {
 // CHECK: #[[$ATTR_7:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @clamp_all(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_7]], #[[$ATTR_7]], #[[$ATTR_7]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[MAXIMUMF_0:.*]] = arith.maximumf %[[VAL_0]], %[[VAL_1]] : f32
@@ -314,8 +314,8 @@ module {
 module {
 // CHECK: #[[$ATTR_8:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @precise_math(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_8]], #[[$ATTR_8]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32):
 // CHECK:             %[[SQRT_0:.*]] = math.sqrt %[[VAL_0]] : f32
@@ -340,8 +340,8 @@ module {
 module {
 // CHECK: #[[$ATTR_9:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @mulhiui(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) -> tensor<4xi32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xi32>) -> tensor<4xi32> {
 // CHECK:           %[[GENERIC_0:.*]]:2 = linalg.generic {indexing_maps = [#[[$ATTR_9]], #[[$ATTR_9]], #[[$ATTR_9]], #[[$ATTR_9]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xi32>, tensor<4xi32>) outs(%[[ARG0]], %[[ARG0]] : tensor<4xi32>, tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32, %[[VAL_1:.*]]: i32, %[[VAL_2:.*]]: i32, %[[VAL_3:.*]]: i32):
 // CHECK:             %[[VAL_4:.*]], %[[MULUI_EXTENDED_0:.*]] = arith.mului_extended %[[VAL_0]], %[[VAL_1]] : i32
@@ -359,7 +359,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @unsplat_scalar(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<1xf32>) -> f32 {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<1xf32>) -> f32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG0]]{{\[}}%[[CONSTANT_0]]] : tensor<1xf32>
 // CHECK:           return %[[EXTRACT_0]] : f32
@@ -481,8 +481,8 @@ module {
 module {
 // CHECK: #[[$ATTR_12:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @minmax_select(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_12]], #[[$ATTR_12]], #[[$ATTR_12]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[MAXIMUMF_0:.*]] = arith.maximumf %[[VAL_0]], %[[VAL_1]] : f32
@@ -502,8 +502,8 @@ module {
 module {
 // CHECK: #[[$ATTR_13:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_binary(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_13]], #[[$ATTR_13]], #[[$ATTR_13]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[VAL_3:.*]] = math.atan2 %[[VAL_0]], %[[VAL_1]] : f32
@@ -521,7 +521,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @transpose_identity(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x2xf32>) -> tensor<2x2xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<2x2xf32>) -> tensor<2x2xf32> {
 // CHECK:           return %[[ARG0]] : tensor<2x2xf32>
 // CHECK:         }
   tt.func @transpose_identity(%arg0: tensor<2x2xf32>) -> tensor<2x2xf32> {
@@ -535,7 +535,7 @@ module {
 module {
 // CHECK: #[[$ATTR_14:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_unary_tanh(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_14]], #[[$ATTR_14]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32):
 // CHECK:             %[[TANH_0:.*]] = math.tanh %[[VAL_0]] : f32
@@ -554,7 +554,7 @@ module {
 module {
 // CHECK: #[[$ATTR_15:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_unary_atanh(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_15]], #[[$ATTR_15]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32):
 // CHECK:             %[[ATANH_0:.*]] = math.atanh %[[VAL_0]] : f32
@@ -616,9 +616,9 @@ module {
 module {
 // CHECK: #[[$ATTR_16:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @clamp_none(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_16]], #[[$ATTR_16]], #[[$ATTR_16]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[MAXNUMF_0:.*]] = arith.maxnumf %[[VAL_0]], %[[VAL_1]] : f32
@@ -643,7 +643,7 @@ module {
 module {
 // CHECK: #[[$ATTR_17:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @fptofp_extend(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf16>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf16>) -> tensor<4xf32> {
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xf32>
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_17]], #[[$ATTR_17]]], iterator_types = ["parallel"]} ins(%[[ARG0]] : tensor<4xf16>) outs(%[[EMPTY_0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f16, %[[VAL_1:.*]]: f32):
@@ -662,7 +662,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @reshape_expand(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<2x2xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<2x2xf32> {
 // CHECK:           %[[EXPAND_SHAPE_0:.*]] = tensor.expand_shape %[[ARG0]] {{\[\[}}0, 1]] output_shape [2, 2] : tensor<4xf32> into tensor<2x2xf32>
 // CHECK:           return %[[EXPAND_SHAPE_0]] : tensor<2x2xf32>
 // CHECK:         }
@@ -676,7 +676,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @reshape_reorder(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x4xf32>) -> tensor<4x2xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<2x4xf32>) -> tensor<4x2xf32> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[4, 2]> : tensor<2xi64>
 // CHECK:           %[[RESHAPE_0:.*]] = tensor.reshape %[[ARG0]](%[[CONSTANT_0]]) : (tensor<2x4xf32>, tensor<2xi64>) -> tensor<4x2xf32>
 // CHECK:           return %[[RESHAPE_0]] : tensor<4x2xf32>
@@ -714,8 +714,8 @@ module {
 module {
 // CHECK: #[[$ATTR_19:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @min_select_i32(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) -> tensor<4xi32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xi32>) -> tensor<4xi32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_19]], #[[$ATTR_19]], #[[$ATTR_19]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xi32>, tensor<4xi32>) outs(%[[ARG0]] : tensor<4xi32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: i32, %[[VAL_1:.*]]: i32, %[[VAL_2:.*]]: i32):
 // CHECK:             %[[MINSI_0:.*]] = arith.minsi %[[VAL_0]], %[[VAL_1]] : i32
@@ -735,8 +735,8 @@ module {
 module {
 // CHECK: #[[$ATTR_20:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @extern_pow(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) -> tensor<4xf32> {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>) -> tensor<4xf32> {
 // CHECK:           %[[GENERIC_0:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_20]], #[[$ATTR_20]], #[[$ATTR_20]]], iterator_types = ["parallel"]} ins(%[[ARG0]], %[[ARG1]] : tensor<4xf32>, tensor<4xf32>) outs(%[[ARG0]] : tensor<4xf32>) {
 // CHECK:           ^bb0(%[[VAL_0:.*]]: f32, %[[VAL_1:.*]]: f32, %[[VAL_2:.*]]: f32):
 // CHECK:             %[[POWF_0:.*]] = math.powf %[[VAL_0]], %[[VAL_1]] : f32

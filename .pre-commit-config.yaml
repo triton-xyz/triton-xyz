@@ -1,7 +1,6 @@
 exclude: |
   (?x)(
     .vscode/(.)* |
-    tools/generate-test-checks.py |
     LICENSE
   )
 repos:

@@ -2,9 +2,9 @@
 
 module {
 // CHECK-LABEL:   tt.func @addr_type_roundtrip(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<f32, 1, 1>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<i32, 2, 3>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<bf16, 3, 0>) -> (!tta.addr<f32, 1, 1>, !tta.addr<i32, 2, 3>, !tta.addr<bf16, 3, 0>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tta.addr<f32, 1, 1>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tta.addr<i32, 2, 3>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: !tta.addr<bf16, 3, 0>) -> (!tta.addr<f32, 1, 1>, !tta.addr<i32, 2, 3>, !tta.addr<bf16, 3, 0>) {
 // CHECK:           tt.return %[[ARG0]], %[[ARG1]], %[[ARG2]] : !tta.addr<f32, 1, 1>, !tta.addr<i32, 2, 3>, !tta.addr<bf16, 3, 0>
 // CHECK:         }
   tt.func @addr_type_roundtrip(%a0: !tta.addr<f32, 1, 1>,
@@ -19,7 +19,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @from_scalar_ptr(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : !tt.ptr<f32> to !tta.addr<f32, 1, 1>
 // CHECK:           tt.return
 // CHECK:         }
@@ -33,7 +33,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @from_ptr_tensor(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4x!tt.ptr<f16>>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4x!tt.ptr<f16>>) {
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : tensor<4x!tt.ptr<f16>> to !tta.addr<f16, 1, 1>
 // CHECK:           tt.return
 // CHECK:         }
@@ -47,7 +47,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @from_block_ptr(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x3x!tt.ptr<i32, 3>>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<2x3x!tt.ptr<i32, 3>>) {
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : tensor<2x3x!tt.ptr<i32, 3>> to !tta.addr<i32, 2, 3>
 // CHECK:           tt.return
 // CHECK:         }
@@ -61,7 +61,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @from_ptr_tensor_addrspace(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4x!tt.ptr<f16, 5>>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: tensor<4x!tt.ptr<f16, 5>>) {
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : tensor<4x!tt.ptr<f16, 5>> to !tta.addr<f16, 1, 5>
 // CHECK:           tt.return
 // CHECK:         }

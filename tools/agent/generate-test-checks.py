@@ -49,22 +49,29 @@ ADVERT_END = """
 
 # Regex command to match an SSA identifier.
 SSA_RE_STR = "[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*"
+SSA_CHECK_RE_STR = r"[-0-9A-Za-z$._]+"
 SSA_RE = re.compile(SSA_RE_STR)
 
 # Regex matching `dialect.op_name` (e.g. `vector.transfer_read`).
 SSA_OP_NAME_RE = re.compile(r"\b(?:\s=\s[a-z_]+)[.]([a-z_]+)\b")
 
 # Regex matching the left-hand side of an assignment
-SSA_RESULTS_STR = r'\s*(%' + SSA_RE_STR + r')(\s*,\s*(%' + SSA_RE_STR + r'))*\s*='
+SSA_RESULTS_STR = r"\s*(%" + SSA_RE_STR + r")(\s*,\s*(%" + SSA_RE_STR + r"))*\s*="
 SSA_RESULTS_RE = re.compile(SSA_RESULTS_STR)
 
 # Regex matching attributes
-ATTR_RE_STR = r'(#[a-zA-Z._-][a-zA-Z0-9._-]*)'
+ATTR_RE_STR = r"(#[a-zA-Z._-][a-zA-Z0-9._-]*)"
 ATTR_RE = re.compile(ATTR_RE_STR)
 
 # Regex matching the left-hand side of an attribute definition
-ATTR_DEF_RE_STR = r'\s*' + ATTR_RE_STR + r'\s*='
+ATTR_DEF_RE_STR = r"\s*" + ATTR_RE_STR + r"\s*="
 ATTR_DEF_RE = re.compile(ATTR_DEF_RE_STR)
+
+# Regex matching LLVM IR module output from `mlir-translate --mlir-to-llvmir`.
+LLVM_MODULE_RE = re.compile(r"^; ModuleID = ")
+LLVM_FUNCTION_RE = re.compile(r"^define\b")
+LLVM_TOP_LEVEL_RE = re.compile(r"^(target (triple|datalayout)|declare)\b")
+LLVM_SKIP_RE = re.compile(r"^(;|source_filename\b|attributes #|![A-Za-z0-9_.-]*( =|\b))")
 
 
 # Class used to generate and manage string substitution blocks for SSA value
@@ -83,7 +90,7 @@ class VariableNamer:
         self.generate_in_parent_scope_left = 0
 
         # Parse variable names
-        self.variable_names = [name.upper() for name in variable_names.split(',')]
+        self.variable_names = [name.upper() for name in variable_names.split(",")]
         self.used_variable_names = set()
 
     # Generate the following 'n' variable names in the parent scope.
@@ -92,11 +99,8 @@ class VariableNamer:
 
     # Generate a substitution name for the given ssa value name.
     def generate_name(self, source_variable_name, use_ssa_name, op_name=""):
-
         # Compute variable name
-        variable_name = (
-            self.variable_names.pop(0) if len(self.variable_names) > 0 else ""
-        )
+        variable_name = self.variable_names.pop(0) if len(self.variable_names) > 0 else ""
         if variable_name == "":
             # If `use_ssa_name` is set, use the MLIR SSA value name to generate
             # a FileCHeck substation string. As FileCheck requires these
@@ -110,9 +114,7 @@ class VariableNamer:
             if use_ssa_name and source_variable_name[0].isalpha():
                 variable_name = source_variable_name.upper()
             elif op_name != "":
-                variable_name = (
-                    op_name.upper() + "_" + str(self.op_name_counter[op_name])
-                )
+                variable_name = op_name.upper() + "_" + str(self.op_name_counter[op_name])
                 self.op_name_counter[op_name] += 1
             else:
                 variable_name = "VAL_" + str(self.name_counter)
@@ -123,11 +125,11 @@ class VariableNamer:
         if self.generate_in_parent_scope_left > 0:
             self.generate_in_parent_scope_left -= 1
             scope = len(self.scopes) - 2
-        assert(scope >= 0)
+        assert scope >= 0
 
         # Save variable
         if variable_name in self.used_variable_names:
-            raise RuntimeError(variable_name + ': duplicate variable name')
+            raise RuntimeError(variable_name + ": duplicate variable name")
         self.scopes[scope][source_variable_name] = variable_name
         self.used_variable_names.add(variable_name)
 
@@ -151,29 +153,28 @@ class VariableNamer:
         self.used_variable_names = set()
         self.op_name_counter.clear()
 
-class AttributeNamer:
 
+class AttributeNamer:
     def __init__(self, attribute_names):
         self.name_counter = 0
-        self.attribute_names = [name.upper() for name in attribute_names.split(',')]
+        self.attribute_names = [name.upper() for name in attribute_names.split(",")]
         self.map = {}
         self.used_attribute_names = set()
 
     # Generate a substitution name for the given attribute name.
     def generate_name(self, source_attribute_name):
-
         # Compute FileCheck name
-        attribute_name = self.attribute_names.pop(0) if len(self.attribute_names) > 0 else ''
-        if attribute_name == '':
+        attribute_name = self.attribute_names.pop(0) if len(self.attribute_names) > 0 else ""
+        if attribute_name == "":
             attribute_name = "ATTR_" + str(self.name_counter)
             self.name_counter += 1
 
         # Prepend global symbol
-        attribute_name = '$' + attribute_name
+        attribute_name = "$" + attribute_name
 
         # Save attribute
         if attribute_name in self.used_attribute_names:
-            raise RuntimeError(attribute_name + ': duplicate attribute name')
+            raise RuntimeError(attribute_name + ": duplicate attribute name")
         self.map[source_attribute_name] = attribute_name
         self.used_attribute_names.add(attribute_name)
         return attribute_name
@@ -183,12 +184,13 @@ class AttributeNamer:
     def get_name(self, source_attribute_name):
         return self.map.get(source_attribute_name)
 
+
 # Return the number of SSA results in a line of type
 #   %0, %1, ... = ...
 # The function returns 0 if there are no results.
 def get_num_ssa_results(input_line):
     m = SSA_RESULTS_RE.match(input_line)
-    return m.group().count('%') if m else 0
+    return m.group().count("%") if m else 0
 
 
 # Process a line of input that has been split at each SSA identifier '%'.
@@ -200,9 +202,7 @@ def process_line(line_chunks, variable_namer, use_ssa_name=False, strict_name_re
         ssa = SSA_RE.match(chunk)
         op_name_with_dialect = SSA_OP_NAME_RE.search(chunk)
         ssa_name = ssa.group(0) if ssa is not None else ""
-        op_name = (
-            op_name_with_dialect.group(1) if op_name_with_dialect is not None else ""
-        )
+        op_name = op_name_with_dialect.group(1) if op_name_with_dialect is not None else ""
 
         # Check if an existing variable exists for this name.
         variable = None
@@ -222,7 +222,7 @@ def process_line(line_chunks, variable_namer, use_ssa_name=False, strict_name_re
                 # Greedy matching may cause issues with the generic '.*'
                 # regexp when the checks are split across several
                 # lines (e.g. for CHECK-SAME).
-                output_line += "%[[" + variable + ":" + SSA_RE_STR + "]]"
+                output_line += "%[[" + variable + ":" + SSA_CHECK_RE_STR + "]]"
             else:
                 output_line += "%[[" + variable + ":.*]]"
 
@@ -237,9 +237,7 @@ def process_source_lines(source_lines, args):
     source_split_re = re.compile(args.source_delim_regex)
     # NOTE: Diverges from upstream to avoid stripping // RUN lines that mention
     # --check-prefix=..., only remove actual FileCheck directive comments.
-    check_line_re = re.compile(
-        r'^\s*//\s*' + re.escape(args.check_prefix) + r'(\b|[-:])'
-    )
+    check_line_re = re.compile(r"^\s*//\s*" + re.escape(args.check_prefix) + r"(\b|[-:])")
 
     source_segments = [[]]
     for line in source_lines:
@@ -252,6 +250,17 @@ def process_source_lines(source_lines, args):
 
         source_segments[-1].append(line + "\n")
     return source_segments
+
+
+def merge_leading_output_checks(output_segments, source_segments):
+    if not source_segments or len(output_segments) < 2 or not output_segments[0]:
+        return
+
+    # Generated prelude ops, such as private declarations inserted by a pass, do
+    # not have a matching source delimiter. Keep their checks near the first
+    # checked source op instead of writing them before RUN lines.
+    output_segments[1] = output_segments[0] + output_segments[1]
+    output_segments[0] = []
 
 
 def process_attribute_definition(line, attribute_namer):
@@ -269,18 +278,19 @@ def process_attribute_definition(line, attribute_namer):
         )
     return None
 
-def process_attribute_references(line, attribute_namer):
 
-    output_line = ''
+def process_attribute_references(line, attribute_namer):
+    output_line = ""
     components = ATTR_RE.split(line)
     for component in components:
         m = ATTR_RE.match(component)
         attribute_name = attribute_namer.get_name(m.group(1)) if m else None
         if attribute_name:
-            output_line += f"#[[{attribute_name}]]{component[len(m.group()):]}"
+            output_line += f"#[[{attribute_name}]]{component[len(m.group()) :]}"
         else:
             output_line += component
     return output_line
+
 
 # Pre-process a line of input to remove any character sequences that will be
 # problematic with FileCheck.
@@ -301,19 +311,103 @@ def preprocess_line(line):
     return output_line
 
 
+def is_llvm_ir(input_lines):
+    return any(
+        LLVM_MODULE_RE.match(line) or LLVM_FUNCTION_RE.match(line) or LLVM_TOP_LEVEL_RE.match(line)
+        for line in input_lines
+    )
+
+
+def get_check_line(
+    input_line,
+    variable_namer,
+    check_prefix,
+    use_label=False,
+    use_ssa_names=False,
+    strict_name_re=False,
+):
+    input_line = preprocess_line(input_line)
+    ssa_split = input_line.split("%")
+
+    if use_label:
+        label_text = ssa_split[0].rstrip()
+        if len(label_text) != len(ssa_split[0]):
+            label_text += "{{[[:space:]]+}}"
+        output_line = "// " + check_prefix + "-LABEL: " + label_text + "\n"
+        for argument in ssa_split[1:]:
+            output_line += "// " + check_prefix + "-SAME:  "
+            # Function-like label arguments share one physical input line and
+            # are matched by multiple CHECK-SAME directives. Keep these captures
+            # non-greedy even when global strict name matching is disabled.
+            output_line += process_line([argument], variable_namer, use_ssa_names, True)
+        return output_line
+
+    output_line = "// " + check_prefix + ": "
+    output_line += " " * len("-LABEL")
+    output_line += ssa_split[0]
+    output_line += process_line(ssa_split[1:], variable_namer, strict_name_re=strict_name_re)
+    return output_line
+
+
+def process_llvm_ir_lines(input_lines, args):
+    output_segments = [[]]
+    variable_namer = VariableNamer(args.variable_names)
+    in_function = False
+
+    for input_line in input_lines:
+        if not input_line:
+            continue
+
+        if LLVM_MODULE_RE.match(input_line):
+            output_segments.append([])
+            variable_namer.clear_names()
+            in_function = False
+            continue
+
+        if LLVM_SKIP_RE.match(input_line):
+            continue
+
+        if LLVM_FUNCTION_RE.match(input_line):
+            variable_namer.clear_names()
+            variable_namer.push_name_scope()
+            in_function = True
+            output_segments[-1].append(
+                get_check_line(
+                    input_line,
+                    variable_namer,
+                    args.check_prefix,
+                    use_label=True,
+                    use_ssa_names=True,
+                    strict_name_re=args.strict_name_re,
+                )
+            )
+            continue
+
+        if input_line == "}":
+            output_segments[-1].append(get_check_line(input_line, variable_namer, args.check_prefix))
+            if in_function:
+                variable_namer.pop_name_scope()
+            in_function = False
+            continue
+
+        if in_function or LLVM_TOP_LEVEL_RE.match(input_line):
+            output_segments[-1].append(
+                get_check_line(
+                    input_line,
+                    variable_namer,
+                    args.check_prefix,
+                    strict_name_re=args.strict_name_re,
+                )
+            )
+
+    return output_segments
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument(
-        "--check-prefix", default="CHECK", help="Prefix to use from check file."
-    )
-    parser.add_argument(
-        "-o", "--output", nargs="?", type=argparse.FileType("w"), default=None
-    )
-    parser.add_argument(
-        "input", nargs="?", type=argparse.FileType("r"), default=sys.stdin
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument("--check-prefix", default="CHECK", help="Prefix to use from check file.")
+    parser.add_argument("-o", "--output", nargs="?", type=argparse.FileType("w"), default=None)
+    parser.add_argument("input", nargs="?", type=argparse.FileType("r"), default=sys.stdin)
     parser.add_argument(
         "--source",
         type=str,
@@ -326,24 +420,25 @@ def main():
         "--starts_from_scope",
         type=int,
         default=1,
-        help="Omit the top specified level of content. For example, by default "
-        'it omits "module {"',
+        help='Omit the top specified level of content. For example, by default it omits "module {"',
     )
     parser.add_argument("-i", "--inplace", action="store_true", default=False)
     parser.add_argument(
         "--variable_names",
         type=str,
-        default='',
+        default="",
         help="Names to be used in FileCheck regular expression to represent SSA "
         "variables in the order they are encountered. Separate names with commas, "
-        "and leave empty entries for default names (e.g.: 'DIM,,SUM,RESULT')")
+        "and leave empty entries for default names (e.g.: 'DIM,,SUM,RESULT')",
+    )
     parser.add_argument(
         "--attribute_names",
         type=str,
-        default='',
+        default="",
         help="Names to be used in FileCheck regular expression to represent "
         "attributes in the order they are defined. Separate names with commas,"
-        "commas, and leave empty entries for default names (e.g.: 'MAP0,,,MAP1')")
+        "commas, and leave empty entries for default names (e.g.: 'MAP0,,,MAP1')",
+    )
     parser.add_argument(
         "--strict_name_re",
         type=bool,
@@ -360,7 +455,7 @@ def main():
 
     # Generate a note used for the generated check file.
     script_name = os.path.basename(__file__)
-    autogenerated_note = ADVERT_BEGIN + "tools/" + script_name + "\n" + ADVERT_END
+    autogenerated_note = ADVERT_BEGIN + "utils/" + script_name + "\n" + ADVERT_END
 
     source_segments = None
     if args.source:
@@ -377,7 +472,12 @@ def main():
     else:
         output = args.output
 
-    output_segments = [[]]
+    input_is_llvm_ir = is_llvm_ir(input_lines)
+
+    if input_is_llvm_ir:
+        output_segments = process_llvm_ir_lines(input_lines, args)
+    else:
+        output_segments = [[]]
 
     # Namers
     variable_namer = VariableNamer(args.variable_names)
@@ -386,8 +486,8 @@ def main():
     # Store attribute definitions to emit at appropriate scope
     pending_attr_defs = []
 
-    # Process lines
-    for input_line in input_lines:
+    # Process MLIR lines.
+    for input_line in [] if input_is_llvm_ir else input_lines:
         if not input_line:
             continue
 
@@ -479,9 +579,10 @@ def main():
                 # Process the rest of the line. Use the original SSA name to generate the LIT
                 # variable names.
                 use_ssa_names = True
-                output_line += process_line(
-                    [argument], variable_namer, use_ssa_names, args.strict_name_re
-                )
+                # Function-like label arguments share one physical input line and
+                # are matched by multiple CHECK-SAME directives. Keep these captures
+                # non-greedy even when global strict name matching is disabled.
+                output_line += process_line([argument], variable_namer, use_ssa_names, True)
 
         # Append the output line.
         output_segments[-1].append(output_line)
@@ -490,6 +591,7 @@ def main():
 
     # Write the output.
     if source_segments:
+        merge_leading_output_checks(output_segments, source_segments)
         assert len(output_segments) == len(source_segments)
         for check_segment, source_segment in zip(output_segments, source_segments):
             for line in check_segment:

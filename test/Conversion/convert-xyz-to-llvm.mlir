@@ -2,7 +2,7 @@
 
 module {
 // CHECK-LABEL:   llvm.func @load_from_generic(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !llvm.ptr) -> i32 {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !llvm.ptr) -> i32 {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !llvm.ptr to !ptr.ptr<#ptr.generic_space>
 // CHECK:           %[[LOAD_0:.*]] = llvm.load %[[ARG0]] : !llvm.ptr -> i32
 // CHECK:           llvm.return %[[LOAD_0]] : i32
@@ -18,8 +18,8 @@ module {
 
 module {
 // CHECK-LABEL:   llvm.func @store_to_generic(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !llvm.ptr,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !llvm.ptr,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !llvm.ptr to !ptr.ptr<#ptr.generic_space>
 // CHECK:           llvm.store %[[ARG1]], %[[ARG0]] : i32, !llvm.ptr
 // CHECK:           llvm.return
@@ -35,11 +35,11 @@ module {
 
 module {
 // CHECK-LABEL:   llvm.func @memspace_cast_roundtrip(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !llvm.ptr,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !llvm.ptr,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i64,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i64,
-// CHECK-SAME:      %[[ARG4:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i64) -> i32 {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !llvm.ptr,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !llvm.ptr,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i64,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: i64,
+// CHECK-SAME:      %[[ARG4:[-0-9A-Za-z$._]+]]: i64) -> i32 {
 // CHECK:           %[[MLIR_0:.*]] = llvm.mlir.poison : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
 // CHECK:           %[[INSERTVALUE_0:.*]] = llvm.insertvalue %[[ARG0]], %[[MLIR_0]][0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
 // CHECK:           %[[INSERTVALUE_1:.*]] = llvm.insertvalue %[[ARG1]], %[[INSERTVALUE_0]][1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>

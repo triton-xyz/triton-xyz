@@ -2,29 +2,29 @@
 
 module {
 // CHECK-LABEL:   tt.func @block_ptr_indirect_dim0_load_store(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) {
-// CHECK:           %[[IDX:.*]] = arith.constant dense<[3, 1, 0, 2]> : tensor<4xindex>
-// CHECK:           %[[C1:.*]] = arith.constant 1 : index
-// CHECK:           %[[C0:.*]] = arith.constant 0 : index
-// CHECK:           %[[C4:.*]] = arith.constant 4 : index
-// CHECK:           %[[SRC_CAST:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f16> to memref<*xf16>
-// CHECK:           %[[ALLOC:.*]] = memref.alloc() : memref<4x4xf16>
-// CHECK:           scf.for %[[IV:.*]] = %[[C0]] to %[[C4]] step %[[C1]] {
-// CHECK:             %[[OFF:.*]] = tensor.extract %[[IDX]]{{\[}}%[[IV]]] : tensor<4xindex>
-// CHECK:             %[[OFF4:.*]] = arith.muli %[[OFF]], %[[C4]] : index
-// CHECK:             %[[SRC:.*]] = memref.reinterpret_cast %[[SRC_CAST]] to offset: {{\[}}%[[OFF4]]], sizes: [1, 4], strides: [4, 1] : memref<*xf16> to memref<1x4xf16, strided<[4, 1], offset: ?>>
-// CHECK:             %[[DST:.*]] = memref.subview %[[ALLOC]]{{\[}}%[[IV]], 0] [1, 4] [1, 1] : memref<4x4xf16> to memref<1x4xf16, strided<[4, 1], offset: ?>>
-// CHECK:             memref.copy %[[SRC]], %[[DST]] : memref<1x4xf16, strided<[4, 1], offset: ?>> to memref<1x4xf16, strided<[4, 1], offset: ?>>
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f16>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f16>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[3, 1, 0, 2]> : tensor<4xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f16> to memref<*xf16>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4x4xf16>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:             %[[MULI_0:.*]] = arith.muli %[[EXTRACT_0]], %[[CONSTANT_3]] : index
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[MULI_0]]], sizes: [1, 4], strides: [4, 1] : memref<*xf16> to memref<1x4xf16, strided<[4, 1], offset: ?>>
+// CHECK:             %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]]{{\[}}%[[VAL_0]], 0] [1, 4] [1, 1] : memref<4x4xf16> to memref<1x4xf16, strided<[4, 1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<1x4xf16, strided<[4, 1], offset: ?>> to memref<1x4xf16, strided<[4, 1], offset: ?>>
 // CHECK:           }
-// CHECK:           %[[TENSOR:.*]] = bufferization.to_tensor %[[ALLOC]] restrict writable : memref<4x4xf16> to tensor<4x4xf16>
-// CHECK:           %[[DST_CAST:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f16> to memref<*xf16>
-// CHECK:           scf.for %[[IV2:.*]] = %[[C0]] to %[[C4]] step %[[C1]] {
-// CHECK:             %[[OFF2:.*]] = tensor.extract %[[IDX]]{{\[}}%[[IV2]]] : tensor<4xindex>
-// CHECK:             %[[OFF24:.*]] = arith.muli %[[OFF2]], %[[C4]] : index
-// CHECK:             %[[DST2:.*]] = memref.reinterpret_cast %[[DST_CAST]] to offset: {{\[}}%[[OFF24]]], sizes: [1, 4], strides: [4, 1] : memref<*xf16> to memref<1x4xf16, strided<[4, 1], offset: ?>>
-// CHECK:             %[[SLICE:.*]] = tensor.extract_slice %[[TENSOR]]{{\[}}%[[IV2]], 0] [1, 4] [1, 1] : tensor<4x4xf16> to tensor<1x4xf16>
-// CHECK:             bufferization.materialize_in_destination %[[SLICE]] in writable %[[DST2]] : (tensor<1x4xf16>, memref<1x4xf16, strided<[4, 1], offset: ?>>) -> ()
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4x4xf16> to tensor<4x4xf16>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f16> to memref<*xf16>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:             %[[MULI_1:.*]] = arith.muli %[[EXTRACT_1]], %[[CONSTANT_3]] : index
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[MULI_1]]], sizes: [1, 4], strides: [4, 1] : memref<*xf16> to memref<1x4xf16, strided<[4, 1], offset: ?>>
+// CHECK:             %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]]{{\[}}%[[VAL_1]], 0] [1, 4] [1, 1] : tensor<4x4xf16> to tensor<1x4xf16>
+// CHECK:             bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<1x4xf16>, memref<1x4xf16, strided<[4, 1], offset: ?>>) -> ()
 // CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
@@ -46,27 +46,27 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @block_ptr_indirect_dim1_load_store(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f16>) {
-// CHECK:           %[[IDX:.*]] = arith.constant dense<[2, 0, 3, 1]> : tensor<4xindex>
-// CHECK:           %[[C1:.*]] = arith.constant 1 : index
-// CHECK:           %[[C0:.*]] = arith.constant 0 : index
-// CHECK:           %[[C4:.*]] = arith.constant 4 : index
-// CHECK:           %[[SRC_CAST:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f16> to memref<*xf16>
-// CHECK:           %[[ALLOC:.*]] = memref.alloc() : memref<4x4xf16>
-// CHECK:           scf.for %[[IV:.*]] = %[[C0]] to %[[C4]] step %[[C1]] {
-// CHECK:             %[[OFF:.*]] = tensor.extract %[[IDX]]{{\[}}%[[IV]]] : tensor<4xindex>
-// CHECK:             %[[SRC:.*]] = memref.reinterpret_cast %[[SRC_CAST]] to offset: {{\[}}%[[OFF]]], sizes: [4, 1], strides: [4, 1] : memref<*xf16> to memref<4x1xf16, strided<[4, 1], offset: ?>>
-// CHECK:             %[[DST:.*]] = memref.subview %[[ALLOC]][0, %[[IV]]] [4, 1] [1, 1] : memref<4x4xf16> to memref<4x1xf16, strided<[4, 1], offset: ?>>
-// CHECK:             memref.copy %[[SRC]], %[[DST]] : memref<4x1xf16, strided<[4, 1], offset: ?>> to memref<4x1xf16, strided<[4, 1], offset: ?>>
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f16>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f16>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[2, 0, 3, 1]> : tensor<4xindex>
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 4 : index
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<f16> to memref<*xf16>
+// CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4x4xf16>
+// CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_0]]] : tensor<4xindex>
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_0]] to offset: {{\[}}%[[EXTRACT_0]]], sizes: [4, 1], strides: [4, 1] : memref<*xf16> to memref<4x1xf16, strided<[4, 1], offset: ?>>
+// CHECK:             %[[SUBVIEW_0:.*]] = memref.subview %[[ALLOC_0]][0, %[[VAL_0]]] [4, 1] [1, 1] : memref<4x4xf16> to memref<4x1xf16, strided<[4, 1], offset: ?>>
+// CHECK:             memref.copy %[[REINTERPRET_CAST_0]], %[[SUBVIEW_0]] : memref<4x1xf16, strided<[4, 1], offset: ?>> to memref<4x1xf16, strided<[4, 1], offset: ?>>
 // CHECK:           }
-// CHECK:           %[[TENSOR:.*]] = bufferization.to_tensor %[[ALLOC]] restrict writable : memref<4x4xf16> to tensor<4x4xf16>
-// CHECK:           %[[DST_CAST:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f16> to memref<*xf16>
-// CHECK:           scf.for %[[IV2:.*]] = %[[C0]] to %[[C4]] step %[[C1]] {
-// CHECK:             %[[OFF2:.*]] = tensor.extract %[[IDX]]{{\[}}%[[IV2]]] : tensor<4xindex>
-// CHECK:             %[[DST2:.*]] = memref.reinterpret_cast %[[DST_CAST]] to offset: {{\[}}%[[OFF2]]], sizes: [4, 1], strides: [4, 1] : memref<*xf16> to memref<4x1xf16, strided<[4, 1], offset: ?>>
-// CHECK:             %[[SLICE:.*]] = tensor.extract_slice %[[TENSOR]][0, %[[IV2]]] [4, 1] [1, 1] : tensor<4x4xf16> to tensor<4x1xf16>
-// CHECK:             bufferization.materialize_in_destination %[[SLICE]] in writable %[[DST2]] : (tensor<4x1xf16>, memref<4x1xf16, strided<[4, 1], offset: ?>>) -> ()
+// CHECK:           %[[TO_TENSOR_0:.*]] = bufferization.to_tensor %[[ALLOC_0]] restrict writable : memref<4x4xf16> to tensor<4x4xf16>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_1:.*]] = builtin.unrealized_conversion_cast %[[ARG1]] : !tt.ptr<f16> to memref<*xf16>
+// CHECK:           scf.for %[[VAL_1:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_3]] step %[[CONSTANT_1]] {
+// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_0]]{{\[}}%[[VAL_1]]] : tensor<4xindex>
+// CHECK:             %[[REINTERPRET_CAST_1:.*]] = memref.reinterpret_cast %[[UNREALIZED_CONVERSION_CAST_1]] to offset: {{\[}}%[[EXTRACT_1]]], sizes: [4, 1], strides: [4, 1] : memref<*xf16> to memref<4x1xf16, strided<[4, 1], offset: ?>>
+// CHECK:             %[[EXTRACT_SLICE_0:.*]] = tensor.extract_slice %[[TO_TENSOR_0]][0, %[[VAL_1]]] [4, 1] [1, 1] : tensor<4x4xf16> to tensor<4x1xf16>
+// CHECK:             bufferization.materialize_in_destination %[[EXTRACT_SLICE_0]] in writable %[[REINTERPRET_CAST_1]] : (tensor<4x1xf16>, memref<4x1xf16, strided<[4, 1], offset: ?>>) -> ()
 // CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }

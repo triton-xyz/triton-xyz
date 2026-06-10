@@ -2,9 +2,9 @@
 
 module {
 // CHECK-LABEL:   tt.func @address_reindex_advance_addr_type(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<f32, 2, 1>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2xi1>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tta.addr<f32, 2, 1>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<2xi32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<2xi1>) {
 // CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[ARG0]]) <{static_offsets = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_1:.*]] = "tta.indirect_reindex"(%[[VAL_0]], %[[ARG1]], %[[ARG2]]) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_2:.*]] = "tta.advance"(%[[VAL_1]]) <{static_deltas = array<i64: 1, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
@@ -22,9 +22,9 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_indirect_reindex_addr_type(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<f32, 2, 1>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2xi1>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tta.addr<f32, 2, 1>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<2xi32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<2xi1>) {
 // CHECK:           %[[VAL_0:.*]] = "tta.indirect_reindex"(%[[ARG0]], %[[ARG1]], %[[ARG2]]) <{indirect_dim = 1 : i32}> : (!tta.addr<f32, 2, 1>, tensor<2xi32>, tensor<2xi1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           tt.return
 // CHECK:         }
@@ -38,7 +38,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_make_addr_layout(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [2, 2], strides: [2, 1], offsets: [0, 0], wrap_boundaries: [0, 0], layout: "block", parent_shape: [2, 2] {layout_payload = {order = array<i32: 1, 0>}} : <f32> to !tta.addr<f32, 2, 1>
 // CHECK:           %[[MAKE_ADDR_1:.*]] = tta.make_addr %[[ARG0]] to sizes: [2, 2], strides: [2, 1], offsets: [0, 0], wrap_boundaries: [1, 4], layout: "strided" : <f32> to !tta.addr<f32, 2, 1>
 // CHECK:           tt.return
@@ -54,9 +54,9 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_mem_ops_addr_type(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tta.addr<f32, 2, 1>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<?x?xf32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tta.addr<f32, 2, 1>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<?x?xf32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[VAL_0:.*]] = "tta.load"(%[[ARG0]], %[[CONSTANT_0]]) <{operandSegmentSizes = array<i32: 1, 0, 1>, static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, f32) -> tensor<?x?xf32>
 // CHECK:           "tta.store"(%[[ARG0]], %[[VAL_0]]) <{static_mask_dims = array<i64>}> : (!tta.addr<f32, 2, 1>, tensor<?x?xf32>) -> ()
@@ -79,10 +79,10 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_core_ops(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant dense<[0, 1]> : tensor<2xi32>
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant dense<[true, false]> : tensor<2xi1>
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant true
@@ -137,9 +137,9 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_mixed_dynamic_make_addr(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: index,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: index) {
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [2, 2], strides: {{\[}}%[[ARG1]], 1], offsets: {{\[}}%[[ARG2]], 0], wrap_boundaries: [0, 0], layout: "block", parent_shape: [2, %[[ARG1]]] {layout_payload = {order = array<i32: 1, 0>}} : <f32> to !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_0:.*]] = "tta.reindex"(%[[MAKE_ADDR_0]]) <{static_offsets = array<i64: 0, 0>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
 // CHECK:           %[[VAL_1:.*]] = "tta.advance"(%[[VAL_0]]) <{static_deltas = array<i64: 0, 1>}> : (!tta.addr<f32, 2, 1>) -> !tta.addr<f32, 2, 1>
@@ -161,7 +161,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_scalar_ptr_reindex_advance(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 2.000000e+00 : f32
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : !tt.ptr<f32> to !tta.addr<f32, 1, 1>
@@ -185,7 +185,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_masked_load_store(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[MAKE_ADDR_0:.*]] = tta.make_addr %[[ARG0]] to sizes: [2, 2], strides: [2, 1], offsets: [0, 0], wrap_boundaries: [0, 0], layout: "strided" : <f32> to !tta.addr<f32, 2, 1>
@@ -207,9 +207,9 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @address_atomic_all_kinds(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[FROM_TT_PTR_0:.*]] = tta.from_tt_ptr %[[ARG0]] : !tt.ptr<i32> to !tta.addr<i32, 1, 1>

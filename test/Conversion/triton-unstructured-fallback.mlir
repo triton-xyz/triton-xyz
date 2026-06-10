@@ -2,8 +2,8 @@
 
 module {
 // CHECK-LABEL:   tt.func public @masked_load_store(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant true
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 4 : index
@@ -42,7 +42,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func public @tensor_atomic_rmw(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<f32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<f32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant true
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 4 : index
@@ -73,7 +73,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func public @tensor_atomic_cas(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index

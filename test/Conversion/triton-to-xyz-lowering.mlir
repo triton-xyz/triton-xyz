@@ -3,9 +3,9 @@
 module {
 // CHECK: #[[$ATTR_0:.+]] = affine_map<(d0) -> (d0)>
 // CHECK-LABEL:   func.func @vector_add(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: memref<*xf32>) {
 // CHECK:           %[[ALLOC_0:.*]] = memref.alloc() : memref<4xf32>
 // CHECK:           %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: [0], sizes: [4], strides: [1] : memref<*xf32> to memref<4xf32, strided<[1]>>
 // CHECK:           memref.copy %[[REINTERPRET_CAST_0]], %[[ALLOC_0]] : memref<4xf32, strided<[1]>> to memref<4xf32>
@@ -43,9 +43,9 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @gather_scatter_2d(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xi32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: memref<*xf32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
@@ -100,9 +100,9 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @atomic_scalar_tta_route(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xi32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xi32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[ARG0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           scf.if %[[ARG2]] {
@@ -121,9 +121,9 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @atomic_cas_scalar_tta_route(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xi32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xi32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[ARG0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[CONSTANT_0]]] : memref<?xi32> {
@@ -149,9 +149,9 @@ module {
 // CHECK: #[[$ATTR_3:.+]] = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK: #[[$ATTR_4:.+]] = affine_map<(d0, d1) -> (0, d1)>
 // CHECK-LABEL:   func.func @masked_2d_fallback(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 8 : index

@@ -2,18 +2,18 @@
 
 module {
 // CHECK-LABEL:   tt.func @atomic_tensor_add(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi1>) {
-// CHECK:           %[[ZERO_I32:.*]] = arith.constant 0 : i32
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: tensor<4xi1>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0 : index
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
 // CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
 // CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
-// CHECK:           %[[FOR_0:.*]] = scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_0]] step %[[CONSTANT_1]] iter_args(%[[VAL_1:.*]] = %[[EMPTY_0]]) -> (tensor<4xi32>) {
+// CHECK:           %[[FOR_0:.*]] = scf.for %[[VAL_0:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_1]] step %[[CONSTANT_2]] iter_args(%[[VAL_1:.*]] = %[[EMPTY_0]]) -> (tensor<4xi32>) {
 // CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
 // CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[ARG2]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
 // CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[ARG3]]{{\[}}%[[VAL_0]]] : tensor<4xi1>
@@ -22,7 +22,7 @@ module {
 // CHECK:               %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[EXTRACT_1]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:               scf.yield %[[ATOMIC_RMW_0]] : i32
 // CHECK:             } else {
-// CHECK:               scf.yield %[[ZERO_I32]] : i32
+// CHECK:               scf.yield %[[CONSTANT_0]] : i32
 // CHECK:             }
 // CHECK:             %[[INSERT_0:.*]] = tensor.insert %[[IF_0]] into %[[VAL_1]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
 // CHECK:             scf.yield %[[INSERT_0]] : tensor<4xi32>
@@ -40,10 +40,10 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @atomic_tensor_cas(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: tensor<4xi32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
@@ -77,10 +77,10 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @atomic_tensor_xchg_wrap(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi32>,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xi1>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<4xi32>,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: tensor<4xi1>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 8 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 3 : index
 // CHECK:           %[[CONSTANT_2:.*]] = arith.constant 4 : index

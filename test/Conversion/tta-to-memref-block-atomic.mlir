@@ -2,13 +2,13 @@
 
 module {
 // CHECK-LABEL:   tt.func @block_atomic_add_scalar(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK:           %[[SRC:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[CAST:.*]] = memref.cast %[[SRC]] : memref<*xi32> to memref<?xi32>
-// CHECK:           %[[OFFSET:.*]] = arith.index_cast %[[ARG1]] : i32 to index
-// CHECK:           %[[ATOMIC:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST]]{{\[}}%[[OFFSET]]] : (i32, memref<?xi32>) -> i32
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[ARG2]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
 // CHECK:           tt.return
 // CHECK:         }
   tt.func @block_atomic_add_scalar(%ptr: !tt.ptr<i32>, %off: i32, %val: i32) {
@@ -23,25 +23,30 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @block_atomic_add_tensor(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
-// CHECK:           %[[ZERO:.*]] = arith.constant 0 : i32
-// CHECK:           %[[OFFSETS:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-// CHECK:           %[[VALUES:.*]] = arith.constant dense<[10, 11, 12, 13]> : tensor<4xi32>
-// CHECK:           %[[MASK:.*]] = arith.constant dense<[true, false, true, true]> : tensor<4xi1>
-// CHECK:           %[[EMPTY:.*]] = tensor.empty() : tensor<4xi32>
-// CHECK:           scf.for %[[IV:.*]] = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[ACC:.*]] = %[[EMPTY]]) -> (tensor<4xi32>) {
-// CHECK:             %[[OFF:.*]] = tensor.extract %[[OFFSETS]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             %[[VAL:.*]] = tensor.extract %[[VALUES]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             %[[LANE_MASK:.*]] = tensor.extract %[[MASK]]{{\[}}%[[IV]]] : tensor<4xi1>
-// CHECK:             %[[CASTED:.*]] = arith.index_cast %[[OFF]] : i32 to index
-// CHECK:             %[[IF:.*]] = scf.if %[[LANE_MASK]] -> (i32) {
-// CHECK:               %[[ATOMIC:.*]] = memref.atomic_rmw addi %[[VAL]], %{{.*}}{{\[}}%[[CASTED]]] : (i32, memref<?xi32>) -> i32
-// CHECK:               scf.yield %[[ATOMIC]] : i32
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant dense<[10, 11, 12, 13]> : tensor<4xi32>
+// CHECK:           %[[CONSTANT_6:.*]] = arith.constant dense<[true, false, true, true]> : tensor<4xi1>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
+// CHECK:           %[[FOR_0:.*]] = scf.for %[[VAL_0:.*]] = %[[CONSTANT_3]] to %[[CONSTANT_1]] step %[[CONSTANT_2]] iter_args(%[[VAL_1:.*]] = %[[EMPTY_0]]) -> (tensor<4xi32>) {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_4]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_5]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[CONSTANT_6]]{{\[}}%[[VAL_0]]] : tensor<4xi1>
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
+// CHECK:             %[[IF_0:.*]] = scf.if %[[EXTRACT_2]] -> (i32) {
+// CHECK:               %[[ATOMIC_RMW_0:.*]] = memref.atomic_rmw addi %[[EXTRACT_1]], %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : (i32, memref<?xi32>) -> i32
+// CHECK:               scf.yield %[[ATOMIC_RMW_0]] : i32
 // CHECK:             } else {
-// CHECK:               scf.yield %[[ZERO]] : i32
+// CHECK:               scf.yield %[[CONSTANT_0]] : i32
 // CHECK:             }
-// CHECK:             %[[NEXT:.*]] = tensor.insert %[[IF]] into %[[ACC]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             scf.yield %[[NEXT]] : tensor<4xi32>
+// CHECK:             %[[INSERT_0:.*]] = tensor.insert %[[IF_0]] into %[[VAL_1]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             scf.yield %[[INSERT_0]] : tensor<4xi32>
 // CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
@@ -60,18 +65,18 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @block_atomic_cas_scalar(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
-// CHECK:           %[[SRC:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
-// CHECK:           %[[CAST:.*]] = memref.cast %[[SRC]] : memref<*xi32> to memref<?xi32>
-// CHECK:           %[[OFFSET:.*]] = arith.index_cast %[[ARG1]] : i32 to index
-// CHECK:           %[[GENERIC:.*]] = memref.generic_atomic_rmw %[[CAST]]{{\[}}%[[OFFSET]]] : memref<?xi32> {
-// CHECK:           ^bb0(%[[CUR:.*]]: i32):
-// CHECK:             %[[CMP:.*]] = arith.cmpi eq, %[[CUR]], %[[ARG2]] : i32
-// CHECK:             %[[SELECT:.*]] = arith.select %[[CMP]], %[[ARG3]], %[[CUR]] : i32
-// CHECK:             memref.atomic_yield %[[SELECT]] : i32
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: i32) {
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:           %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
+// CHECK:           ^bb0(%[[VAL_0:.*]]: i32):
+// CHECK:             %[[CMPI_0:.*]] = arith.cmpi eq, %[[VAL_0]], %[[ARG2]] : i32
+// CHECK:             %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[ARG3]], %[[VAL_0]] : i32
+// CHECK:             memref.atomic_yield %[[SELECT_0]] : i32
 // CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }
@@ -87,24 +92,29 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @block_atomic_cas_tensor(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: !tt.ptr<i32>) {
-// CHECK:           %[[OFFSETS:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
-// CHECK:           %[[COMPARE:.*]] = arith.constant dense<[7, 6, 5, 4]> : tensor<4xi32>
-// CHECK:           %[[VALUES:.*]] = arith.constant dense<[20, 21, 22, 23]> : tensor<4xi32>
-// CHECK:           %[[EMPTY:.*]] = tensor.empty() : tensor<4xi32>
-// CHECK:           scf.for %[[IV:.*]] = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[ACC:.*]] = %[[EMPTY]]) -> (tensor<4xi32>) {
-// CHECK:             %[[OFF:.*]] = tensor.extract %[[OFFSETS]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             %[[CMP:.*]] = tensor.extract %[[COMPARE]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             %[[VAL:.*]] = tensor.extract %[[VALUES]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             %[[CASTED:.*]] = arith.index_cast %[[OFF]] : i32 to index
-// CHECK:             %[[GENERIC:.*]] = memref.generic_atomic_rmw %{{.*}}{{\[}}%[[CASTED]]] : memref<?xi32> {
-// CHECK:             ^bb0(%[[CUR:.*]]: i32):
-// CHECK:               %[[EQ:.*]] = arith.cmpi eq, %[[CUR]], %[[CMP]] : i32
-// CHECK:               %[[SELECT:.*]] = arith.select %[[EQ]], %[[VAL]], %[[CUR]] : i32
-// CHECK:               memref.atomic_yield %[[SELECT]] : i32
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: !tt.ptr<i32>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_3:.*]] = arith.constant dense<[0, 1, 2, 3]> : tensor<4xi32>
+// CHECK:           %[[CONSTANT_4:.*]] = arith.constant dense<[7, 6, 5, 4]> : tensor<4xi32>
+// CHECK:           %[[CONSTANT_5:.*]] = arith.constant dense<[20, 21, 22, 23]> : tensor<4xi32>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !tt.ptr<i32> to memref<*xi32>
+// CHECK:           %[[CAST_0:.*]] = memref.cast %[[UNREALIZED_CONVERSION_CAST_0]] : memref<*xi32> to memref<?xi32>
+// CHECK:           %[[EMPTY_0:.*]] = tensor.empty() : tensor<4xi32>
+// CHECK:           %[[FOR_0:.*]] = scf.for %[[VAL_0:.*]] = %[[CONSTANT_2]] to %[[CONSTANT_0]] step %[[CONSTANT_1]] iter_args(%[[VAL_1:.*]] = %[[EMPTY_0]]) -> (tensor<4xi32>) {
+// CHECK:             %[[EXTRACT_0:.*]] = tensor.extract %[[CONSTANT_3]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             %[[EXTRACT_1:.*]] = tensor.extract %[[CONSTANT_4]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             %[[EXTRACT_2:.*]] = tensor.extract %[[CONSTANT_5]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             %[[INDEX_CAST_0:.*]] = arith.index_cast %[[EXTRACT_0]] : i32 to index
+// CHECK:             %[[GENERIC_ATOMIC_RMW_0:.*]] = memref.generic_atomic_rmw %[[CAST_0]]{{\[}}%[[INDEX_CAST_0]]] : memref<?xi32> {
+// CHECK:             ^bb0(%[[VAL_2:.*]]: i32):
+// CHECK:               %[[CMPI_0:.*]] = arith.cmpi eq, %[[VAL_2]], %[[EXTRACT_1]] : i32
+// CHECK:               %[[SELECT_0:.*]] = arith.select %[[CMPI_0]], %[[EXTRACT_2]], %[[VAL_2]] : i32
+// CHECK:               memref.atomic_yield %[[SELECT_0]] : i32
 // CHECK:             }
-// CHECK:             %[[NEXT:.*]] = tensor.insert %[[GENERIC]] into %[[ACC]]{{\[}}%[[IV]]] : tensor<4xi32>
-// CHECK:             scf.yield %[[NEXT]] : tensor<4xi32>
+// CHECK:             %[[INSERT_0:.*]] = tensor.insert %[[GENERIC_ATOMIC_RMW_0]] into %[[VAL_1]]{{\[}}%[[VAL_0]]] : tensor<4xi32>
+// CHECK:             scf.yield %[[INSERT_0]] : tensor<4xi32>
 // CHECK:           }
 // CHECK:           tt.return
 // CHECK:         }

@@ -2,9 +2,9 @@
 
 module {
 // CHECK-LABEL:   func.func @func_ptr_args(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xi8>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<4xi8>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i32) {
 // CHECK:           return
 // CHECK:         }
   func.func @func_ptr_args(%arg0: !tt.ptr<f32>, %arg1: tensor<4x!tt.ptr<i8>>, %arg2: i32) {
@@ -16,9 +16,9 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @ptr_select_to_memref_select(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
 // CHECK:           %[[SELECT_0:.*]] = arith.select %[[ARG2]], %[[ARG0]], %[[ARG1]] : memref<*xf32>
@@ -41,7 +41,7 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @tt_ptr_arg(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf16>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf16>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f16
 // CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : memref<*xf16> to !tt.ptr<f16>
 // CHECK:           tt.store %[[UNREALIZED_CONVERSION_CAST_0]], %[[CONSTANT_0]] : !tt.ptr<f16>
@@ -58,7 +58,7 @@ module {
 
 module {
 // CHECK-LABEL:   func.func @callee(
-// CHECK-SAME:                      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>) -> f32 {
+// CHECK-SAME:                      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>) -> f32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1.000000e+00 : f32
 // CHECK:           return %[[CONSTANT_0]] : f32
 // CHECK:         }
@@ -68,7 +68,7 @@ module {
   }
 
 // CHECK-LABEL:   func.func @caller(
-// CHECK-SAME:                      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>) -> f32 {
+// CHECK-SAME:                      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>) -> f32 {
 // CHECK:           %[[VAL_0:.*]] = call @callee(%[[ARG0]]) : (memref<*xf32>) -> f32
 // CHECK:           return %[[VAL_0]] : f32
 // CHECK:         }
@@ -82,8 +82,8 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @tensor_ptr_store(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<4xf32>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_0]]] : tensor<4xf32>
 // CHECK:           memref.store %[[EXTRACT_0]], %[[ARG0]]{{\[}}%[[CONSTANT_0]]] : memref<4xf32>
@@ -102,10 +102,10 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @tensor_ptr_masked_load_store(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: f32) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: i1,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: f32) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
 // CHECK:           %[[IF_0:.*]] = scf.if %[[ARG2]] -> (f32) {
 // CHECK:             %[[LOAD_0:.*]] = memref.load %[[ARG0]]{{\[}}%[[CONSTANT_0]]] : memref<4xf32>
@@ -132,8 +132,8 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @tensor_ptr_masked_load_no_other(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i1) -> f32 {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i1) -> f32 {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
 // CHECK:           %[[IF_0:.*]] = scf.if %[[ARG1]] -> (f32) {
@@ -156,8 +156,8 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @tensor_ptr_multi_dim(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<2x3xi16>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<2x3xi16>) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<2x3xi16>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: tensor<2x3xi16>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 1 : index
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 0 : index
 // CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG1]]{{\[}}%[[CONSTANT_1]], %[[CONSTANT_0]]] : tensor<2x3xi16>
@@ -178,10 +178,10 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @tensor_ptr_dynamic_index(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
-// CHECK-SAME:      %[[ARG1:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<4xf32>,
-// CHECK-SAME:      %[[ARG2:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: tensor<4xf32>,
-// CHECK-SAME:      %[[ARG3:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: index) {
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: memref<4xf32>,
+// CHECK-SAME:      %[[ARG2:[-0-9A-Za-z$._]+]]: tensor<4xf32>,
+// CHECK-SAME:      %[[ARG3:[-0-9A-Za-z$._]+]]: index) {
 // CHECK:           %[[EXTRACT_0:.*]] = tensor.extract %[[ARG2]]{{\[}}%[[ARG3]]] : tensor<4xf32>
 // CHECK:           %[[LOAD_0:.*]] = memref.load %[[ARG0]]{{\[}}%[[ARG3]]] : memref<4xf32>
 // CHECK:           %[[ADDF_0:.*]] = arith.addf %[[LOAD_0]], %[[EXTRACT_0]] : f32
@@ -203,23 +203,23 @@ module {
 
 module {
 // CHECK-LABEL:   tt.func @scalar_ptr_truthy_load(
-// CHECK-SAME:      %[[ARG0:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: memref<*xf32>,
-// CHECK-SAME:      %[[OFF:[0-9]+|[a-zA-Z$._-][a-zA-Z0-9$._-]*]]: i32) -> f32 {
-// CHECK:           %[[C0:.*]] = arith.constant 0 : index
-// CHECK:           %[[ONE:.*]] = arith.constant 1.000000e+00 : f32
-// CHECK:           %[[C0_I64:.*]] = arith.constant 0 : i64
-// CHECK:           %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<*xf32> -> index
-// CHECK:           %[[PTR_INT:.*]] = arith.index_cast %[[INTPTR]] : index to i64
-// CHECK:           %[[PRED:.*]] = arith.cmpi ne, %[[PTR_INT]], %[[C0_I64]] : i64
-// CHECK:           %[[IF:.*]] = scf.if %[[PRED]] -> (f32) {
-// CHECK:             %[[IDX:.*]] = arith.index_cast %[[OFF]] : i32 to index
-// CHECK:             %[[VIEW:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: [%[[IDX]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
-// CHECK:             %[[LOAD:.*]] = memref.load %[[VIEW]][%[[C0]]] : memref<1xf32, strided<[1], offset: ?>>
-// CHECK:             scf.yield %[[LOAD]] : f32
+// CHECK-SAME:      %[[ARG0:[-0-9A-Za-z$._]+]]: memref<*xf32>,
+// CHECK-SAME:      %[[ARG1:[-0-9A-Za-z$._]+]]: i32) -> f32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i64
+// CHECK:           %[[EXTRACT_ALIGNED_POINTER_AS_INDEX_0:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<*xf32> -> index
+// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[EXTRACT_ALIGNED_POINTER_AS_INDEX_0]] : index to i64
+// CHECK:           %[[CMPI_0:.*]] = arith.cmpi ne, %[[INDEX_CAST_0]], %[[CONSTANT_2]] : i64
+// CHECK:           %[[IF_0:.*]] = scf.if %[[CMPI_0]] -> (f32) {
+// CHECK:             %[[INDEX_CAST_1:.*]] = arith.index_cast %[[ARG1]] : i32 to index
+// CHECK:             %[[REINTERPRET_CAST_0:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: {{\[}}%[[INDEX_CAST_1]]], sizes: [1], strides: [1] : memref<*xf32> to memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             %[[LOAD_0:.*]] = memref.load %[[REINTERPRET_CAST_0]]{{\[}}%[[CONSTANT_0]]] : memref<1xf32, strided<[1], offset: ?>>
+// CHECK:             scf.yield %[[LOAD_0]] : f32
 // CHECK:           } else {
-// CHECK:             scf.yield %[[ONE]] : f32
+// CHECK:             scf.yield %[[CONSTANT_1]] : f32
 // CHECK:           }
-// CHECK:           tt.return %[[IF]] : f32
+// CHECK:           tt.return %[[IF_0]] : f32
 // CHECK:         }
   tt.func @scalar_ptr_truthy_load(%arg0: !tt.ptr<f32>, %off: i32) -> f32 {
     %c0_i64 = arith.constant 0 : i64
