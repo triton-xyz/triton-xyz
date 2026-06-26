@@ -18,10 +18,13 @@ export TT_XYZ_ENABLE_DUMP_DIR="${TT_XYZ_ENABLE_DUMP_DIR:-$DUMP_DIR/triton_xyz_ml
 export TRITON_XYZ_FIRST_CONFIG_ONLY="${TRITON_XYZ_FIRST_CONFIG_ONLY:-1}"
 export TRITON_XYZ_PYTEST_TIMEOUT="${TRITON_XYZ_PYTEST_TIMEOUT:-120}"
 
+export TT_XYZ_ENABLE_DUMP=0
+
 export GEMS_VENDOR="${GEMS_VENDOR:-xyz}"
 
 if [ "$#" -eq 0 ]; then
   args=(
+    #
     -v
     #
     --mode quick
@@ -31,9 +34,14 @@ if [ "$#" -eq 0 ]; then
   )
 else
   args=(
+    #
     -v
+    #
     --mode quick
     --ref cpu
+    #
+    -n 32
+    #
     "$@"
   )
 fi
