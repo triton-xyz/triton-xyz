@@ -19,6 +19,7 @@
 #include "triton-xyz/Analysis/AnalysisAddress.h"
 #include "triton-xyz/Analysis/OpFoldResultUtils.h"
 #include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Conversion/TritonToXyz/TTAConversionUtils.h"
 #include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 
@@ -78,6 +79,7 @@ using AddressDescriptor = mlir::triton::address::AddressDescriptor;
 using AddressFeatures = mlir::triton::address::AddressFeatures;
 using DimRule = mlir::triton::address::DimRule;
 using LayoutKind = mlir::triton::address::LayoutKind;
+using mlir::triton::tta_conversion::isTTAMakeAddrRootedChain;
 
 struct IndirectDimInfo {
   int64_t dim;
@@ -226,24 +228,6 @@ buildAllTrueMaskTensor(Value maskTensor, Location loc,
         tensor::YieldOp::create(builder, bodyLoc, trueValue);
       });
   return generate.getResult();
-}
-
-static bool isAddressChainRootedAtMakeAddr(Value value) {
-  while (true) {
-    if (auto reindex = value.getDefiningOp<tta::ReindexOp>()) {
-      value = reindex.getAddress();
-      continue;
-    }
-    if (auto reindex = value.getDefiningOp<tta::IndirectReindexOp>()) {
-      value = reindex.getAddress();
-      continue;
-    }
-    if (auto advance = value.getDefiningOp<tta::AdvanceOp>()) {
-      value = advance.getAddress();
-      continue;
-    }
-    return static_cast<bool>(value.getDefiningOp<tta::MakeAddrOp>());
-  }
 }
 
 static FailureOr<IndirectInfo>
@@ -634,7 +618,7 @@ static FailureOr<AddressDescriptor> applyAddressStepInfoToDescriptor(
 static FailureOr<AddressDescriptor> collectAddressDescriptorWithCommonAnalysis(
     Value address, Location loc, ConversionPatternRewriter &rewriter,
     std::optional<StringRef> *failureReason = nullptr) {
-  bool rootedAtMakeAddr = isAddressChainRootedAtMakeAddr(address);
+  bool rootedAtMakeAddr = isTTAMakeAddrRootedChain(address);
   auto imported = address.getDefiningOp<tta::FromTTPtrOp>();
   if (!rootedAtMakeAddr && !imported) {
     if (failureReason) {

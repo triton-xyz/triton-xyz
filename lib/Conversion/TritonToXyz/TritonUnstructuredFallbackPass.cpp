@@ -6,9 +6,11 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Conversion/TritonToXyz/TTAConversionUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 using namespace mlir;
+using mlir::triton::tta_conversion::isTensorOfTritonPointers;
 using mlir::triton::xyz_conversion::markScalarFallbackWarn;
 
 #define DEBUG_TYPE "triton-unstructured-fallback"
@@ -19,14 +21,6 @@ namespace mlir::triton {
 } // namespace mlir::triton
 
 namespace {
-
-static bool isTensorOfPointers(Type type) {
-  auto tensorType = dyn_cast<RankedTensorType>(type);
-  if (!tensorType) {
-    return false;
-  }
-  return isa<triton::PointerType>(tensorType.getElementType());
-}
 
 static Value getDimValue(OpBuilder &b, Location loc, Value tensor, int64_t dim,
                          int64_t dimSize) {
@@ -77,7 +71,7 @@ class ScalarizeTensorLoad : public OpRewritePattern<triton::LoadOp> {
   LogicalResult matchAndRewrite(triton::LoadOp op,
                                 PatternRewriter &rewriter) const override {
     auto ptrType = dyn_cast<RankedTensorType>(op.getPtr().getType());
-    if (!ptrType || !isTensorOfPointers(ptrType)) {
+    if (!ptrType || !isTensorOfTritonPointers(ptrType)) {
       return failure();
     }
     auto resultType = dyn_cast<RankedTensorType>(op.getType());
@@ -134,7 +128,7 @@ class ScalarizeTensorStore : public OpRewritePattern<triton::StoreOp> {
   LogicalResult matchAndRewrite(triton::StoreOp op,
                                 PatternRewriter &rewriter) const override {
     auto ptrType = dyn_cast<RankedTensorType>(op.getPtr().getType());
-    if (!ptrType || !isTensorOfPointers(ptrType)) {
+    if (!ptrType || !isTensorOfTritonPointers(ptrType)) {
       return failure();
     }
     markScalarFallbackWarn(op.getOperation());
@@ -179,7 +173,7 @@ class ScalarizeTensorAtomicRMW : public OpRewritePattern<triton::AtomicRMWOp> {
   LogicalResult matchAndRewrite(triton::AtomicRMWOp op,
                                 PatternRewriter &rewriter) const override {
     auto ptrType = dyn_cast<RankedTensorType>(op.getPtr().getType());
-    if (!ptrType || !isTensorOfPointers(ptrType)) {
+    if (!ptrType || !isTensorOfTritonPointers(ptrType)) {
       return failure();
     }
     auto resultType = dyn_cast<RankedTensorType>(op.getType());
@@ -237,7 +231,7 @@ class ScalarizeTensorAtomicCAS : public OpRewritePattern<triton::AtomicCASOp> {
   LogicalResult matchAndRewrite(triton::AtomicCASOp op,
                                 PatternRewriter &rewriter) const override {
     auto ptrType = dyn_cast<RankedTensorType>(op.getPtr().getType());
-    if (!ptrType || !isTensorOfPointers(ptrType)) {
+    if (!ptrType || !isTensorOfTritonPointers(ptrType)) {
       return failure();
     }
     auto resultType = dyn_cast<RankedTensorType>(op.getType());
@@ -295,7 +289,7 @@ class ScalarizeTensorAddPtr : public OpRewritePattern<triton::AddPtrOp> {
   LogicalResult matchAndRewrite(triton::AddPtrOp op,
                                 PatternRewriter &rewriter) const override {
     auto ptrType = dyn_cast<RankedTensorType>(op.getPtr().getType());
-    if (!ptrType || !isTensorOfPointers(ptrType)) {
+    if (!ptrType || !isTensorOfTritonPointers(ptrType)) {
       return failure();
     }
     markScalarFallbackWarn(op.getOperation());

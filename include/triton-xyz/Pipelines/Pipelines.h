@@ -14,6 +14,10 @@ struct TritonToXyzPipelineOptions
   PassOptions::Option<bool> assertToCf{
       *this, "assert-to-cf", llvm::cl::desc("Convert tt.assert to cf.assert"),
       llvm::cl::init(true)};
+  PassOptions::Option<size_t> unstructuredOffsetBitWidth{
+      *this, "unstructured-offset-bit-width",
+      llvm::cl::desc("Bitwidth used for Triton unstructured pointer offsets"),
+      llvm::cl::init(32)};
 };
 
 void buildTritonToXyzPipeline(OpPassManager &pm,

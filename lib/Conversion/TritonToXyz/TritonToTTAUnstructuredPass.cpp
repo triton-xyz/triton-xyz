@@ -18,6 +18,7 @@
 #include "triton-xyz/Analysis/AnalysisAddress.h"
 #include "triton-xyz/Analysis/OpFoldResultUtils.h"
 #include "triton-xyz/Conversion/TritonToXyz/Passes.h" // IWYU pragma: keep
+#include "triton-xyz/Conversion/TritonToXyz/TTAConversionUtils.h"
 #include "triton-xyz/Dialect/TritonAddress/IR/TritonAddressDialect.h"
 #include "triton-xyz/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -28,7 +29,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include <algorithm>
@@ -47,58 +47,12 @@ namespace mlir::triton {
 namespace {
 
 using TTAEmitter = mlir::triton::address::TTAEmitter;
+using mlir::triton::tta_conversion::getIntegerLikeBitWidth;
+using mlir::triton::tta_conversion::getPointerOffsetType;
 using mlir::triton::tta_conversion::hasLoweredTTAAddressRoot;
+using mlir::triton::tta_conversion::isScalarTritonPointer;
+using mlir::triton::tta_conversion::isTensorOfTritonPointers;
 using mlir::triton::tta_conversion::markFallback;
-
-// Given a type, return the offset type corresponding to that type with the
-// specified width.
-// If the type is a tensor, return a tensor of offsets of the same shape. If the
-// type is a pointer, return a single offset type.
-static Type getPtrOffsetType(Type type, unsigned int bitWidth) {
-  if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-    if (isa<triton::PointerType>(tensorType.getElementType())) {
-      return RankedTensorType::get(
-          tensorType.getShape(), IntegerType::get(type.getContext(), bitWidth));
-    }
-  }
-
-  if (isa<triton::PointerType>(type)) {
-    return IntegerType::get(type.getContext(), bitWidth);
-  }
-
-  llvm_unreachable("unexpected type");
-  return nullptr;
-}
-
-static unsigned int getBitWidth(Type type) {
-  if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-    if (auto integerType = dyn_cast<IntegerType>(tensorType.getElementType())) {
-      return integerType.getWidth();
-    }
-  } else if (auto integerType = dyn_cast<IntegerType>(type)) {
-    return integerType.getWidth();
-  }
-
-  llvm_unreachable("unexpected type");
-  return 0;
-}
-
-static bool isTensorOfPointers(Type type) {
-  auto tensorType = dyn_cast<RankedTensorType>(type);
-  if (!tensorType) {
-    return false;
-  }
-  return isa<triton::PointerType>(tensorType.getElementType());
-}
-
-static bool isScalarPointer(Type type) {
-  auto ptrType = dyn_cast<triton::PointerType>(type);
-  if (!ptrType) {
-    return false;
-  }
-
-  return !isa<RankedTensorType>(ptrType.getPointeeType());
-}
 
 static bool isValueDefinedInsideOp(Operation *scope, Value value) {
   if (!scope || !value) {
@@ -120,7 +74,7 @@ static bool isValueDefinedInsideOp(Operation *scope, Value value) {
 template <typename LoadStoreLikeOp>
 static bool shouldHandleForFallback(LoadStoreLikeOp op) {
   Type ptrType = op.getPtr().getType();
-  if (!isTensorOfPointers(ptrType) && !isScalarPointer(ptrType)) {
+  if (!isTensorOfTritonPointers(ptrType) && !isScalarTritonPointer(ptrType)) {
     return false;
   }
 
@@ -662,7 +616,7 @@ public:
         if (!triton::isPtrTypeLike(arg.getType())) {
           continue;
         }
-        if (isTensorOfPointers(arg.getType())) {
+        if (isTensorOfTritonPointers(arg.getType())) {
           // Unstructured lowering requires a single scalar base pointer.
           // Leave tensor-of-ptr args to the fallback pass.
           continue;
@@ -683,7 +637,7 @@ public:
     getOperation().walk([&](triton::IntToPtrOp op) {
       // We only want to handle single source pointer,
       // skip if this op produces tensor of pointers
-      if (isTensorOfPointers(op.getType())) {
+      if (isTensorOfTritonPointers(op.getType())) {
         return;
       }
 
@@ -767,14 +721,14 @@ public:
                   auto off = addptr.getOffset();
 
                   auto lhsWidth = offsetInfo.bitWidth;
-                  auto rhsWidth = getBitWidth(off.getType());
+                  auto rhsWidth = getIntegerLikeBitWidth(off.getType());
                   auto resWidth = std::max(lhsWidth, rhsWidth);
 
                   if (lhsWidth < resWidth) {
                     prevOff =
                         arith::ExtSIOp::create(
                             b, loc,
-                            getPtrOffsetType(offsetInfo.ptrType, resWidth),
+                            getPointerOffsetType(offsetInfo.ptrType, resWidth),
                             prevOff)
                             .getResult();
                   }
@@ -783,13 +737,15 @@ public:
                     off =
                         arith::ExtSIOp::create(
                             b, loc,
-                            getPtrOffsetType(offsetInfo.ptrType, resWidth), off)
+                            getPointerOffsetType(offsetInfo.ptrType, resWidth),
+                            off)
                             .getResult();
                   }
 
                   auto accumulatedOff =
                       arith::AddIOp::create(
-                          b, loc, getPtrOffsetType(addptr.getType(), resWidth),
+                          b, loc,
+                          getPointerOffsetType(addptr.getType(), resWidth),
                           prevOff, off)
                           .getResult();
 
@@ -821,7 +777,7 @@ public:
                   auto clone =
                       b.create(op->getLoc(), op->getName().getIdentifier(),
                                ValueRange{offsetInfo.offset},
-                               TypeRange{getPtrOffsetType(
+                               TypeRange{getPointerOffsetType(
                                    resType, offsetInfo.bitWidth)});
 
                   PtrOffset newOffsetInfo{offsetInfo.ptr, resType,
@@ -902,7 +858,7 @@ public:
                   auto loc = select.getLoc();
                   auto resWidth =
                       std::max(trueInfo.bitWidth, falseInfo.bitWidth);
-                  auto resOffsetType = getPtrOffsetType(resType, resWidth);
+                  auto resOffsetType = getPointerOffsetType(resType, resWidth);
 
                   Value trueOffset = trueInfo.offset;
                   if (trueInfo.bitWidth < resWidth) {
@@ -950,8 +906,8 @@ public:
                     return success();
                   }
 
-                  auto offsetType =
-                      getPtrOffsetType(offsetInfo.ptrType, offsetInfo.bitWidth);
+                  auto offsetType = getPointerOffsetType(offsetInfo.ptrType,
+                                                         offsetInfo.bitWidth);
 
                   // We're setting both the types of the iter-arg and the
                   // corresponding result directly to the offset type.
@@ -1070,7 +1026,8 @@ public:
 
                   auto resWidth =
                       std::max(thenInfo.bitWidth, elseInfo.bitWidth);
-                  auto resOffsetType = getPtrOffsetType(ifResultType, resWidth);
+                  auto resOffsetType =
+                      getPointerOffsetType(ifResultType, resWidth);
 
                   Value thenOffset = thenInfo.offset;
                   if (thenInfo.bitWidth < resWidth) {

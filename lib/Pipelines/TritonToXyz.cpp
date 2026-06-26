@@ -8,7 +8,10 @@
 void mlir::triton::buildTritonToXyzPipeline(
     OpPassManager &pm, const TritonToXyzPipelineOptions &options) {
   pm.addPass(createTritonToTTAStructured());
-  pm.addPass(createTritonToTTAUnstructured());
+  TritonToTTAUnstructuredOptions tritonToTTAUnstructuredOptions;
+  tritonToTTAUnstructuredOptions.offsetBitWidth =
+      options.unstructuredOffsetBitWidth;
+  pm.addPass(createTritonToTTAUnstructured(tritonToTTAUnstructuredOptions));
   pm.addPass(createTritonUnstructuredFallback());
   pm.addPass(createVerifyTTABridgeEliminated());
   pm.addPass(createTTANormalize());
